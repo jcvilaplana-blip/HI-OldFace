@@ -9,6 +9,7 @@
  * disponible y añadimos nuestro listener de chat (peerMessageReceived).
  */
 import { create } from 'zustand';
+import { playMessageSound } from '../utils/sounds.js';
 
 const APP_ID        = parseInt(import.meta.env.VITE_ZEGOCLOUD_APP_ID);
 const SERVER_SECRET = import.meta.env.VITE_ZEGOCLOUD_SERVER_SECRET;
@@ -123,6 +124,7 @@ export const useZegoStore = create((set, get) => ({
             import('./chatStore').then(({ useChatStore }) => {
               const { addMessage } = useChatStore.getState();
               const msgChatId = `chat_${[user.id, fromConversationID].sort().join('_')}`;
+              let hasNew = false;
               messageList.forEach(msg => {
                 if (msg.type === 1) {
                   addMessage(msgChatId, {
@@ -133,8 +135,10 @@ export const useZegoStore = create((set, get) => ({
                     status: 'received',
                     isMine: false,
                   });
+                  hasNew = true;
                 }
               });
+              if (hasNew) playMessageSound();
             });
           });
           set({ zimEngine: zimInst, zimConnected: true });

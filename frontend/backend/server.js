@@ -44,17 +44,20 @@ const _users    = loadJSON('users.json',    {});
 const _chats    = loadJSON('chats.json',    {});
 const _messages = loadJSON('messages.json', {});
 const _directos = loadJSON('directos.json', {});
+const _fcm      = loadJSON('fcm_tokens.json', {});
 
 // Convertir a Map (operaciones en memoria, persistimos después de cada escritura)
 const userStore    = new Map(Object.entries(_users));
 const chatStore2   = new Map(Object.entries(_chats));
 const messageStore = new Map(Object.entries(_messages));
 const directoStore = new Map(Object.entries(_directos));
+const fcmStore     = new Map(Object.entries(_fcm)); // userId → fcmToken
 
 const saveUsers    = () => saveJSON('users.json',    Object.fromEntries(userStore));
 const saveChats    = () => saveJSON('chats.json',    Object.fromEntries(chatStore2));
 const saveMessages = () => saveJSON('messages.json', Object.fromEntries(messageStore));
 const saveDirectos = () => saveJSON('directos.json', Object.fromEntries(directoStore));
+const saveFcm      = () => saveJSON('fcm_tokens.json', Object.fromEntries(fcmStore));
 
 console.log(`[DB] Usuarios: ${userStore.size} | Chats: ${chatStore2.size} | Directos: ${directoStore.size}`);
 
@@ -139,6 +142,59 @@ function generateToken04(appId, userId, serverSecret, effectiveSeconds = 86400) 
   cipherText.copy(buf, 28);
 
   return '04' + buf.toString('base64');
+}
+
+// ════════════════════════════════════════════════════════════════
+//  FCM Push Notifications (Firebase Cloud Messaging)
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Envía una push notification FCM usando la API HTTP Legacy.
+ * Requiere FCM_SERVER_KEY en el .env del backend.
+ * Para obtenerlo: Firebase Console → Project Settings → Cloud Messaging → Server key
+ */
+async function sendFCMPush(fcmToken, title, body, data = {}) {
+  const serverKey = process.env.FCM_SERVER_KEY;
+  if (!serverKey || !fcmToken) return;
+
+  const payload = JSON.stringify({
+    to:       fcmToken,
+    priority: 'high',
+    notification: {
+      title,
+      body,
+      sound:              'default',
+      android_channel_id: 'oldface_messages',
+    },
+    data: { ...data },
+  });
+
+  return new Promise((resolve) => {
+    const https = require('https');
+    const req = https.request(
+      {
+        hostname: 'fcm.googleapis.com',
+        path:     '/fcm/send',
+        method:   'POST',
+        headers: {
+          Authorization:   `key=${serverKey}`,
+          'Content-Type':  'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let body = '';
+        res.on('data', d => { body += d; });
+        res.on('end', () => {
+          if (res.statusCode !== 200) console.warn('[FCM]', res.statusCode, body.slice(0, 200));
+          resolve();
+        });
+      }
+    );
+    req.on('error', (e) => { console.warn('[FCM] error:', e.message); resolve(); });
+    req.write(payload);
+    req.end();
+  });
 }
 
 // ── Helper ────────────────────────────────────────────────────────
@@ -370,6 +426,19 @@ router.post('/generate-room-token', (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════
+//  FCM Token Registration
+// ════════════════════════════════════════════════════════════════
+
+/** POST /register-fcm-token — Guarda el token FCM del dispositivo para un usuario */
+router.post('/register-fcm-token', (req, res) => {
+  const { userId, token } = req.body || {};
+  if (!userId || !token) return res.status(400).json({ error: 'userId y token son requeridos' });
+  fcmStore.set(userId, token);
+  saveFcm();
+  return res.json({ success: true });
+});
+
+// ════════════════════════════════════════════════════════════════
 //  CHATS + MENSAJES
 // ════════════════════════════════════════════════════════════════
 
@@ -406,7 +475,7 @@ router.get('/messages/:chatId', (req, res) => {
 });
 
 /** POST /messages */
-router.post('/messages', (req, res) => {
+router.post('/messages', async (req, res) => {
   const { chatId, senderId, text, type = 'text', url } = req.body || {};
   if (!chatId || !senderId || !text) return res.status(400).json({ error: 'chatId, senderId y text son requeridos' });
 
@@ -424,10 +493,35 @@ router.post('/messages', (req, res) => {
 
   if (chatStore2.has(chatId)) {
     const c = chatStore2.get(chatId);
-    c.lastMessage = text; c.lastTime = Date.now();
+    c.lastMessage = type === 'audio' ? '🎤 Nota de voz' : type === 'location' ? '📍 Ubicación' : text;
+    c.lastTime = Date.now();
     chatStore2.set(chatId, c);
     saveChats();
   }
+
+  // ── Enviar push FCM al destinatario ─────────────────────────────────────
+  // chatId tiene formato: chat_userA_userB — extraer el ID que no es el remitente
+  try {
+    const withoutPrefix = chatId.replace(/^chat_/, '');
+    const parts = withoutPrefix.split(/_(?=user_)/);
+    const recipientId = parts.find(p => p !== senderId);
+    if (recipientId) {
+      const fcmToken = fcmStore.get(recipientId);
+      if (fcmToken) {
+        // Buscar el nombre del remitente
+        let senderName = 'OldFace';
+        for (const u of userStore.values()) {
+          if (u.userId === senderId) { senderName = u.name; break; }
+        }
+        const notifBody = type === 'audio' ? '🎤 Te ha enviado una nota de voz'
+                        : type === 'location' ? '📍 Te ha enviado su ubicación'
+                        : text.length > 80 ? text.slice(0, 80) + '…' : text;
+        // No await — responder al cliente sin esperar el push
+        sendFCMPush(fcmToken, senderName, notifBody, { chatId, senderId }).catch(() => {});
+      }
+    }
+  } catch { /* no bloquear la respuesta si falla el push */ }
+
   return res.json(msg);
 });
 

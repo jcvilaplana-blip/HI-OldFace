@@ -2,6 +2,7 @@
  * Store de chats y mensajes
  */
 import { create } from 'zustand';
+import { playMessageSound } from '../utils/sounds.js';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -108,6 +109,15 @@ export const useChatStore = create((set, get) => ({
           status: 'received',
           isMine: m.senderId === userId,
         }));
+
+        // Detectar mensajes nuevos de otros (polling) — reproducir sonido
+        const prev = get().messages[chatId] || [];
+        if (prev.length > 0 && mapped.length > prev.length) {
+          const newMsgs = mapped.slice(prev.length);
+          const hasNewFromOther = newMsgs.some(m => m.sender !== userId);
+          if (hasNewFromOther) playMessageSound();
+        }
+
         set((state) => ({ messages: { ...state.messages, [chatId]: mapped } }));
       }
     } catch (err) {

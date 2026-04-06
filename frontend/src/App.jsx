@@ -357,19 +357,48 @@ export default function AppRoot() {
 
           try {
             const { PushNotifications } = await import('@capacitor/push-notifications');
-            PushNotifications.addListener('registration', (token) => {
-              console.log('[Push] FCM token:', token.value);
+            const BACKEND_PUSH = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+
+            // Guardar token FCM en backend para poder enviar push a este dispositivo
+            PushNotifications.addListener('registration', async (tokenData) => {
+              const fcmToken = tokenData.value;
+              console.log('[Push] FCM token:', fcmToken);
+              try {
+                const { useAuthStore } = await import('./store/authStore');
+                const userId = useAuthStore.getState().user?.id;
+                if (userId && fcmToken) {
+                  await fetch(`${BACKEND_PUSH}/register-fcm-token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, token: fcmToken }),
+                  });
+                }
+              } catch { /* silent */ }
             });
+
             PushNotifications.addListener('registrationError', (err) => {
-              console.error('[Push] error:', err.error);
+              console.error('[Push] registration error:', err.error);
             });
+
+            // Notificación recibida con app en primer plano — reproducir sonido
             PushNotifications.addListener('pushNotificationReceived', (n) => {
-              console.log('[Push] primer plano:', n);
+              console.log('[Push] primer plano:', n.title);
+              // El sonido lo gestiona el sistema; en foreground solo mostramos la notificación
             });
-            PushNotifications.addListener('pushNotificationActionPerformed', (a) => {
-              console.log('[Push] acción:', a.notification);
+
+            // Usuario pulsa la notificación → navegar al chat correspondiente
+            PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+              const data = action.notification?.data || {};
+              if (data.chatId) {
+                window.location.hash = '';
+                // Navegar al chat usando la URL directamente (funciona fuera del router)
+                window.location.href = `/#/chat/${data.chatId}`;
+              }
             });
-          } catch { /* silent */ }
+
+            // Registrar para recibir push (por si el permiso ya estaba concedido)
+            try { await PushNotifications.register(); } catch { /* ya registrado */ }
+          } catch { /* silent — PushNotifications no disponible */ }
         }
       } catch { /* silent */ }
     })();
@@ -416,6 +445,16 @@ function AppShell() {
     }
     setContainerRef(callContainerRef);
     initZego(user);
+
+    // Re-enviar token FCM al backend si el usuario acaba de autenticarse
+    (async () => {
+      try {
+        const { Capacitor } = await import('@capacitor/core');
+        if (!Capacitor.isNativePlatform()) return;
+        const { PushNotifications } = await import('@capacitor/push-notifications');
+        await PushNotifications.register();
+      } catch { /* silent */ }
+    })();
   }, [isAuthenticated, user?.id]);
 
   // ── Ringtone cuando hay llamada entrante ──────────────────────────────────
