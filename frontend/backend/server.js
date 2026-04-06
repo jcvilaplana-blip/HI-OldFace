@@ -145,56 +145,73 @@ function generateToken04(appId, userId, serverSecret, effectiveSeconds = 86400) 
 }
 
 // ════════════════════════════════════════════════════════════════
-//  FCM Push Notifications (Firebase Cloud Messaging)
+//  FCM Push Notifications — Firebase Admin SDK (API v1)
 // ════════════════════════════════════════════════════════════════
 
+let _firebaseAdmin = null;
+
+function getFirebaseAdmin() {
+  if (_firebaseAdmin) return _firebaseAdmin;
+  try {
+    const admin = require('firebase-admin');
+    if (admin.apps.length) { _firebaseAdmin = admin; return admin; }
+
+    // Cargar service account desde archivo (recomendado) o desde variable de entorno
+    const saPath = path.join(__dirname, 'firebase-service-account.json');
+    if (fs.existsSync(saPath)) {
+      const serviceAccount = JSON.parse(fs.readFileSync(saPath, 'utf8'));
+      admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+      _firebaseAdmin = admin;
+      console.log('[FCM] Firebase Admin inicializado con service account');
+    } else {
+      console.warn('[FCM] firebase-service-account.json no encontrado — push desactivado');
+    }
+  } catch (e) {
+    console.warn('[FCM] Error inicializando Firebase Admin:', e.message);
+  }
+  return _firebaseAdmin;
+}
+
 /**
- * Envía una push notification FCM usando la API HTTP Legacy.
- * Requiere FCM_SERVER_KEY en el .env del backend.
- * Para obtenerlo: Firebase Console → Project Settings → Cloud Messaging → Server key
+ * Envía push notification usando FCM API v1 (Firebase Admin SDK).
+ * Requiere firebase-service-account.json en el directorio backend/.
+ * Para obtenerlo: Firebase Console → Configuración → Cuentas de servicio
+ *                 → Generar nueva clave privada → guardar como firebase-service-account.json
  */
 async function sendFCMPush(fcmToken, title, body, data = {}) {
-  const serverKey = process.env.FCM_SERVER_KEY;
-  if (!serverKey || !fcmToken) return;
+  if (!fcmToken) return;
+  const admin = getFirebaseAdmin();
+  if (!admin) return;
 
-  const payload = JSON.stringify({
-    to:       fcmToken,
-    priority: 'high',
-    notification: {
-      title,
-      body,
-      sound:              'default',
-      android_channel_id: 'oldface_messages',
-    },
-    data: { ...data },
-  });
+  try {
+    // Convertir todos los valores de data a string (requerido por FCM)
+    const dataStr = {};
+    for (const [k, v] of Object.entries(data)) dataStr[k] = String(v);
 
-  return new Promise((resolve) => {
-    const https = require('https');
-    const req = https.request(
-      {
-        hostname: 'fcm.googleapis.com',
-        path:     '/fcm/send',
-        method:   'POST',
-        headers: {
-          Authorization:   `key=${serverKey}`,
-          'Content-Type':  'application/json',
-          'Content-Length': Buffer.byteLength(payload),
+    await admin.messaging().send({
+      token: fcmToken,
+      notification: { title, body },
+      android: {
+        priority: 'high',
+        notification: {
+          sound:     'default',
+          channelId: 'oldface_messages',
+          priority:  'max',
         },
       },
-      (res) => {
-        let body = '';
-        res.on('data', d => { body += d; });
-        res.on('end', () => {
-          if (res.statusCode !== 200) console.warn('[FCM]', res.statusCode, body.slice(0, 200));
-          resolve();
-        });
+      data: dataStr,
+    });
+  } catch (e) {
+    // Token expirado/inválido → eliminarlo
+    if (e.code === 'messaging/registration-token-not-registered' ||
+        e.code === 'messaging/invalid-registration-token') {
+      for (const [uid, tok] of fcmStore.entries()) {
+        if (tok === fcmToken) { fcmStore.delete(uid); saveFcm(); break; }
       }
-    );
-    req.on('error', (e) => { console.warn('[FCM] error:', e.message); resolve(); });
-    req.write(payload);
-    req.end();
-  });
+    } else {
+      console.warn('[FCM] sendFCMPush error:', e.message);
+    }
+  }
 }
 
 // ── Helper ────────────────────────────────────────────────────────
