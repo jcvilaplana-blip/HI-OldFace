@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Build outputs
+frontend/dist/
+frontend/android/
+frontend/ios/
+
+# Environment files — NUNCA subir a Git
+backend/.env
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+frontend/backend/.env
+
+# Logs
+*.log
+/var/log/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Scripts de deploy con credenciales del VPS (no subir a Git)
+deploy_frontend.py
+deploy_backend.py
+deploy_plesk_backend.py
+vps_verify.py
+vps_check.py
+fix_env.py
+restore-env.sh
+check-env.sh
+fix-env.sh
+install-vps.sh
+
+# Datos de usuarios (privados)
+frontend/backend/data/
+
+# Skills y herramientas internas de Claude
+frontend/.claude/
+frontend/ui-ux-pro-max-skill/

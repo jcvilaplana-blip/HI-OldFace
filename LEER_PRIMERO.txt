@@ -1,0 +1,86 @@
+╔══════════════════════════════════════════════════════════════╗
+║           OldFace — INSTRUCCIONES DE INSTALACIÓN             ║
+║                    LEER ANTES DE NADA                        ║
+╚══════════════════════════════════════════════════════════════╝
+
+ESTRUCTURA CORRECTA DE ESTE ZIP:
+─────────────────────────────────
+oldface-app/
+  ├── frontend/      ← Aquí se compila la web
+  ├── backend/       ← Servidor de tokens ZEGOCLOUD
+  └── LEER_PRIMERO.txt  ← Este archivo
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PASO 1 — COMPILAR EN WINDOWS (PowerShell)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Abre PowerShell y navega a la carpeta frontend:
+(ajusta la ruta a donde hayas descomprimido el ZIP)
+
+  cd "RUTA_DONDE_DESCOMPRIMISTE\oldface-app\frontend"
+
+Verifica que estás en el lugar correcto:
+  dir package.json
+  (debe mostrar el archivo)
+
+Luego ejecuta en orden:
+  npm install
+  npm install @zegocloud/zego-uikit-prebuilt zego-express-engine-webrtc
+  npm run build
+
+Al terminar aparecerá la carpeta "dist\" dentro de frontend\
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PASO 2 — SUBIR AL SERVIDOR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Sube estos dos elementos al servidor via Plesk File Manager:
+  - frontend/dist/   → a /oldface.fullstark.es/frontend/dist/
+  - backend/         → a /oldface.fullstark.es/backend/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PASO 3 — CONFIGURAR PLESK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+En Node.js settings de Plesk:
+  - Application Startup File: backend/server.js
+  - Document Root:            frontend/dist
+
+En Custom environment variables añadir:
+  ZEGOCLOUD_APP_ID           = 377576855
+  ZEGOCLOUD_SERVER_SECRET    = 86c4874a72ff45007da20a0b913ac0b2
+  NODE_ENV                   = production
+  PORT                       = 3001
+  FRONTEND_URL               = https://oldface.fullstark.es
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PASO 4 — NGINX (Apache & Nginx Settings en Plesk)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+En "Additional nginx directives" pegar:
+
+  location / {
+      try_files $uri $uri/ /index.html;
+  }
+  location /api/ {
+      proxy_pass http://127.0.0.1:3001/;
+      proxy_http_version 1.1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-Proto $scheme;
+  }
+  location ~* \.(js|css|png|jpg|svg|woff2?)$ {
+      expires 1y;
+      add_header Cache-Control "public, immutable";
+  }
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICAR QUE FUNCIONA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Abre en el navegador:
+  https://oldface.fullstark.es/api/health
+  → debe responder: {"status":"ok","service":"OldFace API"}
+
+  https://oldface.fullstark.es
+  → debe cargar la app OldFace

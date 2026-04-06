@@ -1,0 +1,46 @@
+{
+  "name": "oldface-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "cap:sync": "npx cap sync",
+    "cap:android": "npx cap open android",
+    "cap:ios": "npx cap open ios",
+    "cap:build": "npm run build && npx cap sync"
+  },
+  "dependencies": {
+    "@capacitor-community/contacts": "^7.1.0",
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/browser": "^7.0.5",
+    "@capacitor/camera": "^8.0.2",
+    "@capacitor/core": "^7.6.1",
+    "@capacitor/geolocation": "^7.1.8",
+    "@capacitor/push-notifications": "^7.0.6",
+    "@capgo/capacitor-autofill-save-password": "^8.0.20",
+    "@zegocloud/zego-uikit-prebuilt": "^1.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.21.0",
+    "zego-express-engine-webrtc": "^3.3.0",
+    "zego-zim-web": "^2.0.0",
+    "zustand": "^4.4.7"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.6.1",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.6.1",
+    "@capacitor/ios": "^7.6.1",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.0.8"
+  }
+}

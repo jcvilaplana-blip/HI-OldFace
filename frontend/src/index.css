@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+
+  html, body, #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: 'Nunito', system-ui, sans-serif;
+    overscroll-behavior: none;
+  }
+}
+
+@layer components {
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-left {
+    padding-left: env(safe-area-inset-left);
+  }
+  .safe-right {
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* Safe area padding helpers */
+  .pb-safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Scrollbar custom */
+  .scroll-hide::-webkit-scrollbar { display: none; }
+  .scroll-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* Glass effect */
+  .glass {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  /* Avatar ring */
+  .avatar-ring {
+    box-shadow: 0 0 0 3px #000080, 0 0 0 5px rgba(37, 99, 235, 0.2);
+  }
+
+  /* Message bubble */
+  .bubble-sent {
+    background: #dbeafe;
+    border-radius: 18px 18px 4px 18px;
+  }
+
+  .bubble-received {
+    background: white;
+    border-radius: 18px 18px 18px 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+
+  /* Call button pulse */
+  .call-pulse::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: pulseRing 1.5s ease-out infinite;
+    opacity: 0.3;
+  }
+}
+
+/* ZEGOCLOUD UI override */
+#zego-container {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+/* ═══════════════════════════════════════════════════════
+   MODO OSCURO — Dark Mode (por defecto)
+   Primario: #021132 (azul marino profundo, degradado)
+═══════════════════════════════════════════════════════ */
+
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background: linear-gradient(160deg, #021d4a 0%, #021132 100%) !important;
+  color: #dce8ff;
+}
+
+/* ── Fondos ─────────────────────────────────────────── */
+html.dark .bg-white          { background-color: #041e50 !important; }
+html.dark .bg-gray-50        { background-color: #031640 !important; }
+html.dark .bg-gray-100       { background-color: #031640 !important; }
+html.dark .bg-gray-200       { background-color: #0a2559 !important; }
+html.dark .bg-gray-900       { background-color: #010c22 !important; }
+/* Chat background (ECE5DD) → azul noche */
+html.dark .bg-\[\#ECE5DD\]  { background-color: #021844 !important; }
+/* Gradiente de conexión en llamadas */
+html.dark .from-gray-900     { --tw-gradient-from: #010c22 !important; }
+
+/* ── Textos ─────────────────────────────────────────── */
+html.dark .text-gray-800  { color: #dce8ff !important; }
+html.dark .text-gray-700  { color: #b8d0f4 !important; }
+html.dark .text-gray-600  { color: #8fb3dd !important; }
+html.dark .text-gray-500  { color: #5c88bb !important; }
+html.dark .text-gray-400  { color: #3d6898 !important; }
+html.dark .text-gray-300  { color: #2a4f7a !important; }
+
+/* ── Bordes ─────────────────────────────────────────── */
+html.dark .border-gray-50  { border-color: rgba(255,255,255,0.05) !important; }
+html.dark .border-gray-100 { border-color: rgba(255,255,255,0.07) !important; }
+html.dark .border-gray-200 { border-color: rgba(255,255,255,0.10) !important; }
+
+/* ── Inputs ─────────────────────────────────────────── */
+html.dark input,
+html.dark textarea {
+  color: #dce8ff !important;
+  caret-color: #000080;
+}
+html.dark input::placeholder,
+html.dark textarea::placeholder { color: #3d6898 !important; }
+
+/* ── Sombras ─────────────────────────────────────────── */
+html.dark .shadow-sm  { box-shadow: 0 2px 10px rgba(0,0,0,0.45) !important; }
+html.dark .shadow-md  { box-shadow: 0 4px 18px rgba(0,0,0,0.55) !important; }
+html.dark .shadow-lg  { box-shadow: 0 8px 28px rgba(0,0,0,0.6)  !important; }
+html.dark .shadow-xl  { box-shadow: 0 12px 36px rgba(0,0,0,0.65) !important; }
+
+/* ── Globos de chat ─────────────────────────────────── */
+html.dark .bubble-sent {
+  background: linear-gradient(135deg, #000066, #000080) !important;
+}
+html.dark .bubble-sent p   { color: #dbeafe !important; }
+html.dark .bubble-received { background: #0c1e3c !important; box-shadow: 0 1px 4px rgba(0,0,0,0.35) !important; }
+html.dark .bubble-received p { color: #dce8ff !important; }
+
+/* ── Active/hover states ────────────────────────────── */
+html.dark .active\:bg-gray-100:active { background-color: rgba(255,255,255,0.07) !important; }
+html.dark .active\:bg-gray-50:active  { background-color: rgba(255,255,255,0.04) !important; }
+html.dark .hover\:bg-gray-50:hover    { background-color: rgba(255,255,255,0.04) !important; }
+
+/* ── Glass ───────────────────────────────────────────── */
+html.dark .glass {
+  background: rgba(4, 30, 80, 0.88) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* ── Divisores y overlays ───────────────────────────── */
+html.dark .divide-gray-100 > * + * { border-color: rgba(255,255,255,0.06) !important; }
+html.dark hr { border-color: rgba(255,255,255,0.06) !important; }

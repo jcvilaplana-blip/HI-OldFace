@@ -1,0 +1,91 @@
+/**
+ * BottomNav — Navegación inferior con soporte dark mode
+ */
+import React from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useThemeStore } from '../store/themeStore';
+
+const BRAND    = '#000080';
+const INACTIVE_DARK  = '#3a5578';
+const INACTIVE_LIGHT = '#9ca3af';
+
+const NAV_ITEMS = [
+  {
+    path: '/',
+    label: 'Chats',
+    svgPath: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z',
+  },
+  {
+    path: '/contacts',
+    label: 'Contactos',
+    svgPath: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z',
+  },
+  {
+    path: '/settings',
+    label: 'Ajustes',
+  },
+];
+
+export default function BottomNav() {
+  const navigate    = useNavigate();
+  const { pathname } = useLocation();
+  const { isDark }  = useThemeStore();
+
+  const bg       = isDark ? '#0c1526' : 'white';
+  const border   = isDark ? 'rgba(255,255,255,0.06)' : '#e5e7eb';
+  const inactive = isDark ? INACTIVE_DARK : INACTIVE_LIGHT;
+
+  return (
+    <div
+      style={{
+        background: bg,
+        borderTop: `1px solid ${border}`,
+        display: 'flex',
+        flexShrink: 0,
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}
+    >
+      {NAV_ITEMS.map(item => {
+        const active = pathname === item.path;
+        const color  = active ? BRAND : inactive;
+
+        return (
+          <button
+            key={item.path}
+            onClick={() => navigate(item.path)}
+            style={{
+              flex: 1,
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+              gap: 3, padding: '10px 4px',
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              WebkitTapHighlightColor: 'transparent',
+            }}
+          >
+            <svg
+              width="22" height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke={color}
+              strokeWidth={active ? 2.5 : 2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              {item.path === '/settings' ? (
+                <>
+                  <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </>
+              ) : (
+                <path d={item.svgPath} />
+              )}
+            </svg>
+            <span style={{ fontSize: 10, fontWeight: active ? 800 : 600, color, lineHeight: 1 }}>
+              {item.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}

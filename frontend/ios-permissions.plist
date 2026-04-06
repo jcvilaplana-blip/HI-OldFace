@@ -1,0 +1,31 @@
+<!--
+  Permisos para iOS - Info.plist
+  Añadir dentro de <dict> en ios/App/App/Info.plist
+-->
+
+<!-- Cámara -->
+<key>NSCameraUsageDescription</key>
+<string>OldFace necesita acceso a la cámara para las videollamadas</string>
+
+<!-- Micrófono -->
+<key>NSMicrophoneUsageDescription</key>
+<string>OldFace necesita acceso al micrófono para las llamadas de voz y videollamadas</string>
+
+<!-- Contactos -->
+<key>NSContactsUsageDescription</key>
+<string>OldFace necesita acceso a tus contactos para que puedas comunicarte con ellos</string>
+
+<!-- Localización -->
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>OldFace puede compartir tu ubicación en los chats</string>
+
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+<string>OldFace puede compartir tu ubicación en los chats</string>
+
+<!-- Notificaciones Push -->
+<key>UIBackgroundModes</key>
+<array>
+    <string>remote-notification</string>
+    <string>voip</string>
+    <string>audio</string>
+</array>
