@@ -708,13 +708,27 @@ export default function ChatPage() {
         )}
       </div>
 
-      {/* Visor de foto expandida */}
+      {/* Visor fullscreen: imagen o video */}
       {expandedPhoto && (
         <div
-          style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setExpandedPhoto(null)}
         >
-          <img src={expandedPhoto} style={{ maxWidth: '92vw', maxHeight: '92vh', borderRadius: 16, objectFit: 'contain' }} />
+          {expandedPhoto?.type === 'video' ? (
+            <video
+              src={expandedPhoto.src}
+              controls
+              autoPlay
+              playsInline
+              onClick={e => e.stopPropagation()}
+              style={{ maxWidth: '96vw', maxHeight: '96vh', borderRadius: 12, outline: 'none' }}
+            />
+          ) : (
+            <img
+              src={typeof expandedPhoto === 'string' ? expandedPhoto : expandedPhoto.src}
+              style={{ maxWidth: '92vw', maxHeight: '92vh', borderRadius: 16, objectFit: 'contain' }}
+            />
+          )}
           <button
             onClick={() => setExpandedPhoto(null)}
             style={{ position: 'absolute', top: 20, right: 20, width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -729,7 +743,7 @@ export default function ChatPage() {
 }
 
 // ── Reproductor de audio ────────────────────────────────────────────────────
-function AudioPlayer({ src, isMine }) {
+function AudioPlayer({ src, isMine, isDark }) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -747,13 +761,16 @@ function AudioPlayer({ src, isMine }) {
     else { audio.play().then(() => setPlaying(true)).catch(() => {}); }
   };
 
-  // Colores con buen contraste en burbujas enviadas (dark blue bg)
-  const playBg    = isMine ? 'rgba(255,255,255,0.22)' : '#000080';
-  const iconColor = 'white';
-  const trackBg   = isMine ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,128,0.18)';
-  const trackFill = isMine ? 'rgba(255,255,255,0.9)' : '#000080';
-  const timeColor = isMine ? 'rgba(255,255,255,0.85)' : '#6b7280';
-  const micColor  = isMine ? 'rgba(255,255,255,0.7)' : '#9ca3af';
+  // Dark mode + enviado  → fondo azul oscuro → iconos blancos
+  // Light mode + enviado → fondo azul claro (#dbeafe) → iconos azul oscuro
+  // Recibido (ambos modos) → iconos azul oscuro
+  const sentDark = isMine && isDark;
+  const playBg    = sentDark ? 'rgba(255,255,255,0.22)' : '#000080';
+  const iconColor = sentDark ? 'white' : 'white';
+  const trackBg   = sentDark ? 'rgba(255,255,255,0.3)' : (isMine ? 'rgba(0,0,128,0.2)' : 'rgba(0,0,128,0.15)');
+  const trackFill = sentDark ? 'rgba(255,255,255,0.9)' : '#000080';
+  const timeColor = sentDark ? 'rgba(255,255,255,0.85)' : '#000066';
+  const micColor  = sentDark ? 'rgba(255,255,255,0.7)' : '#000080';
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 180, maxWidth: 240 }}>
@@ -909,9 +926,28 @@ function MessageBubble({ msg, isDark, T, onReply, isGroup, memberNames = {}, onE
             style={{ display: 'block', maxWidth: '100%', borderRadius: 12, maxHeight: 240, objectFit: 'cover', cursor: 'pointer' }}
           />
         ) : isVideo ? (
-          <video src={msg.url} controls playsInline
-            style={{ display: 'block', maxWidth: '100%', borderRadius: 12, maxHeight: 240, background: '#000' }}
-          />
+          /* Preview sin controles — click abre fullscreen */
+          <div
+            style={{ position: 'relative', display: 'inline-block', cursor: 'pointer', borderRadius: 12, overflow: 'hidden', maxWidth: '100%' }}
+            onClick={() => onExpandPhoto?.({ type: 'video', src: msg.url })}
+          >
+            <video
+              src={msg.url}
+              playsInline
+              preload="metadata"
+              muted
+              style={{ display: 'block', maxWidth: '100%', maxHeight: 240, background: '#000', borderRadius: 12 }}
+            />
+            {/* Overlay play */}
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(0,0,0,0.28)', borderRadius: 12,
+            }}>
+              <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(255,255,255,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="18" height="18" fill="#000080" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+              </div>
+            </div>
+          </div>
         ) : isDocument ? (
           <a href={msg.url} download={msg.fileName || 'archivo'}
             style={{ display: 'flex', alignItems: 'center', gap: 8, color: msg.isMine ? '#dbeafe' : '#000080', textDecoration: 'none' }}>
@@ -928,7 +964,7 @@ function MessageBubble({ msg, isDark, T, onReply, isGroup, memberNames = {}, onE
             <span style={{ fontSize: 13, fontWeight: 600 }}>Ver ubicación</span>
           </a>
         ) : isAudio ? (
-          <AudioPlayer src={msg.url} isMine={msg.isMine} />
+          <AudioPlayer src={msg.url} isMine={msg.isMine} isDark={isDark} />
         ) : (
           <p style={{ fontSize: 14, color: msg.isMine ? sentText : recvText, fontWeight: 500, lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap', padding: (isImage || isVideo) ? '0 8px' : 0 }}>
             {msg.text}
