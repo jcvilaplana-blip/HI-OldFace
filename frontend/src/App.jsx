@@ -345,15 +345,12 @@ export default function AppRoot() {
         if (mounted) setPermsReady(localStorage.getItem(PERMS_KEY) === '1');
       }
 
-      // ── 2. Back button Android ────────────────────────────────────────────
+      // ── 2. Back button Android — se registra en AppShell con control de llamadas ──
       try {
         const { Capacitor } = await import('@capacitor/core');
         if (Capacitor.isNativePlatform()) {
-          const { App } = await import('@capacitor/app');
-          App.addListener('backButton', ({ canGoBack }) => {
-            if (!canGoBack) App.exitApp();
-            else window.history.back();
-          });
+          // El handler único vive en AppShell (tiene acceso a isCallActiveRef)
+          // Aquí solo iniciamos el registro de push notifications.
 
           try {
             const { PushNotifications } = await import('@capacitor/push-notifications');
@@ -428,10 +425,13 @@ export default function AppRoot() {
 function AppShell() {
   const { user, isAuthenticated, logout } = useAuthStore();
   const { init: initZego, setContainerRef, incomingCall, isCallActive,
-          outgoingCancel, acceptCall, rejectCall, cancelOutgoing, callError } = useZegoStore();
+          outgoingCancel, acceptCall, rejectCall, cancelOutgoing, callError,
+          currentCallInfo } = useZegoStore();
 
   // Div global donde UIKit renderiza el video de la llamada
   const callContainerRef = useRef(null);
+  // Ref que siempre tiene el valor actual de isCallActive para el handler de back button
+  const isCallActiveRef = useRef(false);
 
   // Inicializar ZIM + UIKit cuando el usuario se autentica (zegoStore gestiona ambos)
   useEffect(() => {
@@ -456,6 +456,31 @@ function AppShell() {
       } catch { /* silent */ }
     })();
   }, [isAuthenticated, user?.id]);
+
+  // Mantener el ref sincronizado con isCallActive
+  useEffect(() => {
+    isCallActiveRef.current = isCallActive;
+  }, [isCallActive]);
+
+  // ── Único handler de back button Android ─────────────────────────────────
+  // Se registra una sola vez. Consulta el ref para decidir si ignorar.
+  useEffect(() => {
+    let handle = null;
+    (async () => {
+      try {
+        const { Capacitor } = await import('@capacitor/core');
+        if (!Capacitor.isNativePlatform()) return;
+        const { App: CapApp } = await import('@capacitor/app');
+        handle = await CapApp.addListener('backButton', ({ canGoBack }) => {
+          // Si hay llamada activa, no retroceder (el usuario usa el botón de colgar de ZEGOCLOUD)
+          if (isCallActiveRef.current) return;
+          if (!canGoBack) CapApp.exitApp();
+          else window.history.back();
+        });
+      } catch { /* web: no aplica */ }
+    })();
+    return () => { handle?.remove?.(); };
+  }, []); // solo se registra una vez
 
   // ── Ringtone cuando hay llamada entrante ──────────────────────────────────
   const isRinging = !!incomingCall;
@@ -514,7 +539,7 @@ function AppShell() {
 
       {/* ── Pantalla de espera saliente (Llamando...) ────────────────────── */}
       {isCallActive && outgoingCancel && !incomingCall && (
-        <OutgoingCallOverlay onCancel={cancelOutgoing} />
+        <OutgoingCallOverlay onCancel={cancelOutgoing} callInfo={currentCallInfo} />
       )}
 
       {/* ── Modal llamada entrante ─────────────────────────────────────── */}
@@ -547,7 +572,11 @@ function AppShell() {
 }
 
 // ── Overlay: llamada saliente en espera ───────────────────────────────────────
-function OutgoingCallOverlay({ onCancel }) {
+function OutgoingCallOverlay({ onCancel, callInfo }) {
+  const name    = callInfo?.contactName || '?';
+  const isVideo = callInfo?.type === 'video';
+  const initial = name[0]?.toUpperCase() || '?';
+
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 201,
@@ -555,30 +584,37 @@ function OutgoingCallOverlay({ onCancel }) {
       display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
     }}>
-      <div style={{ position: 'relative', width: 120, height: 120, marginBottom: 28 }}>
+      {/* Avatar del destinatario con pulso animado */}
+      <div style={{ position: 'relative', width: 130, height: 130, marginBottom: 24 }}>
         {[0, 1].map(i => (
           <div key={i} style={{
             position: 'absolute',
-            inset: i === 0 ? -20 : -10, borderRadius: '50%',
+            inset: i === 0 ? -22 : -11, borderRadius: '50%',
             background: 'rgba(255,255,255,0.08)',
             animation: `vcPulse 2s ease-out infinite ${i * 0.4}s`,
           }} />
         ))}
         <div style={{
-          width: 120, height: 120, borderRadius: '50%',
-          background: 'rgba(255,255,255,0.15)',
-          border: '3px solid rgba(255,255,255,0.25)',
+          width: 130, height: 130, borderRadius: '50%',
+          background: 'rgba(255,255,255,0.18)',
+          border: '3px solid rgba(255,255,255,0.35)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8">
-            <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-          </svg>
+          <span style={{ color: 'white', fontSize: 64, fontWeight: 900, lineHeight: 1 }}>
+            {initial}
+          </span>
         </div>
       </div>
-      <p style={{ color: 'white', fontSize: 20, fontWeight: 700, margin: '0 0 8px' }}>Llamando...</p>
-      <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, margin: '0 0 48px',
+
+      <p style={{ color: 'white', fontSize: 26, fontWeight: 800, margin: '0 0 6px', letterSpacing: '-0.3px' }}>
+        {name}
+      </p>
+      <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, margin: '0 0 8px', fontWeight: 500 }}>
+        {isVideo ? 'Videollamada saliente' : 'Llamada de voz saliente'}
+      </p>
+      <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: '0 0 52px',
                   animation: 'vcFade 1.4s ease-in-out infinite' }}>
-        Esperando respuesta
+        Esperando respuesta...
       </p>
       <button onClick={onCancel} style={{
         width: 70, height: 70, borderRadius: '50%', background: '#ef4444',

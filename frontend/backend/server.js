@@ -45,21 +45,30 @@ const _chats    = loadJSON('chats.json',    {});
 const _messages = loadJSON('messages.json', {});
 const _directos = loadJSON('directos.json', {});
 const _fcm      = loadJSON('fcm_tokens.json', {});
+const _callLog  = loadJSON('call_log.json', {});
+const _stories  = loadJSON('stories.json', []);
+const _groups   = loadJSON('groups.json', {});
 
 // Convertir a Map (operaciones en memoria, persistimos después de cada escritura)
 const userStore    = new Map(Object.entries(_users));
 const chatStore2   = new Map(Object.entries(_chats));
 const messageStore = new Map(Object.entries(_messages));
 const directoStore = new Map(Object.entries(_directos));
-const fcmStore     = new Map(Object.entries(_fcm)); // userId → fcmToken
+const fcmStore     = new Map(Object.entries(_fcm));     // userId → fcmToken
+const callLogStore = new Map(Object.entries(_callLog)); // userId → [calls]
+let   storiesList  = Array.isArray(_stories) ? _stories : []; // array plano de stories
+const groupStore   = new Map(Object.entries(_groups));  // groupId → group
 
 const saveUsers    = () => saveJSON('users.json',    Object.fromEntries(userStore));
 const saveChats    = () => saveJSON('chats.json',    Object.fromEntries(chatStore2));
 const saveMessages = () => saveJSON('messages.json', Object.fromEntries(messageStore));
 const saveDirectos = () => saveJSON('directos.json', Object.fromEntries(directoStore));
 const saveFcm      = () => saveJSON('fcm_tokens.json', Object.fromEntries(fcmStore));
+const saveCallLog  = () => saveJSON('call_log.json',  Object.fromEntries(callLogStore));
+const saveStories  = () => saveJSON('stories.json',   storiesList);
+const saveGroups   = () => saveJSON('groups.json',    Object.fromEntries(groupStore));
 
-console.log(`[DB] Usuarios: ${userStore.size} | Chats: ${chatStore2.size} | Directos: ${directoStore.size}`);
+console.log(`[DB] Usuarios: ${userStore.size} | Chats: ${chatStore2.size} | Directos: ${directoStore.size} | CallLog: ${callLogStore.size}`);
 
 // ── CORS ──────────────────────────────────────────────────────────
 app.use(cors({
@@ -69,7 +78,7 @@ app.use(cors({
   credentials: true,
 }));
 app.options('*', cors());
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '20mb' }));
 
 // ── Rate limiting básico por IP ───────────────────────────────────
 const rateMap = new Map();
@@ -178,7 +187,7 @@ function getFirebaseAdmin() {
  * Para obtenerlo: Firebase Console → Configuración → Cuentas de servicio
  *                 → Generar nueva clave privada → guardar como firebase-service-account.json
  */
-async function sendFCMPush(fcmToken, title, body, data = {}) {
+async function sendFCMPush(fcmToken, title, body, data = {}, channelId = 'oldface_messages') {
   if (!fcmToken) return;
   const admin = getFirebaseAdmin();
   if (!admin) return;
@@ -194,8 +203,8 @@ async function sendFCMPush(fcmToken, title, body, data = {}) {
       android: {
         priority: 'high',
         notification: {
-          sound:     'default',
-          channelId: 'oldface_messages',
+          sound:     'message_sound',
+          channelId: channelId,
           priority:  'max',
         },
       },
@@ -404,6 +413,16 @@ router.get('/users', (_req, res) => {
   return res.json({ users: list, count: list.length });
 });
 
+/** GET /find-user-by-id?userId= — buscar usuario por userId */
+router.get('/find-user-by-id', (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ error: 'userId es requerido' });
+  for (const u of userStore.values()) {
+    if (u.userId === userId) return res.json({ userId: u.userId, name: u.name, phone: u.phone });
+  }
+  return res.status(404).json({ error: 'Usuario no encontrado' });
+});
+
 // ════════════════════════════════════════════════════════════════
 //  ZEGOCLOUD Tokens
 // ════════════════════════════════════════════════════════════════
@@ -455,6 +474,31 @@ router.post('/register-fcm-token', (req, res) => {
   return res.json({ success: true });
 });
 
+/** POST /call-notification — Envía FCM push al destinatario cuando se inicia una llamada */
+router.post('/call-notification', async (req, res) => {
+  const { calleeId, callerId, callerName, callType } = req.body || {};
+  if (!calleeId || !callerId) return res.status(400).json({ error: 'calleeId y callerId son requeridos' });
+
+  const fcmToken = fcmStore.get(calleeId);
+  if (!fcmToken) return res.json({ success: false, reason: 'sin token FCM para el destinatario' });
+
+  const isVideo   = callType === 'video';
+  const title     = isVideo ? `📹 Videollamada de ${callerName || callerId}` : `📞 Llamada de ${callerName || callerId}`;
+  const body      = isVideo ? 'Videollamada entrante — toca para responder' : 'Llamada entrante — toca para responder';
+
+  try {
+    await sendFCMPush(fcmToken, title, body, {
+      type:       'call',
+      callType:   callType || 'voice',
+      callerId,
+      callerName: callerName || callerId,
+    }, 'oldface_calls');
+    return res.json({ success: true });
+  } catch (e) {
+    return res.json({ success: false, reason: e.message });
+  }
+});
+
 // ════════════════════════════════════════════════════════════════
 //  CHATS + MENSAJES
 // ════════════════════════════════════════════════════════════════
@@ -482,6 +526,26 @@ router.get('/chats', (req, res) => {
   if (!userId) return res.status(400).json({ error: 'userId es requerido' });
   const userChats = [...chatStore2.values()]
     .filter(c => c.participants.includes(userId))
+    .map(c => {
+      if (c.isGroup) {
+        // Enriquecer con memberNames actualizados desde groupStore
+        const group = c.groupId ? groupStore.get(c.groupId) : null;
+        const memberNames = group?.memberNames || {};
+        // Si faltan nombres, resolverlos desde userStore ahora
+        const enriched = { ...memberNames };
+        for (const memberId of (c.participants || [])) {
+          if (!enriched[memberId]) {
+            const u = [...userStore.values()].find(u => u.userId === memberId);
+            if (u) enriched[memberId] = u.name;
+          }
+        }
+        return { ...c, memberNames: enriched };
+      }
+      // Chat 1-a-1: nombre y avatar del otro participante
+      const otherId = c.participants.find(p => p !== userId);
+      const otherUser = otherId ? [...userStore.values()].find(u => u.userId === otherId) : null;
+      return { ...c, name: otherUser?.name || c.name || 'Usuario', avatar: otherUser?.avatar || null };
+    })
     .sort((a, b) => b.lastTime - a.lastTime);
   return res.json({ chats: userChats });
 });
@@ -493,12 +557,13 @@ router.get('/messages/:chatId', (req, res) => {
 
 /** POST /messages */
 router.post('/messages', async (req, res) => {
-  const { chatId, senderId, text, type = 'text', url } = req.body || {};
+  const { chatId, senderId, text, type = 'text', url, replyTo } = req.body || {};
   if (!chatId || !senderId || !text) return res.status(400).json({ error: 'chatId, senderId y text son requeridos' });
 
   const msg = {
     id:        `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     chatId, senderId, text, type, url: url || null,
+    replyTo:   replyTo || null,
     time:      new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
     createdAt: Date.now(),
   };
@@ -540,6 +605,314 @@ router.post('/messages', async (req, res) => {
   } catch { /* no bloquear la respuesta si falla el push */ }
 
   return res.json(msg);
+});
+
+// ════════════════════════════════════════════════════════════════
+//  PRESENCIA (online / última vez)
+// ════════════════════════════════════════════════════════════════
+
+/** POST /presence — actualiza el lastSeen del usuario (heartbeat cada 30s) */
+router.post('/presence', (req, res) => {
+  const { userId } = req.body || {};
+  if (!userId) return res.status(400).json({ error: 'userId requerido' });
+  for (const [phone, u] of userStore.entries()) {
+    if (u.userId === userId) { u.lastSeen = Date.now(); userStore.set(phone, u); break; }
+  }
+  return res.json({ success: true });
+});
+
+/** GET /presence/:userId — devuelve online + lastSeen del usuario */
+router.get('/presence/:userId', (req, res) => {
+  const { userId } = req.params;
+  for (const u of userStore.values()) {
+    if (u.userId === userId) {
+      const lastSeen = u.lastSeen || u.lastLogin || 0;
+      const online   = Date.now() - lastSeen < 2 * 60 * 1000; // 2 min
+      return res.json({ online, lastSeen });
+    }
+  }
+  return res.json({ online: false, lastSeen: null });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  AVATAR DE USUARIO
+// ════════════════════════════════════════════════════════════════
+
+/** POST /user/avatar — guarda el avatar comprimido (base64) del usuario */
+router.post('/user/avatar', (req, res) => {
+  const { userId, avatar } = req.body || {};
+  if (!userId || !avatar) return res.status(400).json({ error: 'userId y avatar requeridos' });
+  // Limite de seguridad: avatares comprimidos no deberían superar 50KB en base64
+  if (avatar.length > 80_000) return res.status(400).json({ error: 'Avatar demasiado grande (máx 50KB)' });
+  for (const [phone, u] of userStore.entries()) {
+    if (u.userId === userId) { u.avatar = avatar; userStore.set(phone, u); saveUsers(); break; }
+  }
+  return res.json({ success: true });
+});
+
+/** GET /user/avatar/:userId — devuelve el avatar de un usuario */
+router.get('/user/avatar/:userId', (req, res) => {
+  const { userId } = req.params;
+  for (const u of userStore.values()) {
+    if (u.userId === userId) return res.json({ avatar: u.avatar || null });
+  }
+  return res.json({ avatar: null });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  CONFIRMACIONES DE LECTURA (✓✓ azul)
+// ════════════════════════════════════════════════════════════════
+
+/** POST /messages/:chatId/mark-read — marca todos los mensajes del chat como leídos por userId */
+router.post('/messages/:chatId/mark-read', (req, res) => {
+  const { chatId } = req.params;
+  const { userId }  = req.body || {};
+  if (!userId) return res.status(400).json({ error: 'userId requerido' });
+  const msgs = messageStore.get(chatId) || [];
+  let changed = false;
+  msgs.forEach(m => {
+    if (m.senderId !== userId) {
+      if (!Array.isArray(m.readBy)) m.readBy = [];
+      if (!m.readBy.includes(userId)) { m.readBy.push(userId); changed = true; }
+    }
+  });
+  if (changed) { messageStore.set(chatId, msgs); saveMessages(); }
+  return res.json({ success: true });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  ESTADOS (STORIES) — 24 horas
+// ════════════════════════════════════════════════════════════════
+
+/** GET /stories — devuelve los estados activos (no expirados) */
+router.get('/stories', (_req, res) => {
+  const now     = Date.now();
+  const active  = storiesList.filter(s => s.expiresAt > now);
+  // Limpiar expirados en memoria
+  if (active.length !== storiesList.length) { storiesList = active; saveStories(); }
+  return res.json({ stories: active });
+});
+
+/** POST /stories — crea un nuevo estado */
+router.post('/stories', (req, res) => {
+  const { userId, userName, mediaType, content, bgColor } = req.body || {};
+  if (!userId || !content) return res.status(400).json({ error: 'userId y content requeridos' });
+  const story = {
+    id:        `story_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    userId, userName: userName || userId,
+    mediaType: mediaType || 'text',
+    content,
+    bgColor:   bgColor || '#000080',
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+    viewers:   [],
+  };
+  storiesList.unshift(story);
+  saveStories();
+  return res.status(201).json(story);
+});
+
+/** POST /stories/:storyId/view — registra que un usuario vio un estado */
+router.post('/stories/:storyId/view', (req, res) => {
+  const { viewerId } = req.body || {};
+  const story = storiesList.find(s => s.id === req.params.storyId);
+  if (story && viewerId && !story.viewers.includes(viewerId)) {
+    story.viewers.push(viewerId);
+    saveStories();
+  }
+  return res.json({ success: true });
+});
+
+/** DELETE /stories/:storyId — elimina un estado (solo el creador) */
+router.delete('/stories/:storyId', (req, res) => {
+  const { userId } = req.body || {};
+  const idx = storiesList.findIndex(s => s.id === req.params.storyId && s.userId === userId);
+  if (idx === -1) return res.status(404).json({ error: 'Estado no encontrado o sin permisos' });
+  storiesList.splice(idx, 1);
+  saveStories();
+  return res.json({ success: true });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  GRUPOS
+// ════════════════════════════════════════════════════════════════
+
+/** GET /groups?userId= — grupos en los que participa el usuario */
+router.get('/groups', (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ error: 'userId requerido' });
+  const userGroups = [...groupStore.values()]
+    .filter(g => g.members.includes(userId))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  return res.json({ groups: userGroups });
+});
+
+/** POST /groups — crea un grupo nuevo */
+router.post('/groups', (req, res) => {
+  const { adminId, name, members } = req.body || {};
+  if (!adminId || !name || !Array.isArray(members) || members.length < 1)
+    return res.status(400).json({ error: 'adminId, name y members[] son requeridos' });
+
+  const allMembers = [...new Set([adminId, ...members])];
+  // Buscar nombres de los miembros
+  const memberNames = {};
+  for (const u of userStore.values()) {
+    if (allMembers.includes(u.userId)) memberNames[u.userId] = u.name;
+  }
+
+  const group = {
+    id:          `group_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    name,
+    adminId,
+    members:     allMembers,
+    memberNames,
+    avatar:      null,
+    createdAt:   Date.now(),
+    updatedAt:   Date.now(),
+    lastMessage: '',
+    lastTime:    Date.now(),
+  };
+  groupStore.set(group.id, group);
+  saveGroups();
+
+  // Crear el chat del grupo en chatStore2 para unificar la lectura de mensajes
+  const chatId = `group_${group.id}`;
+  if (!chatStore2.has(chatId)) {
+    chatStore2.set(chatId, {
+      id: chatId, participants: allMembers, name,
+      isGroup: true, groupId: group.id,
+      createdAt: Date.now(), lastMessage: '', lastTime: Date.now(),
+    });
+    saveChats();
+  }
+
+  return res.status(201).json(group);
+});
+
+/** PUT /groups/:groupId — actualiza nombre/avatar del grupo */
+router.put('/groups/:groupId', (req, res) => {
+  const g = groupStore.get(req.params.groupId);
+  if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
+  const { name, avatar } = req.body || {};
+  if (name)   g.name   = name;
+  if (avatar) g.avatar = avatar;
+  g.updatedAt = Date.now();
+  groupStore.set(g.id, g);
+  saveGroups();
+  return res.json(g);
+});
+
+/** POST /groups/:groupId/members — añade miembro al grupo */
+router.post('/groups/:groupId/members', (req, res) => {
+  const g = groupStore.get(req.params.groupId);
+  if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
+  const { userId, adminId } = req.body || {};
+  if (g.adminId !== adminId) return res.status(403).json({ error: 'Solo el admin puede añadir miembros' });
+  if (!g.members.includes(userId)) {
+    g.members.push(userId);
+    const u = [...userStore.values()].find(u => u.userId === userId);
+    if (u) g.memberNames[userId] = u.name;
+    g.updatedAt = Date.now();
+    groupStore.set(g.id, g);
+    saveGroups();
+    // Actualizar chat participantes
+    const chatId = `group_${g.id}`;
+    const chat = chatStore2.get(chatId);
+    if (chat) { chat.participants = g.members; chatStore2.set(chatId, chat); saveChats(); }
+  }
+  return res.json(g);
+});
+
+/** DELETE /groups/:groupId/members/:userId — sale o expulsa a un miembro */
+router.delete('/groups/:groupId/members/:userId', (req, res) => {
+  const g = groupStore.get(req.params.groupId);
+  if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
+  const { requesterId } = req.body || {};
+  const targetId = req.params.userId;
+  if (targetId !== requesterId && g.adminId !== requesterId)
+    return res.status(403).json({ error: 'Sin permisos' });
+  g.members = g.members.filter(m => m !== targetId);
+  delete g.memberNames[targetId];
+  g.updatedAt = Date.now();
+  groupStore.set(g.id, g);
+  saveGroups();
+  return res.json({ success: true });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  REGISTRO DE LLAMADAS
+// ════════════════════════════════════════════════════════════════
+
+/** POST /call-log — Registra una llamada realizada o recibida */
+router.post('/call-log', (req, res) => {
+  const { userId, contactId, contactName, type, duration, direction, timestamp } = req.body || {};
+  if (!userId || !contactId) return res.status(400).json({ error: 'userId y contactId son requeridos' });
+
+  const entry = {
+    id:          `call_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    userId, contactId,
+    contactName: contactName || contactId,
+    type:        type || 'voice',
+    duration:    duration || 0,
+    direction:   direction || 'outgoing',
+    timestamp:   timestamp || Date.now(),
+  };
+
+  // Guardar en el log del llamante
+  const myLog = callLogStore.get(userId) || [];
+  myLog.unshift(entry);
+  if (myLog.length > 100) myLog.length = 100;
+  callLogStore.set(userId, myLog);
+
+  // Si es saliente, guardar también en el log del destinatario como "incoming"
+  if (direction === 'outgoing') {
+    // Buscar el nombre del llamante para mostrárselo al destinatario
+    const callerUser = [...userStore.values()].find(u => u.userId === userId);
+    const contactEntry = {
+      ...entry,
+      userId:      contactId,
+      contactId:   userId,
+      contactName: callerUser?.name || userId,
+      direction:   'incoming',
+    };
+    const contactLog = callLogStore.get(contactId) || [];
+    contactLog.unshift(contactEntry);
+    if (contactLog.length > 100) contactLog.length = 100;
+    callLogStore.set(contactId, contactLog);
+  }
+
+  saveCallLog();
+  return res.json({ success: true, id: entry.id });
+});
+
+/** GET /call-log?userId= — Obtiene el historial de llamadas de un usuario */
+router.get('/call-log', (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ error: 'userId es requerido' });
+  const log = callLogStore.get(userId) || [];
+  return res.json({ calls: log });
+});
+
+/** DELETE /call-log?userId= — Borra todo el historial de llamadas del usuario */
+router.delete('/call-log', (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ error: 'userId es requerido' });
+  callLogStore.set(userId, []);
+  saveCallLog();
+  return res.json({ success: true });
+});
+
+/** DELETE /call-log/:callId?userId= — Borra una llamada específica */
+router.delete('/call-log/:callId', (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ error: 'userId es requerido' });
+  const log = callLogStore.get(userId) || [];
+  const idx = log.findIndex(c => c.id === req.params.callId);
+  if (idx === -1) return res.status(404).json({ error: 'Llamada no encontrada' });
+  log.splice(idx, 1);
+  callLogStore.set(userId, log);
+  saveCallLog();
+  return res.json({ success: true });
 });
 
 // ════════════════════════════════════════════════════════════════

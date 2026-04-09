@@ -13,15 +13,32 @@ import { playMessageSound } from '../utils/sounds.js';
 
 const APP_ID        = parseInt(import.meta.env.VITE_ZEGOCLOUD_APP_ID);
 const SERVER_SECRET = import.meta.env.VITE_ZEGOCLOUD_SERVER_SECRET;
+const BACKEND       = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+
+async function notifyCallViaFCM(calleeId, callType) {
+  try {
+    const { useAuthStore } = await import('./authStore');
+    const user = useAuthStore.getState().user;
+    if (!user?.id) return;
+    await fetch(`${BACKEND}/call-notification`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calleeId, callerId: user.id, callerName: user.name || user.id, callType }),
+    });
+  } catch { /* silencioso */ }
+}
 
 export const useZegoStore = create((set, get) => ({
   // ── Estado UIKit ──────────────────────────────────────────────────────────
-  instance:      null,
-  containerRef:  null,
-  isCallActive:  false,
-  incomingCall:  null,    // { callType, caller, refuse, accept, callerName, isVideo }
+  instance:       null,
+  containerRef:   null,
+  isCallActive:   false,
+  incomingCall:   null,    // { callType, caller, refuse, accept, callerName, isVideo }
   outgoingCancel: null,
-  callError:     null,    // mensaje de error visible al usuario
+  callError:      null,    // mensaje de error visible al usuario
+  // Para registro de llamadas
+  currentCallInfo: null,   // { contactId, contactName, type, direction }
+  callStartTime:   null,
 
   // ── Estado ZIM (chat) ─────────────────────────────────────────────────────
   zimEngine:    null,
@@ -60,25 +77,33 @@ export const useZegoStore = create((set, get) => ({
 
         // Receptor: llega invitación → mostrar nuestro modal
         onConfirmDialogWhenReceiving: (callType, caller, refuse, accept) => {
-          set({ incomingCall: {
-            callType,
-            caller,
-            refuse,
-            accept,
-            callerName: caller?.userName || caller?.userID || '?',
-            isVideo:    callType === ZegoUIKitPrebuilt.InvitationTypeVideoCall,
-          }});
+          const isVideo = callType === ZegoUIKitPrebuilt.InvitationTypeVideoCall;
+          set({
+            incomingCall: {
+              callType, caller, refuse, accept,
+              callerName: caller?.userName || caller?.userID || '?',
+              isVideo,
+            },
+            currentCallInfo: {
+              contactId:   caller?.userID || '?',
+              contactName: caller?.userName || caller?.userID || '?',
+              type:        isVideo ? 'video' : 'voice',
+              direction:   'incoming',
+            },
+          });
         },
 
         // Ambos: listos para unirse al room
         onSetRoomConfigBeforeJoining: (callType) => {
-          set({ isCallActive: true, incomingCall: null, outgoingCancel: null });
+          set({ isCallActive: true, incomingCall: null, outgoingCancel: null, callStartTime: Date.now() });
           const { containerRef } = get();
           return {
             container:                    containerRef?.current ?? null,
             showPreJoinView:              false,
             turnOnMicrophoneWhenJoining:  true,
             turnOnCameraWhenJoining:      callType === ZegoUIKitPrebuilt.InvitationTypeVideoCall,
+            // Voz → auricular; Video → altavoz
+            useSpeakerWhenJoining:        callType === ZegoUIKitPrebuilt.InvitationTypeVideoCall,
             showMyCameraToggleButton:     true,
             showMyMicrophoneToggleButton: true,
             showAudioVideoSettingsButton: false,
@@ -88,8 +113,32 @@ export const useZegoStore = create((set, get) => ({
             maxUsers:                     2,
             layout:                       'Auto',
             showLayoutButton:             false,
+            showLeaveRoomConfirmDialog:   false,
             scenario:                     { mode: ZegoUIKitPrebuilt.OneONoneCall },
-            onLeaveRoom:                  () => set({ isCallActive: false }),
+            onLeaveRoom: () => {
+              const { currentCallInfo, callStartTime: startTime } = get();
+              const duration = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+              if (currentCallInfo?.contactId) {
+                import('./authStore').then(({ useAuthStore }) => {
+                  const myUser = useAuthStore.getState().user;
+                  if (!myUser?.id) return;
+                  fetch(`${BACKEND}/call-log`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      userId:      myUser.id,
+                      contactId:   currentCallInfo.contactId,
+                      contactName: currentCallInfo.contactName,
+                      type:        currentCallInfo.type,
+                      direction:   currentCallInfo.direction,
+                      duration,
+                      timestamp:   Date.now(),
+                    }),
+                  }).catch(() => {});
+                });
+              }
+              set({ isCallActive: false, currentCallInfo: null, callStartTime: null });
+            },
           };
         },
 
@@ -99,13 +148,13 @@ export const useZegoStore = create((set, get) => ({
         },
 
         // Fin de cualquier llamada
-        onCallInvitationEnded:  () => set({ incomingCall: null, isCallActive: false, outgoingCancel: null }),
+        onCallInvitationEnded:  () => set({ incomingCall: null, isCallActive: false, outgoingCancel: null, currentCallInfo: null, callStartTime: null }),
         onOutgoingCallAccepted: () => console.log('[Zego] llamada aceptada'),
-        onOutgoingCallRejected: () => set({ isCallActive: false, outgoingCancel: null }),
-        onOutgoingCallDeclined: () => set({ isCallActive: false, outgoingCancel: null }),
-        onOutgoingCallTimeout:  () => set({ isCallActive: false, outgoingCancel: null }),
-        onIncomingCallCanceled: () => set({ incomingCall: null }),
-        onIncomingCallTimeout:  () => set({ incomingCall: null }),
+        onOutgoingCallRejected: () => set({ isCallActive: false, outgoingCancel: null, currentCallInfo: null, callStartTime: null }),
+        onOutgoingCallDeclined: () => set({ isCallActive: false, outgoingCancel: null, currentCallInfo: null, callStartTime: null }),
+        onOutgoingCallTimeout:  () => set({ isCallActive: false, outgoingCancel: null, currentCallInfo: null, callStartTime: null }),
+        onIncomingCallCanceled: () => set({ incomingCall: null, currentCallInfo: null }),
+        onIncomingCallTimeout:  () => set({ incomingCall: null, currentCallInfo: null }),
       });
 
       set({ instance: zp });
@@ -122,8 +171,14 @@ export const useZegoStore = create((set, get) => ({
           zimInst.off('peerMessageReceived');
           zimInst.on('peerMessageReceived', (_zim, { messageList, fromConversationID }) => {
             import('./chatStore').then(({ useChatStore }) => {
-              const { addMessage } = useChatStore.getState();
+              const { addMessage, createOrGetChat, fetchChats } = useChatStore.getState();
               const msgChatId = `chat_${[user.id, fromConversationID].sort().join('_')}`;
+
+              // Asegurar que el chat existe en el backend para el destinatario
+              // (el nombre real lo resuelve el backend buscando en userStore)
+              createOrGetChat(user.id, fromConversationID, fromConversationID)
+                .then(() => fetchChats(user.id));
+
               let hasNew = false;
               messageList.forEach(msg => {
                 if (msg.type === 1) {
@@ -172,6 +227,9 @@ export const useZegoStore = create((set, get) => ({
       get().setCallError('Conectando... espera un momento e inténtalo de nuevo');
       return;
     }
+    set({ currentCallInfo: { contactId: calleeId, contactName: calleeName || calleeId, type: 'video', direction: 'outgoing' } });
+    // FCM push para despertar la app del receptor si está en segundo plano
+    notifyCallViaFCM(calleeId, 'video');
     const { ZegoUIKitPrebuilt } = await import('@zegocloud/zego-uikit-prebuilt');
     try {
       const res = await instance.sendCallInvitation({
@@ -181,12 +239,12 @@ export const useZegoStore = create((set, get) => ({
       });
       if (res?.errorInvitees?.length) {
         console.warn('[Zego] receptor no disponible:', res.errorInvitees);
-        set({ isCallActive: false, outgoingCancel: null });
+        set({ isCallActive: false, outgoingCancel: null, currentCallInfo: null });
         get().setCallError(`${calleeName || calleeId} no está disponible ahora mismo`);
       }
     } catch (err) {
       console.error('[Zego] sendVideoCall error:', err?.message);
-      set({ isCallActive: false, outgoingCancel: null });
+      set({ isCallActive: false, outgoingCancel: null, currentCallInfo: null });
       get().setCallError('No se pudo iniciar la videollamada');
     }
   },
@@ -198,6 +256,9 @@ export const useZegoStore = create((set, get) => ({
       get().setCallError('Conectando... espera un momento e inténtalo de nuevo');
       return;
     }
+    set({ currentCallInfo: { contactId: calleeId, contactName: calleeName || calleeId, type: 'voice', direction: 'outgoing' } });
+    // FCM push para despertar la app del receptor si está en segundo plano
+    notifyCallViaFCM(calleeId, 'voice');
     const { ZegoUIKitPrebuilt } = await import('@zegocloud/zego-uikit-prebuilt');
     try {
       const res = await instance.sendCallInvitation({
@@ -206,12 +267,12 @@ export const useZegoStore = create((set, get) => ({
         timeout:  60,
       });
       if (res?.errorInvitees?.length) {
-        set({ isCallActive: false, outgoingCancel: null });
+        set({ isCallActive: false, outgoingCancel: null, currentCallInfo: null });
         get().setCallError(`${calleeName || calleeId} no está disponible ahora mismo`);
       }
     } catch (err) {
       console.error('[Zego] sendVoiceCall error:', err?.message);
-      set({ isCallActive: false, outgoingCancel: null });
+      set({ isCallActive: false, outgoingCancel: null, currentCallInfo: null });
       get().setCallError('No se pudo iniciar la llamada');
     }
   },
