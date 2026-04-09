@@ -48,6 +48,7 @@ const _fcm      = loadJSON('fcm_tokens.json', {});
 const _callLog  = loadJSON('call_log.json', {});
 const _stories  = loadJSON('stories.json', []);
 const _groups   = loadJSON('groups.json', {});
+const _subs     = loadJSON('subscriptions.json', {});
 
 // Convertir a Map (operaciones en memoria, persistimos después de cada escritura)
 const userStore    = new Map(Object.entries(_users));
@@ -58,6 +59,7 @@ const fcmStore     = new Map(Object.entries(_fcm));     // userId → fcmToken
 const callLogStore = new Map(Object.entries(_callLog)); // userId → [calls]
 let   storiesList  = Array.isArray(_stories) ? _stories : []; // array plano de stories
 const groupStore   = new Map(Object.entries(_groups));  // groupId → group
+const subStore     = new Map(Object.entries(_subs));    // userId → { plan, since }
 
 const saveUsers    = () => saveJSON('users.json',    Object.fromEntries(userStore));
 const saveChats    = () => saveJSON('chats.json',    Object.fromEntries(chatStore2));
@@ -67,6 +69,7 @@ const saveFcm      = () => saveJSON('fcm_tokens.json', Object.fromEntries(fcmSto
 const saveCallLog  = () => saveJSON('call_log.json',  Object.fromEntries(callLogStore));
 const saveStories  = () => saveJSON('stories.json',   storiesList);
 const saveGroups   = () => saveJSON('groups.json',    Object.fromEntries(groupStore));
+const saveSubs     = () => saveJSON('subscriptions.json', Object.fromEntries(subStore));
 
 console.log(`[DB] Usuarios: ${userStore.size} | Chats: ${chatStore2.size} | Directos: ${directoStore.size} | CallLog: ${callLogStore.size}`);
 
@@ -960,6 +963,109 @@ router.delete('/directos/:id', (req, res) => {
   directoStore.delete(req.params.id);
   saveDirectos();
   return res.json({ success: true });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  ADMIN PANEL
+// ════════════════════════════════════════════════════════════════
+const ADMIN_EMAIL    = 'williamduarte0412@gmail.com';
+const ADMIN_PASSWORD = 'DeqntvOF2001*';
+const adminSessions  = new Map(); // token → expiry (24h)
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [t, exp] of adminSessions.entries()) if (now > exp) adminSessions.delete(t);
+}, 3_600_000);
+
+function adminAuth(req, res, next) {
+  const token = req.headers['x-admin-token'] || req.query.token;
+  if (!token) return res.status(401).json({ error: 'No autenticado' });
+  const exp = adminSessions.get(token);
+  if (!exp || Date.now() > exp) { adminSessions.delete(token); return res.status(401).json({ error: 'Sesión expirada' }); }
+  next();
+}
+
+// Sirve el HTML del dashboard (GET directo, sin /api/)
+app.get('/admin', (_req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
+
+// Todos los endpoints admin bajo /api/admin/ para que Plesk/Nginx los proxee correctamente
+router.post('/admin/login', (req, res) => {
+  const { email, password } = req.body || {};
+  if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD)
+    return res.status(401).json({ error: 'Credenciales incorrectas' });
+  const token = crypto.randomBytes(32).toString('hex');
+  adminSessions.set(token, Date.now() + 24 * 60 * 60 * 1000);
+  res.json({ token });
+});
+
+router.get('/admin/stats', adminAuth, (_req, res) => {
+  const today = new Date().toDateString();
+  let totalMessages = 0;
+  for (const msgs of messageStore.values()) if (Array.isArray(msgs)) totalMessages += msgs.length;
+  let activeToday = 0;
+  for (const u of userStore.values()) if (u.lastSeen && new Date(u.lastSeen).toDateString() === today) activeToday++;
+  let calls = 0;
+  for (const c of callLogStore.values()) if (Array.isArray(c)) calls += c.length;
+  let revenue = 0;
+  const subList = [...subStore.values()];
+  for (const s of subList) { if (s.plan === 'member') revenue += 1; else if (s.plan === 'premium') revenue += 50; }
+  const memberCount  = subList.filter(s => s.plan === 'member').length;
+  const premiumCount = subList.filter(s => s.plan === 'premium').length;
+  const freeCount    = userStore.size - memberCount - premiumCount;
+  res.json({
+    users: userStore.size, activeToday, chats: chatStore2.size,
+    totalMessages, calls, groups: groupStore.size, revenue,
+    planCounts: { free: Math.max(0, freeCount), member: memberCount, premium: premiumCount }
+  });
+});
+
+router.get('/admin/users', adminAuth, (_req, res) => {
+  const list = [];
+  for (const [userId, u] of userStore.entries()) {
+    const sub = subStore.get(userId) || { plan: 'free', since: null };
+    let msgCount = 0;
+    for (const msgs of messageStore.values()) if (Array.isArray(msgs)) msgCount += msgs.filter(m => m.sender === userId).length;
+    list.push({ id: userId, name: u.name || '—', phone: u.phone || '—', avatar: u.avatar || null,
+                registeredAt: u.registeredAt || null, lastSeen: u.lastSeen || null,
+                plan: sub.plan, planSince: sub.since || null, msgCount });
+  }
+  list.sort((a, b) => (b.registeredAt || 0) - (a.registeredAt || 0));
+  res.json({ users: list });
+});
+
+router.post('/admin/users/:userId/plan', adminAuth, (req, res) => {
+  const { userId } = req.params;
+  const { plan } = req.body || {};
+  if (!['free','member','premium'].includes(plan)) return res.status(400).json({ error: 'Plan inválido' });
+  if (!userStore.has(userId)) return res.status(404).json({ error: 'Usuario no encontrado' });
+  subStore.set(userId, { plan, since: Date.now() });
+  saveSubs();
+  res.json({ success: true });
+});
+
+router.delete('/admin/users/:userId', adminAuth, (req, res) => {
+  const { userId } = req.params;
+  userStore.delete(userId); subStore.delete(userId);
+  saveUsers(); saveSubs();
+  res.json({ success: true });
+});
+
+router.get('/admin/chats', adminAuth, (_req, res) => {
+  const list = [];
+  for (const [id, c] of chatStore2.entries()) {
+    const msgs = messageStore.get(id) || [];
+    const lastMsg = msgs.length ? (msgs[msgs.length - 1]?.timestamp || null) : null;
+    list.push({ id, participants: c.participants || [], msgCount: msgs.length, lastMsg });
+  }
+  list.sort((a, b) => (b.lastMsg || 0) - (a.lastMsg || 0));
+  res.json({ chats: list });
+});
+
+router.get('/admin/calls', adminAuth, (_req, res) => {
+  const all = [];
+  for (const calls of callLogStore.values()) if (Array.isArray(calls)) all.push(...calls);
+  all.sort((a, b) => (b.ts || b.timestamp || 0) - (a.ts || a.timestamp || 0));
+  res.json({ calls: all.slice(0, 200) });
 });
 
 // ── Montar router ─────────────────────────────────────────────────

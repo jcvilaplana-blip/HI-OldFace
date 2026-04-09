@@ -167,7 +167,7 @@ export default function HomePage() {
         onClick={() => setShowMenu(true)}
         style={{
           position: 'absolute',
-          bottom: 72, right: 18,
+          bottom: 82, right: 18,
           width: 54, height: 54,
           borderRadius: '50%',
           backgroundColor: BRAND,

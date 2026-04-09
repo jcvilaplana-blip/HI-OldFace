@@ -42,7 +42,7 @@ export default function BottomNav() {
         borderTop: `1px solid ${border}`,
         display: 'flex',
         flexShrink: 0,
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 6px)',
       }}
     >
       {NAV_ITEMS.map(item => {
@@ -57,7 +57,7 @@ export default function BottomNav() {
               flex: 1,
               display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center',
-              gap: 3, padding: '10px 4px',
+              gap: 3, padding: '12px 4px 8px',
               background: 'transparent', border: 'none', cursor: 'pointer',
               WebkitTapHighlightColor: 'transparent',
             }}

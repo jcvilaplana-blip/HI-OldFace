@@ -239,6 +239,33 @@ export default function ChatPage() {
     }
   };
 
+  const sendContact = async () => {
+    setShowAttachMenu(false);
+    try {
+      const { Contacts } = await import('@capacitor-community/contacts');
+      const result = await Contacts.pickContact({ projection: { name: true, phones: true } });
+      if (!result?.contact) return;
+      const c = result.contact;
+      const name  = c.name?.display || c.name?.given || '—';
+      const phone = c.phones?.[0]?.number || '—';
+      const payload = JSON.stringify({ name, phone });
+      addMessage(msgChatId, {
+        id: `contact_${Date.now()}`,
+        type: 'contact',
+        text: `[Contacto: ${name}]`,
+        url: payload,
+        sender: user.id,
+        time: new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
+        status: 'sent',
+        isMine: true,
+      });
+      persistMessage(msgChatId, user.id, `[Contacto: ${name}]`, 'contact', payload);
+    } catch (e) {
+      const msg = e?.message || '';
+      if (!msg.includes('cancel') && !msg.includes('dismiss')) alert('No se pudo acceder a los contactos');
+    }
+  };
+
   // ── Enviar imagen o video ─────────────────────────────────────────────────
   const sendMediaFile = async (file) => {
     if (!file) return;
@@ -583,6 +610,16 @@ export default function ChatPage() {
               </span>
               Ubicación
             </button>
+            {/* Contacto */}
+            <button onClick={sendContact}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
+              <span style={{ width: 36, height: 36, borderRadius: '50%', background: '#e11d48', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="18" height="18" fill="white" viewBox="0 0 24 24">
+                  <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
+                </svg>
+              </span>
+              Contacto
+            </button>
           </div>
         )}
 
@@ -816,7 +853,7 @@ function AudioPlayer({ src, isMine, isDark }) {
             transition: 'width 0.1s linear',
           }} />
         </div>
-        <span style={{ fontSize: 10, color: timeColor, fontWeight: 600 }}>
+        <span style={{ fontSize: 11, color: timeColor, fontWeight: 600 }}>
           {fmtTime(progress || 0)} / {fmtTime(duration)}
         </span>
       </div>
@@ -828,12 +865,59 @@ function AudioPlayer({ src, isMine, isDark }) {
   );
 }
 
+function VideoThumb({ src, onClick }) {
+  const [thumb, setThumb] = useState(null);
+
+  useEffect(() => {
+    if (!src) return;
+    let cancelled = false;
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      video.currentTime = 0.5;
+    };
+    video.onseeked = () => {
+      if (cancelled) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 320;
+      canvas.height = video.videoHeight || 240;
+      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+      setThumb(canvas.toDataURL('image/jpeg', 0.8));
+    };
+    video.onerror = () => { /* keep fallback dark placeholder */ };
+    video.src = src;
+    return () => { cancelled = true; video.src = ''; };
+  }, [src]);
+
+  return (
+    <div
+      style={{ position: 'relative', cursor: 'pointer', borderRadius: 12, overflow: 'hidden', maxWidth: '100%', minHeight: 140, background: '#111' }}
+      onClick={onClick}
+    >
+      {thumb ? (
+        <img src={thumb} style={{ display: 'block', maxWidth: '100%', maxHeight: 240, objectFit: 'cover', borderRadius: 12, width: '100%' }} alt="" />
+      ) : (
+        <div style={{ width: '100%', height: 160, background: '#1a1a2e', borderRadius: 12 }} />
+      )}
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.28)', borderRadius: 12 }}>
+        <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(255,255,255,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="18" height="18" fill="#000080" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({ msg, isDark, T, onReply, isGroup, memberNames = {}, onExpandPhoto }) {
   const isLocation = msg.type === 'location';
   const isAudio    = msg.type === 'audio';
   const isImage    = msg.type === 'image';
   const isVideo    = msg.type === 'video';
   const isDocument = msg.type === 'document';
+  const isContact  = msg.type === 'contact';
   const [showReplyBtn, setShowReplyBtn] = useState(false);
   const longPressRef = useRef(null);
 
@@ -891,7 +975,7 @@ function MessageBubble({ msg, isDark, T, onReply, isGroup, memberNames = {}, onE
       }}>
         {/* Nombre remitente en grupos */}
         {isGroup && !msg.isMine && (
-          <p style={{ fontSize: 11, fontWeight: 800, color: '#000080', margin: '0 0 4px', letterSpacing: '0.2px', paddingLeft: (isImage || isVideo) ? 8 : 0 }}>
+          <p style={{ fontSize: 12, fontWeight: 800, color: '#000080', margin: '0 0 4px', letterSpacing: '0.2px', paddingLeft: (isImage || isVideo) ? 8 : 0 }}>
             {memberNames[msg.sender] || msg.sender?.replace(/^user_/, '') || '?'}
           </p>
         )}
@@ -905,10 +989,10 @@ function MessageBubble({ msg, isDark, T, onReply, isGroup, memberNames = {}, onE
             borderRadius: '0 6px 6px 0', padding: '4px 8px',
             margin: '0 0 6px',
           }}>
-            <p style={{ fontSize: 11, fontWeight: 800, color: msg.isMine ? 'rgba(255,255,255,0.9)' : '#000080', margin: '0 0 2px' }}>
+            <p style={{ fontSize: 12, fontWeight: 800, color: msg.isMine ? 'rgba(255,255,255,0.9)' : '#000080', margin: '0 0 2px' }}>
               {msg.replyTo.senderName}
             </p>
-            <p style={{ fontSize: 11, color: msg.isMine ? 'rgba(255,255,255,0.75)' : T.textMuted, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+            <p style={{ fontSize: 12, color: msg.isMine ? 'rgba(255,255,255,0.75)' : T.textMuted, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
               {msg.replyTo.type === 'location' ? '📍 Ubicación'
                : msg.replyTo.type === 'audio' ? '🎤 Nota de voz'
                : msg.replyTo.type === 'image' ? '🖼️ Imagen'
@@ -926,47 +1010,42 @@ function MessageBubble({ msg, isDark, T, onReply, isGroup, memberNames = {}, onE
             style={{ display: 'block', maxWidth: '100%', borderRadius: 12, maxHeight: 240, objectFit: 'cover', cursor: 'pointer' }}
           />
         ) : isVideo ? (
-          /* Preview sin controles — click abre fullscreen */
-          <div
-            style={{ position: 'relative', display: 'inline-block', cursor: 'pointer', borderRadius: 12, overflow: 'hidden', maxWidth: '100%' }}
-            onClick={() => onExpandPhoto?.({ type: 'video', src: msg.url })}
-          >
-            <video
-              src={msg.url}
-              playsInline
-              preload="metadata"
-              muted
-              style={{ display: 'block', maxWidth: '100%', maxHeight: 240, background: '#000', borderRadius: 12 }}
-            />
-            {/* Overlay play */}
-            <div style={{
-              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'rgba(0,0,0,0.28)', borderRadius: 12,
-            }}>
-              <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(255,255,255,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="18" height="18" fill="#000080" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-              </div>
-            </div>
-          </div>
+          <VideoThumb src={msg.url} onClick={() => onExpandPhoto?.({ type: 'video', src: msg.url })} />
         ) : isDocument ? (
           <a href={msg.url} download={msg.fileName || 'archivo'}
             style={{ display: 'flex', alignItems: 'center', gap: 8, color: msg.isMine ? '#dbeafe' : '#000080', textDecoration: 'none' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
             </svg>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>{msg.fileName || 'Archivo'}</span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>{msg.fileName || 'Archivo'}</span>
           </a>
-        ) : isLocation ? (
+        ) : isContact ? (() => {
+          let cName = '—', cPhone = '—';
+          try { const d = JSON.parse(msg.url || '{}'); cName = d.name || '—'; cPhone = d.phone || '—'; } catch {}
+          return (
+            <a href={`tel:${cPhone}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', padding: '4px 2px' }}>
+              <span style={{ width: 40, height: 40, borderRadius: '50%', background: '#e11d48', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="20" height="20" fill="white" viewBox="0 0 24 24">
+                  <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
+                </svg>
+              </span>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: msg.isMine ? sentText : recvText }}>{cName}</div>
+                <div style={{ fontSize: 12, color: msg.isMine ? timeColor : recvTime }}>{cPhone}</div>
+              </div>
+            </a>
+          );
+        })() : isLocation ? (
           <a href={msg.url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, color: msg.isMine ? '#dbeafe' : '#000080', textDecoration: 'none' }}>
             <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
               <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
             </svg>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Ver ubicación</span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>Ver ubicación</span>
           </a>
         ) : isAudio ? (
           <AudioPlayer src={msg.url} isMine={msg.isMine} isDark={isDark} />
         ) : (
-          <p style={{ fontSize: 14, color: msg.isMine ? sentText : recvText, fontWeight: 500, lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap', padding: (isImage || isVideo) ? '0 8px' : 0 }}>
+          <p style={{ fontSize: 15, color: msg.isMine ? sentText : recvText, fontWeight: 500, lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap', padding: (isImage || isVideo) ? '0 8px' : 0 }}>
             {msg.text}
           </p>
         )}
@@ -977,9 +1056,9 @@ function MessageBubble({ msg, isDark, T, onReply, isGroup, memberNames = {}, onE
           marginTop: (isImage || isVideo) ? 2 : 4,
           padding: (isImage || isVideo) ? '0 8px' : 0,
         }}>
-          <span style={{ fontSize: 11, color: msg.isMine ? timeColor : recvTime }}>{msg.time}</span>
+          <span style={{ fontSize: 12, color: msg.isMine ? timeColor : recvTime }}>{msg.time}</span>
           {msg.isMine && (
-            <span style={{ fontSize: 11, color: msg.status === 'read' ? '#60a5fa' : timeColor }}>
+            <span style={{ fontSize: 12, color: msg.status === 'read' ? '#60a5fa' : timeColor }}>
               {msg.status === 'sending' ? '○' : msg.status === 'sent' ? '✓' : '✓✓'}
             </span>
           )}

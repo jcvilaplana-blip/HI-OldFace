@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OldFace — Admin</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#020e2a;--bg2:#031640;--bg3:#041e50;
+      --sidebar:#010c22;--brand:#000080;--brand2:#3b5bdb;
+      --accent:#60a5fa;--text:#dce8ff;--text2:#8fb3dd;--text3:#4a6d9c;
+      --border:rgba(255,255,255,0.08);--card:rgba(4,30,80,0.75);
+      --ok:#22c55e;--warn:#f59e0b;--err:#ef4444;
+    }
+    body{background:linear-gradient(160deg,#021d4a 0%,#020e2a 100%);color:var(--text);
+         font-family:'Helvetica Neue',Helvetica,-apple-system,Arial,sans-serif;min-height:100vh;overflow:hidden}
+
+    /* ── LOGIN ────────────────────────────────────────── */
+    #login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+    .login-card{background:rgba(4,30,80,0.92);border:1px solid var(--border);border-radius:20px;
+                padding:44px 40px;width:100%;max-width:400px;
+                box-shadow:0 24px 64px rgba(0,0,0,0.55);backdrop-filter:blur(20px)}
+    .login-logo{text-align:center;margin-bottom:34px}
+    .login-logo .app-name{font-size:30px;font-weight:900;
+      background:linear-gradient(135deg,#60a5fa,#a78bfa);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .login-logo p{font-size:13px;color:var(--text3);margin-top:5px}
+    .fg{margin-bottom:18px}
+    .fg label{display:block;font-size:11px;font-weight:700;color:var(--text3);
+              margin-bottom:8px;letter-spacing:0.6px;text-transform:uppercase}
+    .fg input{width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--border);
+              border-radius:10px;padding:12px 16px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s}
+    .fg input:focus{border-color:var(--accent)}
+    .btn-login{width:100%;background:linear-gradient(135deg,#000080,#3b5bdb);color:#fff;border:none;
+               border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;
+               margin-top:8px;transition:opacity .2s,transform .1s}
+    .btn-login:hover{opacity:.9}.btn-login:active{transform:scale(.98)}
+    .l-err{color:var(--err);font-size:13px;margin-top:12px;text-align:center;min-height:18px}
+
+    /* ── DASHBOARD ────────────────────────────────────── */
+    #dashboard{display:none;height:100vh;overflow:hidden}
+    .layout{display:flex;height:100vh}
+
+    /* Sidebar */
+    .sidebar{width:230px;flex-shrink:0;background:var(--sidebar);
+             border-right:1px solid var(--border);display:flex;flex-direction:column}
+    .sb-logo{padding:22px 20px 18px;border-bottom:1px solid var(--border)}
+    .sb-logo h2{font-size:20px;font-weight:900;
+      background:linear-gradient(135deg,#60a5fa,#a78bfa);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .sb-logo p{font-size:11px;color:var(--text3);margin-top:3px}
+    .sb-nav{flex:1;padding:14px 10px;overflow-y:auto}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;
+              cursor:pointer;font-size:14px;font-weight:500;color:var(--text2);
+              transition:background .15s,color .15s;margin-bottom:3px;user-select:none}
+    .nav-item:hover{background:rgba(255,255,255,0.06);color:var(--text)}
+    .nav-item.active{background:rgba(0,0,128,0.38);color:var(--accent);font-weight:700}
+    .nav-item .ico{width:22px;text-align:center;font-size:17px}
+    .sb-footer{padding:14px 12px;border-top:1px solid var(--border)}
+    .admin-info{font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.5}
+    .admin-info strong{color:var(--text2)}
+    .btn-logout{width:100%;background:rgba(239,68,68,.14);color:#f87171;
+                border:1px solid rgba(239,68,68,.28);border-radius:8px;padding:8px;
+                font-size:13px;font-weight:600;cursor:pointer;transition:background .15s}
+    .btn-logout:hover{background:rgba(239,68,68,.24)}
+
+    /* Main */
+    .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+    .topbar{padding:14px 26px;border-bottom:1px solid var(--border);
+            display:flex;align-items:center;justify-content:space-between;
+            background:rgba(2,14,42,.6);backdrop-filter:blur(10px)}
+    .topbar h1{font-size:19px;font-weight:700}
+    .topbar-meta{font-size:12px;color:var(--text3)}
+    .content{flex:1;overflow-y:auto;padding:26px}
+
+    /* Sections */
+    .section{display:none}.section.active{display:block}
+
+    /* Stats grid */
+    .stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:14px;margin-bottom:26px}
+    .stat-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px 20px;position:relative;overflow:hidden}
+    .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+                       background:linear-gradient(90deg,var(--brand2),var(--accent))}
+    .stat-label{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px}
+    .stat-value{font-size:30px;font-weight:900;color:var(--text);margin:8px 0 3px;line-height:1}
+    .stat-icon{position:absolute;right:14px;top:14px;font-size:20px;opacity:.35}
+    .stat-sub{font-size:11px;color:var(--text3)}
+
+    /* Charts */
+    .charts-row{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:26px}
+    .chart-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px}
+    .chart-title{font-size:13px;font-weight:700;color:var(--text2);margin-bottom:14px}
+    .chart-wrap{position:relative;height:200px}
+
+    /* Table card */
+    .table-card{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:22px}
+    .table-hdr{padding:14px 18px;border-bottom:1px solid var(--border);
+               display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .table-hdr h3{font-size:15px;font-weight:700}
+    .search-input{background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;
+                  padding:7px 12px;color:var(--text);font-size:13px;outline:none;width:200px;transition:border-color .2s}
+    .search-input:focus{border-color:var(--accent)}
+    table{width:100%;border-collapse:collapse}
+    thead tr{background:rgba(0,0,0,.2)}
+    th{padding:9px 14px;font-size:11px;font-weight:700;color:var(--text3);text-align:left;
+       text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+    td{padding:11px 14px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle}
+    tr:last-child td{border-bottom:none}
+    tr:hover td{background:rgba(255,255,255,.02)}
+
+    /* Avatar */
+    .av{width:34px;height:34px;border-radius:50%;object-fit:cover;background:var(--brand);
+        display:inline-flex;align-items:center;justify-content:center;
+        font-size:13px;font-weight:700;color:#fff;flex-shrink:0}
+    .user-cell{display:flex;align-items:center;gap:10px}
+    .un{font-weight:600}.up{font-size:11px;color:var(--text3)}
+
+    /* Badges */
+    .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;
+           text-transform:uppercase;letter-spacing:.3px}
+    .b-free{background:rgba(100,116,139,.18);color:#94a3b8;border:1px solid rgba(100,116,139,.3)}
+    .b-member{background:rgba(99,102,241,.2);color:#818cf8;border:1px solid rgba(99,102,241,.35)}
+    .b-premium{background:rgba(245,158,11,.18);color:#fbbf24;border:1px solid rgba(245,158,11,.35)}
+
+    /* Controls */
+    .plan-sel{background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:7px;
+              padding:5px 8px;color:var(--text);font-size:12px;cursor:pointer;outline:none}
+    .plan-sel:focus{border-color:var(--accent)}
+    .btn-ic{background:none;border:1px solid transparent;border-radius:7px;padding:5px 8px;
+            cursor:pointer;font-size:14px;transition:background .15s;color:var(--text2)}
+    .btn-ic:hover{background:rgba(255,255,255,.08)}
+    .btn-ic.del:hover{background:rgba(239,68,68,.15);color:#f87171}
+
+    /* Plans section */
+    .plans-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:18px;margin-bottom:26px}
+    .plan-card{background:var(--card);border:1px solid var(--border);border-radius:16px;
+               padding:28px 22px;position:relative;overflow:hidden;transition:transform .2s}
+    .plan-card:hover{transform:translateY(-3px)}
+    .plan-card.feat{border-color:rgba(245,158,11,.45)}
+    .plan-card.feat::after{content:'POPULAR';position:absolute;top:14px;right:14px;
+      background:rgba(245,158,11,.18);color:#fbbf24;border:1px solid rgba(245,158,11,.4);
+      font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;letter-spacing:.5px}
+    .p-name{font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px}
+    .p-price{font-size:42px;font-weight:900;color:var(--text);margin:8px 0 2px;line-height:1}
+    .p-price span{font-size:16px;font-weight:500;color:var(--text3)}
+    .p-period{font-size:12px;color:var(--text3);margin-bottom:18px}
+    .p-feats{list-style:none}
+    .p-feats li{font-size:13px;color:var(--text2);padding:6px 0;
+                border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:7px}
+    .p-feats li:last-child{border-bottom:none}
+    .p-users{margin-top:18px;padding-top:14px;border-top:1px solid var(--border);font-size:24px;font-weight:900}
+    .p-users span{font-size:12px;font-weight:500;color:var(--text3)}
+
+    /* Misc */
+    .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+    .dot-on{background:var(--ok)}.dot-off{background:var(--text3)}
+    .empty{text-align:center;padding:36px 20px;color:var(--text3);font-size:13px}
+    .empty .eico{font-size:32px;margin-bottom:10px}
+    .spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,.15);
+             border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
+    ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.18)}
+    #toast{position:fixed;bottom:22px;right:22px;background:#1e293b;color:var(--text);
+           border:1px solid var(--border);border-radius:10px;padding:11px 18px;font-size:13px;
+           font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.4);
+           transform:translateY(80px);opacity:0;transition:all .3s;z-index:9999}
+    #toast.show{transform:translateY(0);opacity:1}
+    #toast.ok{border-color:rgba(34,197,94,.4);color:#86efac}
+    #toast.er{border-color:rgba(239,68,68,.4);color:#fca5a5}
+    @media(max-width:768px){.sidebar{display:none}.charts-row{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+
+<!-- ════════ LOGIN ════════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="app-name">OldFace</div>
+      <p>Panel de Administración</p>
+    </div>
+    <div class="fg">
+      <label>Email</label>
+      <input type="email" id="l-email" placeholder="admin@ejemplo.com" autocomplete="username" />
+    </div>
+    <div class="fg">
+      <label>Contraseña</label>
+      <input type="password" id="l-pass" placeholder="••••••••" autocomplete="current-password" />
+    </div>
+    <button class="btn-login" onclick="doLogin()">Entrar al panel</button>
+    <div class="l-err" id="l-err"></div>
+  </div>
+</div>
+
+<!-- ════════ DASHBOARD ════════ -->
+<div id="dashboard">
+  <div class="layout">
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sb-logo">
+        <h2>OldFace</h2>
+        <p>Admin Dashboard</p>
+      </div>
+      <nav class="sb-nav">
+        <div class="nav-item active" data-sec="overview" onclick="showSection('overview')">
+          <span class="ico">📊</span> Resumen
+        </div>
+        <div class="nav-item" data-sec="users" onclick="showSection('users')">
+          <span class="ico">👥</span> Usuarios
+        </div>
+        <div class="nav-item" data-sec="plans" onclick="showSection('plans')">
+          <span class="ico">💎</span> Planes
+        </div>
+        <div class="nav-item" data-sec="chats" onclick="showSection('chats')">
+          <span class="ico">💬</span> Chats
+        </div>
+        <div class="nav-item" data-sec="calls" onclick="showSection('calls')">
+          <span class="ico">📞</span> Llamadas
+        </div>
+      </nav>
+      <div class="sb-footer">
+        <div class="admin-info"><strong>williamduarte0412</strong><br>Administrador</div>
+        <button class="btn-logout" onclick="doLogout()">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <!-- Main area -->
+    <div class="main">
+      <div class="topbar">
+        <h1 id="sec-title">Resumen</h1>
+        <div class="topbar-meta" id="topbar-date"></div>
+      </div>
+      <div class="content">
+
+        <!-- ── OVERVIEW ── -->
+        <div class="section active" id="s-overview">
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-label">Usuarios</div><div class="stat-value" id="st-users"><span class="spinner"></span></div><div class="stat-icon">👤</div></div>
+            <div class="stat-card"><div class="stat-label">Activos hoy</div><div class="stat-value" id="st-active">—</div><div class="stat-icon">🟢</div></div>
+            <div class="stat-card"><div class="stat-label">Mensajes</div><div class="stat-value" id="st-msgs">—</div><div class="stat-icon">✉️</div></div>
+            <div class="stat-card"><div class="stat-label">Chats</div><div class="stat-value" id="st-chats">—</div><div class="stat-icon">💬</div></div>
+            <div class="stat-card"><div class="stat-label">Llamadas</div><div class="stat-value" id="st-calls">—</div><div class="stat-icon">📞</div></div>
+            <div class="stat-card"><div class="stat-label">Ingresos</div><div class="stat-value" id="st-revenue">—</div><div class="stat-icon">💰</div><div class="stat-sub">estimado anual</div></div>
+          </div>
+          <div class="charts-row">
+            <div class="chart-card">
+              <div class="chart-title">Distribución de planes</div>
+              <div class="chart-wrap"><canvas id="c-plans"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">Actividad global</div>
+              <div class="chart-wrap"><canvas id="c-activity"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── USUARIOS ── -->
+        <div class="section" id="s-users">
+          <div class="table-card">
+            <div class="table-hdr">
+              <h3>Todos los usuarios</h3>
+              <input class="search-input" type="text" id="u-search" placeholder="🔍 Buscar..." oninput="filterUsers()" />
+            </div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr>
+                  <th>Usuario</th><th>Teléfono</th><th>Plan</th>
+                  <th>Mensajes</th><th>Último acceso</th><th>Estado</th><th>Acciones</th>
+                </tr></thead>
+                <tbody id="u-tbody"><tr><td colspan="7" class="empty"><div class="spinner"></div></td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── PLANES ── -->
+        <div class="section" id="s-plans">
+          <div class="plans-grid" id="plans-grid"></div>
+          <div class="table-card">
+            <div class="table-hdr"><h3>Usuarios por plan</h3></div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>Usuario</th><th>Teléfono</th><th>Plan</th><th>Asignado</th><th>Mensajes</th></tr></thead>
+                <tbody id="p-tbody"><tr><td colspan="5" class="empty"><div class="spinner"></div></td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── CHATS ── -->
+        <div class="section" id="s-chats">
+          <div class="table-card">
+            <div class="table-hdr"><h3>Chats activos</h3></div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>Chat ID</th><th>Participantes</th><th>Mensajes</th><th>Último mensaje</th></tr></thead>
+                <tbody id="ch-tbody"><tr><td colspan="4" class="empty"><div class="spinner"></div></td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── LLAMADAS ── -->
+        <div class="section" id="s-calls">
+          <div class="table-card">
+            <div class="table-hdr"><h3>Historial de llamadas</h3></div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>De</th><th>A</th><th>Tipo</th><th>Estado</th><th>Duración</th><th>Fecha</th></tr></thead>
+                <tbody id="ca-tbody"><tr><td colspan="6" class="empty"><div class="spinner"></div></td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /content -->
+    </div><!-- /main -->
+  </div><!-- /layout -->
+</div><!-- /dashboard -->
+
+<div id="toast"></div>
+
+<script>
+// ── State ────────────────────────────────────────────────────
+let TOKEN = sessionStorage.getItem('adm_tok') || '';
+let stats = null;
+let users = [];
+let chartP = null, chartA = null;
+
+// ── Boot ─────────────────────────────────────────────────────
+document.getElementById('topbar-date').textContent =
+  new Date().toLocaleDateString('es',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+
+document.getElementById('l-pass').addEventListener('keydown', e => e.key==='Enter' && doLogin());
+document.getElementById('l-email').addEventListener('keydown', e => e.key==='Enter' && doLogin());
+
+if (TOKEN) initDashboard(); else showLogin();
+
+function showLogin() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('dashboard').style.display = 'none';
+}
+
+// ── Login / Logout ───────────────────────────────────────────
+async function doLogin() {
+  const email = document.getElementById('l-email').value.trim();
+  const pass  = document.getElementById('l-pass').value;
+  const errEl = document.getElementById('l-err');
+  errEl.textContent = '';
+  try {
+    const r = await fetch('/api/admin/login', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email, password: pass })
+    });
+    const d = await r.json();
+    if (!r.ok) { errEl.textContent = d.error || 'Credenciales incorrectas'; return; }
+    TOKEN = d.token;
+    sessionStorage.setItem('adm_tok', TOKEN);
+    initDashboard();
+  } catch(e) { errEl.textContent = 'Error de conexión'; }
+}
+
+function doLogout() {
+  TOKEN = ''; sessionStorage.removeItem('adm_tok');
+  showLogin();
+  document.getElementById('l-pass').value = '';
+}
+
+// ── Init dashboard ───────────────────────────────────────────
+async function initDashboard() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  await Promise.all([loadStats(), loadUsers()]);
+  renderOverview();
+  renderPlanCards();
+}
+
+// ── API ──────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    ...opts,
+    headers: { 'Content-Type':'application/json', 'x-admin-token': TOKEN, ...(opts.headers||{}) }
+  });
+  if (r.status === 401) { doLogout(); throw new Error('expired'); }
+  return r.json();
+}
+
+async function loadStats()  { try { stats = await api('/api/admin/stats'); } catch(e){} }
+async function loadUsers()  { try { const d = await api('/api/admin/users'); users = d.users || []; } catch(e){} }
+async function loadChats()  { try { const d = await api('/api/admin/chats'); renderChats(d.chats||[]); } catch(e){ renderChats([]); } }
+async function loadCalls()  { try { const d = await api('/api/admin/calls'); renderCalls(d.calls||[]); } catch(e){ renderCalls([]); } }
+
+// ── Navigation ───────────────────────────────────────────────
+const TITLES = { overview:'Resumen', users:'Usuarios', plans:'Planes', chats:'Chats', calls:'Llamadas' };
+
+function showSection(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.sec === id));
+  document.getElementById('s-' + id).classList.add('active');
+  document.getElementById('sec-title').textContent = TITLES[id];
+  if (id === 'chats')  loadChats();
+  if (id === 'calls')  loadCalls();
+  if (id === 'users')  renderUsersTable(users);
+  if (id === 'plans')  { renderPlanCards(); renderPlansTable(); }
+}
+
+// ── Overview ─────────────────────────────────────────────────
+function renderOverview() {
+  if (!stats) return;
+  set('st-users',   stats.users ?? '—');
+  set('st-active',  stats.activeToday ?? '—');
+  set('st-msgs',    fmtN(stats.totalMessages));
+  set('st-chats',   stats.chats ?? '—');
+  set('st-calls',   fmtN(stats.calls));
+  set('st-revenue', (stats.revenue || 0) + '€');
+  drawChartPlans();
+  drawChartActivity();
+}
+
+function drawChartPlans() {
+  const ctx = document.getElementById('c-plans').getContext('2d');
+  const pc = stats?.planCounts || { free:0, member:0, premium:0 };
+  if (chartP) chartP.destroy();
+  chartP = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Free','Member','Premium'],
+      datasets:[{ data:[pc.free,pc.member,pc.premium],
+        backgroundColor:['rgba(100,116,139,.65)','rgba(99,102,241,.65)','rgba(245,158,11,.65)'],
+        borderColor:['#64748b','#818cf8','#fbbf24'], borderWidth:1 }]
+    },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'bottom', labels:{ color:'#8fb3dd', font:{size:12}, padding:14 } } } }
+  });
+}
+
+function drawChartActivity() {
+  const ctx = document.getElementById('c-activity').getContext('2d');
+  if (chartA) chartA.destroy();
+  chartA = new Chart(ctx, {
+    type:'bar',
+    data:{
+      labels:['Usuarios','Chats','Llamadas','Grupos'],
+      datasets:[{ label:'Total',
+        data:[stats.users, stats.chats, stats.calls, stats.groups],
+        backgroundColor:['rgba(96,165,250,.6)','rgba(99,102,241,.6)','rgba(34,197,94,.6)','rgba(245,158,11,.6)'],
+        borderColor:['#60a5fa','#818cf8','#22c55e','#fbbf24'], borderWidth:1, borderRadius:6 }]
+    },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales:{ x:{ticks:{color:'#8fb3dd'}, grid:{color:'rgba(255,255,255,.04)'}},
+               y:{ticks:{color:'#8fb3dd'}, grid:{color:'rgba(255,255,255,.05)'}, beginAtZero:true} } }
+  });
+}
+
+// ── Users table ──────────────────────────────────────────────
+function filterUsers() {
+  const q = document.getElementById('u-search').value.toLowerCase();
+  renderUsersTable(users.filter(u => u.name.toLowerCase().includes(q) || u.phone.toLowerCase().includes(q)));
+}
+
+function renderUsersTable(list) {
+  const tb = document.getElementById('u-tbody');
+  if (!list.length) {
+    tb.innerHTML = '<tr><td colspan="7" class="empty"><div class="eico">👤</div>No hay usuarios</td></tr>';
+    return;
+  }
+  tb.innerHTML = list.map(u => {
+    const init = (u.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+    const online = u.lastSeen && (Date.now() - u.lastSeen < 300_000);
+    return `<tr>
+      <td><div class="user-cell">
+        ${u.avatar ? `<img src="${u.avatar}" class="av" />` : `<div class="av">${init}</div>`}
+        <div><div class="un">${esc(u.name)}</div><div class="up">${esc(u.id)}</div></div>
+      </div></td>
+      <td>${esc(u.phone)}</td>
+      <td><span class="badge b-${u.plan}">${u.plan}</span></td>
+      <td>${u.msgCount||0}</td>
+      <td>${u.lastSeen ? fmtD(u.lastSeen) : '—'}</td>
+      <td><span class="dot ${online?'dot-on':'dot-off'}"></span>${online?'En línea':'Offline'}</td>
+      <td style="white-space:nowrap">
+        <select class="plan-sel" onchange="changePlan('${u.id}',this.value)">
+          <option value="free" ${u.plan==='free'?'selected':''}>Free</option>
+          <option value="member" ${u.plan==='member'?'selected':''}>Member</option>
+          <option value="premium" ${u.plan==='premium'?'selected':''}>Premium</option>
+        </select>
+        <button class="btn-ic del" onclick="deleteUser('${u.id}','${esc(u.name)}')" title="Eliminar">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function changePlan(userId, plan) {
+  try {
+    await api(`/api/admin/users/${userId}/plan`, { method:'POST', body:JSON.stringify({ plan }) });
+    const u = users.find(u => u.id === userId);
+    if (u) u.plan = plan;
+    toast('Plan actualizado → ' + plan, 'ok');
+    await loadStats(); renderOverview(); renderPlanCards();
+  } catch(e) { toast('Error al cambiar plan', 'er'); }
+}
+
+async function deleteUser(userId, name) {
+  if (!confirm(`¿Eliminar a "${name}"?\nEsta acción no se puede deshacer.`)) return;
+  try {
+    await api(`/api/admin/users/${userId}`, { method:'DELETE' });
+    users = users.filter(u => u.id !== userId);
+    renderUsersTable(users);
+    toast('Usuario eliminado', 'ok');
+    await loadStats(); renderOverview(); renderPlanCards();
+  } catch(e) { toast('Error al eliminar', 'er'); }
+}
+
+// ── Plans ────────────────────────────────────────────────────
+const PLAN_DEFS = [
+  { id:'free', name:'Free', price:'0', sym:'€', period:'/año', color:'#64748b',
+    feats:['Mensajes de texto ilimitados','Llamadas de voz','Videollamadas básicas','Estado (1 imagen)','—'] },
+  { id:'member', name:'Member', price:'1', sym:'€', period:'/año', color:'#818cf8',
+    feats:['Todo en Free','Estados (hasta 5 imágenes/videos)','Notas de voz','Envío de archivos','Soporte básico'] },
+  { id:'premium', name:'Premium', price:'50', sym:'€', period:'/año', color:'#fbbf24', feat:true,
+    feats:['Todo en Member','Acceso prioritario','Almacenamiento ilimitado','Soporte 24/7 premium','Funciones exclusivas'] },
+];
+
+function renderPlanCards() {
+  const pc = stats?.planCounts || { free:0, member:0, premium:0 };
+  document.getElementById('plans-grid').innerHTML = PLAN_DEFS.map(p => `
+    <div class="plan-card${p.feat?' feat':''}">
+      <div class="p-name">${p.name}</div>
+      <div class="p-price">${p.price}<span> ${p.sym}</span></div>
+      <div class="p-period">${p.period}</div>
+      <ul class="p-feats">
+        ${p.feats.map(f => f==='—'
+          ? `<li style="color:var(--text3)">✕ Funciones limitadas</li>`
+          : `<li><span style="color:${p.color}">✓</span> ${f}</li>`).join('')}
+      </ul>
+      <div class="p-users">${pc[p.id]||0} <span>usuarios</span></div>
+    </div>`).join('');
+}
+
+function renderPlansTable() {
+  const tb = document.getElementById('p-tbody');
+  if (!users.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No hay datos</td></tr>'; return; }
+  const order = { premium:0, member:1, free:2 };
+  tb.innerHTML = [...users].sort((a,b) => (order[a.plan]??3)-(order[b.plan]??3)).map(u => `<tr>
+    <td><div class="user-cell">
+      <div class="av" style="width:28px;height:28px;font-size:11px">${(u.name||'?').slice(0,2).toUpperCase()}</div>
+      <span>${esc(u.name)}</span>
+    </div></td>
+    <td>${esc(u.phone)}</td>
+    <td><span class="badge b-${u.plan}">${u.plan}</span></td>
+    <td>${u.planSince ? fmtD(u.planSince) : '—'}</td>
+    <td>${u.msgCount||0}</td>
+  </tr>`).join('');
+}
+
+// ── Chats ────────────────────────────────────────────────────
+function renderChats(list) {
+  const tb = document.getElementById('ch-tbody');
+  if (!list.length) { tb.innerHTML = '<tr><td colspan="4" class="empty"><div class="eico">💬</div>No hay chats</td></tr>'; return; }
+  tb.innerHTML = list.map(c => `<tr>
+    <td style="font-family:monospace;font-size:11px;color:var(--text3)">${esc(c.id)}</td>
+    <td>${esc((c.participants||[]).join(', '))}</td>
+    <td>${c.msgCount||0}</td>
+    <td style="font-size:11px;color:var(--text3)">${c.lastMsg ? fmtD(c.lastMsg) : '—'}</td>
+  </tr>`).join('');
+}
+
+// ── Calls ─────────────────────────────────────────────────────
+function renderCalls(list) {
+  const tb = document.getElementById('ca-tbody');
+  if (!list.length) { tb.innerHTML = '<tr><td colspan="6" class="empty"><div class="eico">📞</div>No hay llamadas</td></tr>'; return; }
+  tb.innerHTML = list.slice(0,150).map(c => `<tr>
+    <td>${esc(c.callerId||c.from||'—')}</td>
+    <td>${esc(c.calleeId||c.to||'—')}</td>
+    <td>${c.type==='video'?'🎥 Video':'📞 Voz'}</td>
+    <td><span class="badge ${c.status==='completed'?'b-member':c.status==='missed'?'b-free':'b-premium'}">${c.status||'—'}</span></td>
+    <td>${c.duration ? fmtDur(c.duration) : '—'}</td>
+    <td style="font-size:11px;color:var(--text3)">${c.ts ? fmtD(c.ts) : '—'}</td>
+  </tr>`).join('');
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function set(id, val) { document.getElementById(id).textContent = val; }
+function fmtN(n) { if (!n) return '0'; return n >= 1000 ? (n/1000).toFixed(1)+'K' : String(n); }
+function fmtD(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString('es',{day:'2-digit',month:'2-digit',year:'2-digit'}) + ' ' +
+         d.toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
+}
+function fmtDur(s) { const m=Math.floor(s/60); return m ? `${m}m ${s%60}s` : `${s}s`; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.className = 'show ' + (type||'');
+  setTimeout(() => el.className = '', 3000);
+}
+</script>
+</body>
+</html>
