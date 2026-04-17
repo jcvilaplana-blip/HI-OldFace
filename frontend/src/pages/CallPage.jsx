@@ -46,7 +46,8 @@ export default function CallPage() {
   const loggedRef           = useRef(false);
   const earpieceTimer       = useRef([]);
   const zegoObserverRef     = useRef(null);
-  const bodySnapshotRef     = useRef(null); // hijos de body ANTES de joinRoom
+  const bodySnapshotRef     = useRef(null);
+  const hideStyleRef        = useRef(null); // <style> que oculta portals ZEGOCLOUD
 
   const [status,    setStatus]   = useState('calling');
   const [duration,  setDuration] = useState(0);
@@ -145,29 +146,19 @@ export default function CallPage() {
       window.OldFaceAudio?.setCallActive(true);
       window.OldFaceAudio?.setEarpiece();
 
-      // ── Snapshot de document.body ANTES de joinRoom ─────────────────────
-      bodySnapshotRef.current = new Set(Array.from(document.body.children));
-
-      // ── MutationObserver arranca ANTES de joinRoom ────────────────────────
-      // ZEGOCLOUD inyecta su tile en document.body durante el proceso de join,
-      // ANTES de que onJoinRoom dispare. Si esperamos a onJoinRoom es demasiado tarde.
-      const snapshot = bodySnapshotRef.current;
-      const hideZego = () => {
-        // 1. Portals de ZEGOCLOUD en document.body
-        Array.from(document.body.children).forEach(child => {
-          if (!snapshot.has(child)) {
-            child.style.setProperty('display', 'none', 'important');
-          }
-        });
-        // 2. Cualquier <video> en cualquier parte del DOM
-        document.querySelectorAll('video').forEach(v => {
-          v.style.setProperty('display', 'none', 'important');
-        });
-      };
-      if (!zegoObserverRef.current) {
-        const obs = new MutationObserver(hideZego);
-        obs.observe(document.body, { childList: true, subtree: true });
-        zegoObserverRef.current = obs;
+      // ── CSS global: oculta PERMANENTEMENTE los portals que ZEGOCLOUD inyecta ──
+      // El MutationObserver perdía la carrera con el re-render de ZEGOCLOUD.
+      // Una regla CSS en <head> se aplica de forma continua aunque ZEGOCLOUD
+      // destruya y recree elementos. Solo se excluyen #root, <script> y <style>.
+      if (!hideStyleRef.current) {
+        const s = document.createElement('style');
+        s.id = 'oc-voice-hide';
+        s.textContent =
+          'body>*:not(#root):not(script):not(style)' +
+          '{display:none!important;visibility:hidden!important;pointer-events:none!important;}' +
+          'video{display:none!important;visibility:hidden!important;}';
+        document.head.appendChild(s);
+        hideStyleRef.current = s;
       }
 
       zp.joinRoom({
@@ -190,9 +181,6 @@ export default function CallPage() {
           setStatus('active');
           timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
           window.OldFaceAudio?.setCallActive(true);
-
-          // Ocultar lo que ZEGOCLOUD haya inyectado hasta este momento
-          hideZego();
 
           // ── Auricular: retardos escalonados para capturar init tardía de ZEGOCLOUD ──
           earpieceTimer.current.forEach(clearTimeout);
@@ -218,11 +206,9 @@ export default function CallPage() {
     earpieceTimer.current = [];
     zegoObserverRef.current?.disconnect();
     zegoObserverRef.current = null;
-    // Restaurar visibilidad de cualquier elemento ocultado
-    const snapshot = bodySnapshotRef.current || new Set();
-    Array.from(document.body.children).forEach(child => {
-      if (!snapshot.has(child)) child.style.removeProperty('display');
-    });
+    // Eliminar la regla CSS que ocultaba los portals de ZEGOCLOUD
+    hideStyleRef.current?.remove();
+    hideStyleRef.current = null;
     window.OldFaceAudio?.setSpeaker();
     window.OldFaceAudio?.setCallActive(false);
     releaseCallInstance(user);
