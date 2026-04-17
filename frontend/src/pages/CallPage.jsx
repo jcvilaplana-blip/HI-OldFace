@@ -48,9 +48,10 @@ export default function CallPage() {
   const zegoObserverRef     = useRef(null);
   const bodySnapshotRef     = useRef(null); // hijos de body ANTES de joinRoom
 
-  const [status,   setStatus]   = useState('calling');
-  const [duration, setDuration] = useState(0);
-  const [micOn,    setMicOn]    = useState(true);
+  const [status,    setStatus]   = useState('calling');
+  const [duration,  setDuration] = useState(0);
+  const [micOn,     setMicOn]    = useState(true);
+  const [speakerOn, setSpeakerOn] = useState(false);
 
   const isIncoming = state?.isIncoming || false;
   const calleeName = state?.chat?.name || userId;
@@ -145,8 +146,29 @@ export default function CallPage() {
       window.OldFaceAudio?.setEarpiece();
 
       // ── Snapshot de document.body ANTES de joinRoom ─────────────────────
-      // Cualquier elemento que ZEGOCLOUD añada DESPUÉS lo ocultaremos.
       bodySnapshotRef.current = new Set(Array.from(document.body.children));
+
+      // ── MutationObserver arranca ANTES de joinRoom ────────────────────────
+      // ZEGOCLOUD inyecta su tile en document.body durante el proceso de join,
+      // ANTES de que onJoinRoom dispare. Si esperamos a onJoinRoom es demasiado tarde.
+      const snapshot = bodySnapshotRef.current;
+      const hideZego = () => {
+        // 1. Portals de ZEGOCLOUD en document.body
+        Array.from(document.body.children).forEach(child => {
+          if (!snapshot.has(child)) {
+            child.style.setProperty('display', 'none', 'important');
+          }
+        });
+        // 2. Cualquier <video> en cualquier parte del DOM
+        document.querySelectorAll('video').forEach(v => {
+          v.style.setProperty('display', 'none', 'important');
+        });
+      };
+      if (!zegoObserverRef.current) {
+        const obs = new MutationObserver(hideZego);
+        obs.observe(document.body, { childList: true, subtree: true });
+        zegoObserverRef.current = obs;
+      }
 
       zp.joinRoom({
         container:                    containerRef.current,
@@ -169,28 +191,8 @@ export default function CallPage() {
           timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
           window.OldFaceAudio?.setCallActive(true);
 
-          // ── Ocultar TODO lo que ZEGOCLOUD inyectó en document.body ────────
-          const snapshot = bodySnapshotRef.current || new Set();
-          const hideZego = () => {
-            // 1. Portals de ZEGOCLOUD en document.body
-            Array.from(document.body.children).forEach(child => {
-              if (!snapshot.has(child)) {
-                child.style.setProperty('display', 'none', 'important');
-              }
-            });
-            // 2. Cualquier <video> en cualquier parte del DOM
-            document.querySelectorAll('video').forEach(v => {
-              v.style.setProperty('display', 'none', 'important');
-            });
-          };
+          // Ocultar lo que ZEGOCLOUD haya inyectado hasta este momento
           hideZego();
-
-          if (!zegoObserverRef.current) {
-            // Vigilar directos de body (portals) y cualquier <video> que aparezca
-            const obs = new MutationObserver(hideZego);
-            obs.observe(document.body, { childList: true, subtree: true });
-            zegoObserverRef.current = obs;
-          }
 
           // ── Auricular: retardos escalonados para capturar init tardía de ZEGOCLOUD ──
           earpieceTimer.current.forEach(clearTimeout);
@@ -241,6 +243,17 @@ export default function CallPage() {
     const next = !micOn;
     setMicOn(next);
     try { zpRef.current?.turnMicrophoneOn?.(next); } catch {}
+  };
+
+  // ── Speaker toggle ────────────────────────────────────────────────────────
+  const handleSpeakerToggle = () => {
+    const next = !speakerOn;
+    setSpeakerOn(next);
+    if (next) {
+      window.OldFaceAudio?.enableSpeaker();   // altavoz ON, para el poller
+    } else {
+      window.OldFaceAudio?.setEarpiece();     // auricular ON, reinicia el poller
+    }
   };
 
   const fmt = (s) =>
@@ -321,10 +334,11 @@ export default function CallPage() {
           <div style={{
             background: 'rgba(44,44,46,0.97)',
             borderRadius: 60,
-            padding: '16px 40px',
+            padding: '16px 24px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-around',
+            gap: 8,
             boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
           }}>
 
@@ -356,6 +370,22 @@ export default function CallPage() {
                 <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
               </svg>
             </button>
+
+            {/* Altavoz */}
+            <CtrlBtn active={speakerOn} onPress={handleSpeakerToggle} label={speakerOn ? 'Auricular' : 'Altavoz'}>
+              {speakerOn
+                ? <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                    <path d="M19.07 4.93a10 10 0 010 14.14"/>
+                    <path d="M15.54 8.46a5 5 0 010 7.07"/>
+                  </svg>
+                : <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                    <line x1="23" y1="9" x2="17" y2="15"/>
+                    <line x1="17" y1="9" x2="23" y2="15"/>
+                  </svg>
+              }
+            </CtrlBtn>
 
           </div>
         </div>
