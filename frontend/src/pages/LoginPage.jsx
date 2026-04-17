@@ -2,7 +2,7 @@
  * LoginPage - Autenticación real por OTP SMS
  */
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
@@ -41,6 +41,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
   const [sentChannel, setSentChannel] = useState('email');
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   // Intentar prellenar el teléfono guardado por autofill
   useEffect(() => {
@@ -111,11 +112,24 @@ export default function LoginPage() {
       // OTP verificado — completar login
       setStep('loading');
       const userId = data.userId || generateUserId(phone);
+
+      // Recuperar avatar guardado en el backend (si el usuario ya había subido uno)
+      let savedAvatar = data.user?.avatar || null;
+      if (!savedAvatar) {
+        try {
+          const avatarRes = await fetch(`${BACKEND}/user/avatar/${userId}`);
+          if (avatarRes.ok) {
+            const avatarData = await avatarRes.json();
+            savedAvatar = avatarData.avatar || null;
+          }
+        } catch { /* silencioso */ }
+      }
+
       const userData = {
         id: userId,
         name: name.trim(),
         phone: phone.trim(),
-        avatar: null,
+        avatar: savedAvatar,
         createdAt: Date.now(),
       };
 
@@ -170,19 +184,21 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-oldface-50 to-oldface-100 flex flex-col items-center justify-center p-6">
+    /* Contenedor scrollable — ocupa todo el viewport sin romper el overflow:hidden del root */
+    <div style={{ height: '100%', overflowY: 'auto', background: 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)' }}>
+      <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '32px 24px 0' }}>
 
-      {/* Logo */}
-      <div className="mb-10 flex flex-col items-center animate-scale-in">
-        <div className="mb-4">
-          <img src="/logo-oldface.png" alt="OldFace" className="w-28 h-28 object-contain drop-shadow-2xl"
-               onError={(e) => { e.target.style.display='none'; }} />
+        {/* Logo */}
+        <div className="mb-10 flex flex-col items-center animate-scale-in">
+          <div className="mb-4">
+            <img src="/logo-oldface.png" alt="OldFace" className="w-28 h-28 object-contain drop-shadow-2xl"
+                 onError={(e) => { e.target.style.display='none'; }} />
+          </div>
+          <p className="text-oldface-500 text-sm mt-1 font-medium">Conecta con quien más quieres</p>
         </div>
-        <p className="text-oldface-500 text-sm mt-1 font-medium">Conecta con quien más quieres</p>
-      </div>
 
-      {/* Card */}
-      <div className="w-full max-w-sm bg-white rounded-3xl shadow-xl p-8 animate-slide-up">
+        {/* Card */}
+        <div className="w-full max-w-sm bg-white rounded-3xl shadow-xl p-8 animate-slide-up">
 
         {step === 'loading' && (
           <div className="flex flex-col items-center py-8">
@@ -235,18 +251,42 @@ export default function LoginPage() {
                 <p className="text-xs text-gray-400 mt-1">Recibirás el código aquí</p>
               </div>
 
+              {/* Checkbox de aceptación legal */}
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={termsAccepted}
+                  onChange={e => setTermsAccepted(e.target.checked)}
+                  style={{
+                    marginTop: 2, width: 18, height: 18, flexShrink: 0,
+                    accentColor: '#000080', cursor: 'pointer',
+                  }}
+                />
+                <span style={{ fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
+                  He leído y acepto los{' '}
+                  <Link to="/terms" style={{ color: '#000080', fontWeight: 600, textDecoration: 'underline' }}>
+                    Términos y condiciones
+                  </Link>
+                  {', '}la{' '}
+                  <Link to="/privacy" style={{ color: '#000080', fontWeight: 600, textDecoration: 'underline' }}>
+                    Política de privacidad
+                  </Link>
+                  {' '}y la{' '}
+                  <Link to="/cookies" style={{ color: '#000080', fontWeight: 600, textDecoration: 'underline' }}>
+                    Política de cookies
+                  </Link>
+                  {' '}de OldFace.
+                </span>
+              </label>
+
               <button
                 onClick={handleSendOtp}
-                disabled={!phone.trim() || !name.trim() || !email.trim() || loading}
+                disabled={!phone.trim() || !name.trim() || !email.trim() || !termsAccepted || loading}
                 className="w-full py-4 bg-oldface-500 text-white rounded-2xl font-bold text-lg disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all shadow-lg shadow-blue-100"
               >
                 {loading ? 'Enviando...' : 'Enviar código →'}
               </button>
             </div>
-
-            <p className="text-xs text-gray-400 text-center mt-4">
-              Al continuar aceptas los términos de OldFace
-            </p>
           </>
         )}
 
@@ -291,6 +331,20 @@ export default function LoginPage() {
             </button>
           </>
         )}
+        </div>
+
+        {/* Footer legal */}
+        <footer style={{ width: '100%', maxWidth: 384, textAlign: 'center', padding: '28px 0 32px', color: '#9ca3af', fontSize: 11 }}>
+          <p style={{ marginBottom: 10 }}>© {new Date().getFullYear()} OldFace. Todos los derechos reservados.</p>
+          <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '6px 14px' }}>
+            <Link to="/terms" style={{ color: '#000080', textDecoration: 'none', fontWeight: 500 }}>Términos y condiciones</Link>
+            <span style={{ color: '#d1d5db' }}>·</span>
+            <Link to="/privacy" style={{ color: '#000080', textDecoration: 'none', fontWeight: 500 }}>Privacidad</Link>
+            <span style={{ color: '#d1d5db' }}>·</span>
+            <Link to="/cookies" style={{ color: '#000080', textDecoration: 'none', fontWeight: 500 }}>Cookies</Link>
+          </div>
+        </footer>
+
       </div>
     </div>
   );

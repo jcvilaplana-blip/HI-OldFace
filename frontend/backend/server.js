@@ -16,8 +16,10 @@ const PORT = process.env.PORT || 3001;
 // ════════════════════════════════════════════════════════════════
 //  Persistencia en disco — JSON files en /data/
 // ════════════════════════════════════════════════════════════════
-const DATA_DIR = path.join(__dirname, 'data');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+const DATA_DIR    = path.join(__dirname, 'data');
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(DATA_DIR))    fs.mkdirSync(DATA_DIR,    { recursive: true });
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 function loadJSON(file, defaultValue = {}) {
   const filePath = path.join(DATA_DIR, file);
@@ -362,10 +364,12 @@ router.post('/verify-otp', async (req, res) => {
   const existingUser = userStore.get(normalizedPhone);
   const userData = {
     userId,
-    name: name?.trim() || existingUser?.name || 'Usuario',
-    phone: normalizedPhone,
+    name:         name?.trim() || existingUser?.name || 'Usuario',
+    phone:        normalizedPhone,
+    avatar:       existingUser?.avatar || null,   // preservar avatar existente
+    status:       existingUser?.status || null,   // preservar estado existente
     registeredAt: existingUser?.registeredAt || Date.now(),
-    lastLogin: Date.now(),
+    lastLogin:    Date.now(),
   };
 
   userStore.set(normalizedPhone, userData);
@@ -479,7 +483,7 @@ router.post('/register-fcm-token', (req, res) => {
 
 /** POST /call-notification — Envía FCM push al destinatario cuando se inicia una llamada */
 router.post('/call-notification', async (req, res) => {
-  const { calleeId, callerId, callerName, callType } = req.body || {};
+  const { calleeId, callerId, callerName, callType, roomId } = req.body || {};
   if (!calleeId || !callerId) return res.status(400).json({ error: 'calleeId y callerId son requeridos' });
 
   const fcmToken = fcmStore.get(calleeId);
@@ -495,6 +499,7 @@ router.post('/call-notification', async (req, res) => {
       callType:   callType || 'voice',
       callerId,
       callerName: callerName || callerId,
+      roomId:     roomId    || '',
     }, 'oldface_calls');
     return res.json({ success: true });
   } catch (e) {
@@ -520,7 +525,18 @@ router.post('/chats', (req, res) => {
     });
     saveChats();
   }
-  return res.json(chatStore2.get(chatId));
+  const chat = chatStore2.get(chatId);
+  // Resolver el nombre del otro participante desde userStore para la respuesta
+  const requesterId = userId1;
+  const otherId2 = chat.participants.find(p => p !== requesterId);
+  const otherUser2 = otherId2 ? [...userStore.values()].find(u => u.userId === otherId2) : null;
+  let resolvedName = otherUser2?.name || chat.name || 'Usuario';
+  if (resolvedName.startsWith('user_')) {
+    resolvedName = otherUser2?.phone
+      ? otherUser2.phone
+      : '+' + resolvedName.replace(/^user_/, '');
+  }
+  return res.json({ ...chat, name: resolvedName, avatar: otherUser2?.avatar || null });
 });
 
 /** GET /chats?userId= */
@@ -547,10 +563,61 @@ router.get('/chats', (req, res) => {
       // Chat 1-a-1: nombre y avatar del otro participante
       const otherId = c.participants.find(p => p !== userId);
       const otherUser = otherId ? [...userStore.values()].find(u => u.userId === otherId) : null;
-      return { ...c, name: otherUser?.name || c.name || 'Usuario', avatar: otherUser?.avatar || null };
+      let displayName = otherUser?.name || c.name || 'Usuario';
+      // Si el nombre sigue siendo un userId (user_XXXXX), usar el teléfono formateado
+      if (displayName.startsWith('user_')) {
+        displayName = otherUser?.phone
+          ? otherUser.phone
+          : '+' + displayName.replace(/^user_/, '');
+      }
+      return { ...c, name: displayName, avatar: otherUser?.avatar || null };
     })
     .sort((a, b) => b.lastTime - a.lastTime);
   return res.json({ chats: userChats });
+});
+
+/** DELETE /chats/:chatId — elimina el chat y todos sus mensajes */
+router.delete('/chats/:chatId', (req, res) => {
+  const { chatId } = req.params;
+  if (!chatId) return res.status(400).json({ error: 'chatId requerido' });
+  chatStore2.delete(chatId);
+  messageStore.delete(chatId);
+  saveChats();
+  saveMessages();
+  return res.json({ ok: true });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  SUBIDA DE ARCHIVOS — almacenamiento en disco, URL permanente
+// ════════════════════════════════════════════════════════════════
+
+/** POST /upload-file — convierte base64 → archivo binario en /uploads, devuelve URL */
+router.post('/upload-file', (req, res) => {
+  const { data, fileName } = req.body || {};
+  if (!data || !fileName) return res.status(400).json({ error: 'data y fileName requeridos' });
+  // Límite: 15 MB en base64 ≈ 11 MB real
+  if (data.length > 15_000_000) return res.status(413).json({ error: 'Archivo demasiado grande (máx ~10MB)' });
+  try {
+    const matches = data.match(/^data:([^;]+);base64,(.+)$/s);
+    if (!matches) return res.status(400).json({ error: 'Formato de datos inválido (se espera data URL)' });
+    const buffer  = Buffer.from(matches[2], 'base64');
+    const ext     = path.extname(fileName).replace(/[^a-zA-Z0-9.]/g, '').toLowerCase();
+    const safeName = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`;
+    fs.writeFileSync(path.join(UPLOADS_DIR, safeName), buffer);
+    console.log(`[upload-file] Guardado: ${safeName} (${buffer.length} bytes)`);
+    return res.json({ url: `/files/${safeName}` });
+  } catch (err) {
+    console.error('[upload-file] Error:', err.message);
+    return res.status(500).json({ error: 'Error al guardar el archivo' });
+  }
+});
+
+/** GET /files/:filename — sirve archivos subidos por los usuarios */
+router.get('/files/:filename', (req, res) => {
+  const safeName = path.basename(req.params.filename); // evita path traversal
+  const filePath = path.join(UPLOADS_DIR, safeName);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Archivo no encontrado' });
+  res.sendFile(filePath);
 });
 
 /** GET /messages/:chatId */
@@ -558,15 +625,29 @@ router.get('/messages/:chatId', (req, res) => {
   return res.json({ messages: messageStore.get(req.params.chatId) || [] });
 });
 
+/** DELETE /messages/:chatId/:messageId — elimina un mensaje concreto */
+router.delete('/messages/:chatId/:messageId', (req, res) => {
+  const { chatId, messageId } = req.params;
+  if (!chatId || !messageId) return res.status(400).json({ error: 'chatId y messageId requeridos' });
+  const msgs = messageStore.get(chatId) || [];
+  const idx  = msgs.findIndex(m => m.id === messageId);
+  if (idx === -1) return res.status(404).json({ error: 'Mensaje no encontrado' });
+  msgs.splice(idx, 1);
+  messageStore.set(chatId, msgs);
+  saveMessages();
+  return res.json({ ok: true });
+});
+
 /** POST /messages */
 router.post('/messages', async (req, res) => {
-  const { chatId, senderId, text, type = 'text', url, replyTo } = req.body || {};
+  const { chatId, senderId, text, type = 'text', url, replyTo, fileName } = req.body || {};
   if (!chatId || !senderId || !text) return res.status(400).json({ error: 'chatId, senderId y text son requeridos' });
 
   const msg = {
     id:        `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     chatId, senderId, text, type, url: url || null,
     replyTo:   replyTo || null,
+    fileName:  fileName || null,
     time:      new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
     createdAt: Date.now(),
   };

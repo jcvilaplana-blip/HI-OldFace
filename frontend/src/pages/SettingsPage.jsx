@@ -8,7 +8,32 @@ import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import Avatar from '../components/Avatar.jsx';
 
-const BRAND = '#000080';
+const BRAND   = '#000080';
+const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+
+/** Recorta y comprime la imagen a 150×150 JPEG < 30KB */
+function compressAvatar(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width  = 150;
+        canvas.height = 150;
+        const ctx = canvas.getContext('2d');
+        // Recorte cuadrado centrado
+        const side = Math.min(img.width, img.height);
+        const sx   = (img.width  - side) / 2;
+        const sy   = (img.height - side) / 2;
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, 150, 150);
+        resolve(canvas.toDataURL('image/jpeg', 0.75));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -24,18 +49,24 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const fileRef = useRef(null);
 
-  // ── Avatar upload ──
-  const handleAvatarChange = (e) => {
+  // ── Avatar upload — comprime a 150×150 JPEG y guarda en backend + localStorage ──
+  const handleAvatarChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { alert('La imagen no puede superar 5MB'); return; }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target.result;
-      setAvatarSrc(dataUrl);
-      setUser({ ...user, avatar: dataUrl });
-    };
-    reader.readAsDataURL(file);
+    if (file.size > 10 * 1024 * 1024) { alert('La imagen no puede superar 10MB'); return; }
+    try {
+      const compressed = await compressAvatar(file);
+      setAvatarSrc(compressed);
+      setUser({ ...user, avatar: compressed });
+      // Guardar en backend para que otros usuarios puedan ver la foto
+      fetch(`${BACKEND}/user/avatar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, avatar: compressed }),
+      }).catch(() => {});
+    } catch {
+      alert('No se pudo procesar la imagen');
+    }
   };
 
   // ── Save name ──
@@ -77,7 +108,7 @@ export default function SettingsPage() {
       {/* ── Header ── */}
       <div
         className="flex-shrink-0 px-4 pb-4"
-        style={{ backgroundColor: isDark ? '#031640' : BRAND, paddingTop: 'env(safe-area-inset-top, 44px)', borderBottom: isDark ? '1px solid rgba(255,255,255,0.07)' : 'none' }}
+        style={{ backgroundColor: isDark ? '#031640' : BRAND, paddingTop: 'var(--sat)', borderBottom: isDark ? '1px solid rgba(255,255,255,0.07)' : 'none' }}
       >
         <div className="flex items-center gap-3 pt-2">
           <button onClick={() => navigate(-1)} className="text-white p-1 -ml-1 active:opacity-70">

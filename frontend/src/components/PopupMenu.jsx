@@ -115,7 +115,7 @@ const MENU_ITEMS = [
   {
     id: 'groups',
     label: 'Grupos',
-    action: 'soon',
+    action: 'groups',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1z
          m0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>`
@@ -123,7 +123,7 @@ const MENU_ITEMS = [
   {
     id: 'status',
     label: 'Estado',
-    action: 'soon',
+    route: '/?tab=estados',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12
          l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>`
@@ -141,7 +141,7 @@ const MENU_ITEMS = [
 ];
 
 // ─── Componente principal ───────────────────────────────────────────────────
-export default function PopupMenu({ onClose }) {
+export default function PopupMenu({ onClose, onGroups }) {
   const navigate = useNavigate();
   const { user }  = useAuthStore();
   const isDirectoCreator = DIRECTO_ALLOWED.some(p =>
@@ -202,6 +202,9 @@ export default function PopupMenu({ onClose }) {
       }
       case 'directo':
         navigate('/directo');
+        break;
+      case 'groups':
+        onGroups?.();
         break;
       case 'soon':
         // Próximamente — no hacer nada
@@ -269,7 +272,7 @@ export default function PopupMenu({ onClose }) {
             display: 'grid',
             gridTemplateColumns: 'repeat(4, 1fr)',
             gap: '14px 8px',
-            padding: '4px 12px 24px',
+            padding: '4px 12px calc(var(--sab) + 24px)',
           }}
         >
           {MENU_ITEMS.map(item => (

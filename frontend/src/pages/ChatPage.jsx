@@ -46,7 +46,7 @@ export default function ChatPage() {
   const { state } = useLocation();
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const { messages, addMessage, loadMessages, persistMessage, createOrGetChat, markAsRead } = useChatStore();
+  const { messages, addMessage, loadMessages, persistMessage, createOrGetChat, markAsRead, updateMessageStatus, deleteMessage } = useChatStore();
   const { getCurrentPosition, formatLocationMessage } = useGeolocation();
 
   const { zimEngine, zimConnected: connected, sendChatMessage, sendVideoCall, sendVoiceCall } = useZegoStore();
@@ -66,9 +66,12 @@ export default function ChatPage() {
   const isNearBottomRef = useRef(true);
   const prevMsgCountRef = useRef(0);
   const inputRef = useRef(null);
-  const cameraInputRef = useRef(null);
+  const cameraPhotoRef = useRef(null);
+  const cameraVideoRef = useRef(null);
   const galleryInputRef = useRef(null);
   const docInputRef = useRef(null);
+  const [viewingDoc, setViewingDoc] = useState(null); // { httpUrl|blobUrl, fileName }
+  const [docDownloading, setDocDownloading] = useState(false);
 
   // ── Audio recording ───────────────────────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false);
@@ -201,6 +204,7 @@ export default function ChatPage() {
     addMessage(msgChatId, msg);
     const sentText = text.trim();
     setText('');
+    if (inputRef.current) inputRef.current.style.height = 'auto';
     setReplyTo(null);
     setShowEmojiPicker(false);
     setSending(true);
@@ -434,7 +438,7 @@ export default function ChatPage() {
         backgroundColor: T.bgSurface,
         borderBottom: `1px solid ${T.border}`,
         padding: '0 14px 10px',
-        paddingTop: 'env(safe-area-inset-top, 40px)',
+        paddingTop: 'var(--sat)',
         display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
       }}>
         <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, marginLeft: -4 }}>
@@ -497,6 +501,7 @@ export default function ChatPage() {
             T={T}
             isGroup={isGroup}
             memberNames={memberNames}
+            onDelete={(m) => deleteMessage(msgChatId, m.id)}
             onReply={(m) => setReplyTo({
               id:         m.id,
               text:       m.text,
@@ -505,6 +510,32 @@ export default function ChatPage() {
               isMine:     m.isMine,
             })}
             onExpandPhoto={(src) => setExpandedPhoto(src)}
+            onViewDoc={(docMsg) => {
+              const docName = docMsg.fileName
+                || docMsg.text?.match(/^\[Archivo: (.+)\]$/)?.[1]
+                || 'Archivo';
+              const rawUrl = docMsg.url || '';
+              // Documentos nuevos: URL HTTP real → visor directo
+              if (rawUrl.startsWith('http') || rawUrl.startsWith('/files/')) {
+                const httpUrl = rawUrl.startsWith('http')
+                  ? rawUrl
+                  : `${CHAT_BACKEND}${rawUrl}`;
+                setViewingDoc({ httpUrl, fileName: docName });
+                return;
+              }
+              // Legado: base64 → convertir a blobUrl para el visor
+              let blobUrl = rawUrl;
+              try {
+                const arr  = rawUrl.split(',');
+                const mime = arr[0].match(/:(.*?);/)[1];
+                const bstr = atob(arr[1]);
+                let n = bstr.length;
+                const u8 = new Uint8Array(n);
+                while (n--) u8[n] = bstr.charCodeAt(n);
+                blobUrl = URL.createObjectURL(new Blob([u8], { type: mime }));
+              } catch {}
+              setViewingDoc({ blobUrl, dataUrl: rawUrl, fileName: docName });
+            }}
           />
         ))}
         <div ref={messagesEndRef} />
@@ -518,7 +549,7 @@ export default function ChatPage() {
           padding: '8px 12px',
           display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
         }}>
-          <div style={{ width: 3, height: 36, background: BRAND, borderRadius: 4, flexShrink: 0 }} />
+          <div style={{ width: 3, height: 44, background: BRAND, borderRadius: 4, flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, margin: '0 0 2px' }}>
               {replyTo.senderName}
@@ -526,11 +557,18 @@ export default function ChatPage() {
             <p style={{ fontSize: 12, color: T.textSecondary, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {replyTo.type === 'location' ? '📍 Ubicación'
                : replyTo.type === 'audio' ? '🎤 Nota de voz'
-               : replyTo.type === 'image' ? '🖼️ Imagen'
-               : replyTo.type === 'video' ? '🎥 Video'
+               : replyTo.type === 'image' && !replyTo.url ? '🖼️ Imagen'
+               : replyTo.type === 'video' && !replyTo.url ? '🎥 Video'
+               : (replyTo.type === 'image' || replyTo.type === 'video') ? replyTo.text
                : replyTo.text?.length > 60 ? replyTo.text.slice(0, 60) + '…' : replyTo.text}
             </p>
           </div>
+          {/* Thumbnail cuando se responde a un mensaje con imagen/vídeo */}
+          {replyTo.url && (replyTo.type === 'image' || replyTo.type === 'video') && (
+            replyTo.type === 'video'
+              ? <video src={replyTo.url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} muted />
+              : <img    src={replyTo.url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
+          )}
           <button onClick={() => setReplyTo(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6L6 18M6 6l12 12"/>
@@ -579,6 +617,27 @@ export default function ChatPage() {
             display: 'flex', flexDirection: 'column', gap: 2,
             zIndex: 50, minWidth: 180,
           }} onClick={e => e.stopPropagation()}>
+            {/* Foto con cámara */}
+            <button onClick={() => { cameraPhotoRef.current?.click(); setShowAttachMenu(false); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
+              <span style={{ width: 36, height: 36, borderRadius: '50%', background: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+              </span>
+              Foto
+            </button>
+            {/* Video con cámara */}
+            <button onClick={() => { cameraVideoRef.current?.click(); setShowAttachMenu(false); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
+              <span style={{ width: 36, height: 36, borderRadius: '50%', background: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                </svg>
+              </span>
+              Video
+            </button>
             {/* Galería */}
             <button onClick={() => { galleryInputRef.current?.click(); setShowAttachMenu(false); }}
               style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
@@ -624,7 +683,9 @@ export default function ChatPage() {
         )}
 
         {/* Inputs ocultos */}
-        <input ref={cameraInputRef} type="file" accept="image/*,video/*" capture="environment" style={{ display: 'none' }}
+        <input ref={cameraPhotoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
+          onChange={e => { sendMediaFile(e.target.files?.[0]); e.target.value = ''; }} />
+        <input ref={cameraVideoRef} type="file" accept="video/*" capture="environment" style={{ display: 'none' }}
           onChange={e => { sendMediaFile(e.target.files?.[0]); e.target.value = ''; }} />
         <input ref={galleryInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }}
           onChange={e => { sendMediaFile(e.target.files?.[0]); e.target.value = ''; }} />
@@ -634,21 +695,53 @@ export default function ChatPage() {
             if (file) {
               const reader = new FileReader();
               reader.onload = async () => {
-                const dataUrl = reader.result;
+                const dataUrl    = reader.result;
+                const currentReply = replyTo;
+                const zimText    = `[Archivo: ${file.name}]`;
+                const localId    = `doc_${Date.now()}`;
                 const msg = {
-                  id: `doc_${Date.now()}`,
-                  type: 'document',
-                  text: `[Archivo: ${file.name}]`,
-                  url: dataUrl,
+                  id:       localId,
+                  type:     'document',
+                  text:     zimText,
+                  url:      dataUrl,   // base64 local para mostrar inmediatamente
                   fileName: file.name,
-                  sender: user.id,
-                  time: new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
-                  status: 'sending',
-                  isMine: true,
+                  sender:   user.id,
+                  time:     new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
+                  status:   'sending',
+                  isMine:   true,
+                  replyTo:  currentReply || null,
                 };
                 addMessage(msgChatId, msg);
+                setReplyTo(null);
                 setShowAttachMenu(false);
-                try { await persistMessage(msgChatId, user.id, msg.text, 'document', dataUrl); } catch {}
+                try {
+                  // 1. Subir el archivo al servidor → obtener URL HTTP permanente
+                  let fileUrl = dataUrl; // fallback si el upload falla
+                  try {
+                    const upRes = await fetch(`${CHAT_BACKEND}/upload-file`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ data: dataUrl, fileName: file.name }),
+                    });
+                    if (upRes.ok) {
+                      const upData = await upRes.json();
+                      fileUrl = upData.url.startsWith('http')
+                        ? upData.url
+                        : `${CHAT_BACKEND}${upData.url}`;
+                    }
+                  } catch (upErr) {
+                    console.warn('[Doc] upload error:', upErr?.message);
+                  }
+                  // 2. Persistir en backend con URL HTTP (no base64)
+                  await persistMessage(msgChatId, user.id, zimText, 'document', fileUrl, currentReply, file.name);
+                  // 3. Marcar como enviado
+                  updateMessageStatus(msgChatId, localId, 'sent');
+                  // 4. Notificar al destinatario por ZIM
+                  if (participantId) sendChatMessage(participantId, zimText);
+                } catch (err) {
+                  console.warn('[Doc] send error:', err?.message);
+                  updateMessageStatus(msgChatId, localId, 'error');
+                }
               };
               reader.readAsDataURL(file);
             }
@@ -665,9 +758,9 @@ export default function ChatPage() {
           </button>
         )}
 
-        {/* Botón cámara (izquierda, solo cuando no graba) */}
+        {/* Botón cámara — acceso rápido a foto (más opciones en el menú adjuntos) */}
         {!isRecording && (
-          <button onClick={() => { cameraInputRef.current?.click(); setShowAttachMenu(false); }}
+          <button onClick={() => { cameraPhotoRef.current?.click(); setShowAttachMenu(false); }}
             style={{ width: 40, height: 40, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
@@ -691,21 +784,26 @@ export default function ChatPage() {
             <style>{`@keyframes recBlink { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
           </div>
         ) : (
-          <div style={{ flex: 1, background: T.bgInput, borderRadius: 22, padding: '6px 12px 6px 14px', minHeight: 42, maxHeight: 128, display: 'flex', alignItems: 'center', gap: 6, border: `1px solid ${T.border}` }}>
+          <div style={{ flex: 1, background: T.bgInput, borderRadius: 22, padding: '6px 12px 6px 14px', minHeight: 42, display: 'flex', alignItems: 'flex-end', gap: 6, border: `1px solid ${T.border}` }}>
             {/* Icono emoji — toggle picker / teclado */}
             <button onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(v => !v); setShowAttachMenu(false); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 20, lineHeight: 1, flexShrink: 0, opacity: 0.7 }}>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 20, lineHeight: 1, flexShrink: 0, opacity: 0.7, marginBottom: 2 }}>
               {showEmojiPicker ? '⌨️' : '😊'}
             </button>
             <textarea
               ref={inputRef}
               value={text}
-              onChange={e => setText(e.target.value)}
+              onChange={e => {
+                setText(e.target.value);
+                const ta = e.target;
+                ta.style.height = 'auto';
+                ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+              }}
               onKeyDown={handleKeyDown}
               onFocus={() => setShowEmojiPicker(false)}
               placeholder="Mensaje..."
               rows={1}
-              style={{ width: '100%', resize: 'none', outline: 'none', fontSize: 14, fontWeight: 500, color: T.textPrimary, background: 'transparent', maxHeight: 80, lineHeight: 1.5 }}
+              style={{ width: '100%', resize: 'none', outline: 'none', fontSize: 14, fontWeight: 500, color: T.textPrimary, background: 'transparent', lineHeight: 1.5, overflowY: 'auto', overflowX: 'hidden', padding: '3px 0' }}
             />
           </div>
         )}
@@ -745,10 +843,183 @@ export default function ChatPage() {
         )}
       </div>
 
+      {/* Visor fullscreen: documento */}
+      {viewingDoc && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#111', display: 'flex', flexDirection: 'column' }}>
+          {/* Cabecera */}
+          <div style={{
+            background: '#000080', padding: '0 14px 12px',
+            paddingTop: 'max(12px, env(safe-area-inset-top, 12px))',
+            display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+          }}>
+            <button
+              onClick={() => {
+                if (!viewingDoc.httpUrl && viewingDoc.blobUrl?.startsWith('blob:')) {
+                  URL.revokeObjectURL(viewingDoc.blobUrl);
+                }
+                setViewingDoc(null);
+              }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0 }}>
+              <svg width="24" height="24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <path d="M15 19l-7-7 7-7"/>
+              </svg>
+            </button>
+            <span style={{ flex: 1, color: 'white', fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {viewingDoc.fileName}
+            </span>
+          </div>
+
+          {/* Cuerpo — icono + nombre + botones Abrir y Guardar */}
+          <div style={{
+            flex: 1, display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: 24, padding: 32,
+          }}>
+            {/* Icono grande del archivo */}
+            <div style={{
+              width: 96, height: 96, borderRadius: 24,
+              background: 'rgba(255,255,255,0.1)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+            </div>
+
+            {/* Nombre del archivo */}
+            <p style={{ color: 'white', fontWeight: 700, fontSize: 16, textAlign: 'center', margin: 0, wordBreak: 'break-word' }}>
+              {viewingDoc.fileName}
+            </p>
+
+            {/* Botón: Descargar — guarda en Descargas o muestra selector de ubicación */}
+            <button
+              disabled={docDownloading}
+              onClick={async () => {
+                const { httpUrl, blobUrl, dataUrl, fileName } = viewingDoc;
+                setDocDownloading(true);
+                try {
+                  // ── 1. Obtener blob ─────────────────────────────────────────
+                  let blob;
+                  if (httpUrl) {
+                    const res = await fetch(httpUrl);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    blob = await res.blob();
+                  } else if (blobUrl?.startsWith('blob:')) {
+                    blob = await fetch(blobUrl).then(r => r.blob());
+                  } else if (dataUrl) {
+                    const arr  = dataUrl.split(',');
+                    const mime = arr[0].match(/:(.*?);/)[1];
+                    const bstr = atob(arr[1]);
+                    const u8   = new Uint8Array(bstr.length);
+                    for (let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
+                    blob = new Blob([u8], { type: mime });
+                  }
+                  if (!blob) throw new Error('Sin datos');
+
+                  // ── 2. Blob → base64 ────────────────────────────────────────
+                  const base64 = await new Promise((resolve, reject) => {
+                    const rd = new FileReader();
+                    rd.onload  = () => resolve(rd.result.split(',')[1]);
+                    rd.onerror = reject;
+                    rd.readAsDataURL(blob);
+                  });
+
+                  const { Filesystem, Directory } = await import('@capacitor/filesystem');
+                  const { Share }                 = await import('@capacitor/share');
+
+                  // ── 3a. Intentar guardar directamente en carpeta Descargas ──
+                  //   ExternalStorage = /sdcard/  →  path "Download/nombre.pdf"
+                  //   Funciona en Android ≤ 10 (+ requestLegacyExternalStorage)
+                  let savedOk = false;
+                  try {
+                    await Filesystem.requestPermissions();
+                    await Filesystem.writeFile({
+                      path:      `Download/${fileName}`,
+                      data:      base64,
+                      directory: Directory.ExternalStorage,
+                      recursive: true,
+                    });
+                    savedOk = true;
+                  } catch { /* Android 11+ no permite escritura directa → usar share */ }
+
+                  if (savedOk) {
+                    // Archivo guardado → abrir con la app asociada (PDF viewer, etc.)
+                    const { uri } = await Filesystem.getUri({
+                      path:      `Download/${fileName}`,
+                      directory: Directory.ExternalStorage,
+                    });
+                    // Pequeño alert nativo de confirmación
+                    await Share.share({
+                      files:       [uri],
+                      title:       `${fileName} guardado`,
+                      dialogTitle: `Abrir ${fileName}`,
+                    });
+                    return;
+                  }
+
+                  // ── 3b. Fallback Android 11+: guardar en caché + share sheet ─
+                  //   files: [uri] → muestra "Mis Archivos", "Descargas", Drive…
+                  //   El usuario elige dónde guardarlo en el dispositivo.
+                  await Filesystem.writeFile({
+                    path:      fileName,
+                    data:      base64,
+                    directory: Directory.Cache,
+                    recursive: true,
+                  });
+                  const { uri } = await Filesystem.getUri({
+                    path:      fileName,
+                    directory: Directory.Cache,
+                  });
+                  await Share.share({
+                    files:       [uri],           // ← files[], no url — muestra apps de archivo
+                    title:       fileName,
+                    dialogTitle: 'Guardar en el dispositivo',
+                  });
+
+                } catch (err) {
+                  console.warn('[Doc] download error:', err?.message);
+                  if (httpUrl) window.open(httpUrl, '_blank');
+                } finally {
+                  setDocDownloading(false);
+                }
+              }}
+              style={{
+                width: '100%', maxWidth: 320,
+                background: docDownloading ? '#4a4a8a' : '#000080',
+                color: 'white', border: 'none',
+                borderRadius: 16, padding: '16px 0',
+                fontSize: 16, fontWeight: 800,
+                cursor: docDownloading ? 'default' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                opacity: docDownloading ? 0.7 : 1,
+              }}
+            >
+              {docDownloading ? (
+                <>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
+                    <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                  </svg>
+                  Descargando...
+                </>
+              ) : (
+                <>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  Descargar
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Visor fullscreen: imagen o video */}
       {expandedPhoto && (
         <div
-          style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setExpandedPhoto(null)}
         >
           {expandedPhoto?.type === 'video' ? (
@@ -763,12 +1034,12 @@ export default function ChatPage() {
           ) : (
             <img
               src={typeof expandedPhoto === 'string' ? expandedPhoto : expandedPhoto.src}
-              style={{ maxWidth: '92vw', maxHeight: '92vh', borderRadius: 16, objectFit: 'contain' }}
+              style={{ width: '100vw', maxHeight: '100vh', objectFit: 'contain' }}
             />
           )}
           <button
             onClick={() => setExpandedPhoto(null)}
-            style={{ position: 'absolute', top: 20, right: 20, width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            style={{ position: 'absolute', top: 20, right: 20, width: 40, height: 40, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1.5px solid rgba(255,255,255,0.3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6L6 18M6 6l12 12"/>
             </svg>
@@ -911,7 +1182,7 @@ function VideoThumb({ src, onClick }) {
   );
 }
 
-function MessageBubble({ msg, isDark, T, onReply, isGroup, memberNames = {}, onExpandPhoto }) {
+function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames = {}, onExpandPhoto, onViewDoc }) {
   const isLocation = msg.type === 'location';
   const isAudio    = msg.type === 'audio';
   const isImage    = msg.type === 'image';
@@ -942,24 +1213,42 @@ function MessageBubble({ msg, isDark, T, onReply, isGroup, memberNames = {}, onE
         <div style={{
           position: 'absolute', [msg.isMine ? 'left' : 'right']: 0,
           top: '50%', transform: 'translateY(-50%)',
-          display: 'flex', gap: 4, zIndex: 10,
-          background: isDark ? 'rgba(10,22,40,0.95)' : 'rgba(255,255,255,0.97)',
-          borderRadius: 24, padding: '4px 8px',
-          boxShadow: '0 2px 12px rgba(0,0,0,0.18)',
+          display: 'flex', alignItems: 'center', gap: 2, zIndex: 10,
+          background: isDark ? 'rgba(10,22,40,0.97)' : 'rgba(255,255,255,0.98)',
+          borderRadius: 24, padding: '4px 6px',
+          boxShadow: '0 2px 14px rgba(0,0,0,0.22)',
         }}>
+          {/* Responder */}
           <button
             onClick={(e) => { e.stopPropagation(); onReply(msg); setShowReplyBtn(false); }}
-            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', borderRadius: 16, color: '#000080', fontSize: 12, fontWeight: 700 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: '5px 8px', borderRadius: 16, color: '#000080', fontSize: 12, fontWeight: 700 }}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#000080" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000080" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 17H5a2 2 0 01-2-2V5a2 2 0 012-2h11a2 2 0 012 2v3"/>
-              <path d="M13 21l-4-4 4-4"/>
-              <path d="M9 17h8a2 2 0 002-2v-5"/>
+              <path d="M13 21l-4-4 4-4"/><path d="M9 17h8a2 2 0 002-2v-5"/>
             </svg>
             Responder
           </button>
+
+          {/* Separador */}
+          <div style={{ width: 1, height: 20, background: isDark ? 'rgba(255,255,255,0.12)' : '#e5e7eb', flexShrink: 0 }} />
+
+          {/* Eliminar */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete?.(msg); setShowReplyBtn(false); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: '5px 8px', borderRadius: 16, color: '#ef4444', fontSize: 12, fontWeight: 700 }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+              <path d="M10 11v6M14 11v6"/>
+            </svg>
+            Eliminar
+          </button>
+
+          {/* Cerrar */}
           <button onClick={() => setShowReplyBtn(false)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: T.textMuted, fontSize: 18, lineHeight: 1 }}>
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 5px', color: T.textMuted, fontSize: 17, lineHeight: 1 }}>
             ×
           </button>
         </div>
@@ -984,21 +1273,30 @@ function MessageBubble({ msg, isDark, T, onReply, isGroup, memberNames = {}, onE
         {msg.replyTo && (
           <div style={{
             borderLeft: `3px solid ${msg.isMine ? 'rgba(255,255,255,0.6)' : '#000080'}`,
-            paddingLeft: 8, marginBottom: 6,
-            background: msg.isMine ? 'rgba(255,255,255,0.15)' : isDark ? 'rgba(0,0,128,0.12)' : 'rgba(0,0,128,0.06)',
+            background: 'rgba(0,0,0,0.28)',
             borderRadius: '0 6px 6px 0', padding: '4px 8px',
             margin: '0 0 6px',
+            display: 'flex', alignItems: 'center', gap: 8,
           }}>
-            <p style={{ fontSize: 12, fontWeight: 800, color: msg.isMine ? 'rgba(255,255,255,0.9)' : '#000080', margin: '0 0 2px' }}>
-              {msg.replyTo.senderName}
-            </p>
-            <p style={{ fontSize: 12, color: msg.isMine ? 'rgba(255,255,255,0.75)' : T.textMuted, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
-              {msg.replyTo.type === 'location' ? '📍 Ubicación'
-               : msg.replyTo.type === 'audio' ? '🎤 Nota de voz'
-               : msg.replyTo.type === 'image' ? '🖼️ Imagen'
-               : msg.replyTo.type === 'video' ? '🎥 Video'
-               : msg.replyTo.text?.length > 55 ? msg.replyTo.text.slice(0, 55) + '…' : msg.replyTo.text}
-            </p>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 12, fontWeight: 800, color: msg.isMine ? 'rgba(255,255,255,0.9)' : '#000080', margin: '0 0 2px' }}>
+                {msg.replyTo.senderName}
+              </p>
+              <p style={{ fontSize: 12, color: msg.isMine ? 'rgba(255,255,255,0.75)' : T.textMuted, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+                {msg.replyTo.type === 'location' ? '📍 Ubicación'
+                 : msg.replyTo.type === 'audio' ? '🎤 Nota de voz'
+                 : msg.replyTo.type === 'image' && !msg.replyTo.url ? '🖼️ Imagen'
+                 : msg.replyTo.type === 'video' && !msg.replyTo.url ? '🎥 Video'
+                 : (msg.replyTo.type === 'image' || msg.replyTo.type === 'video') ? msg.replyTo.text
+                 : msg.replyTo.text?.length > 55 ? msg.replyTo.text.slice(0, 55) + '…' : msg.replyTo.text}
+              </p>
+            </div>
+            {/* Thumbnail del estado — solo cuando hay imagen o vídeo */}
+            {msg.replyTo.url && (msg.replyTo.type === 'image' || msg.replyTo.type === 'video') && (
+              msg.replyTo.type === 'video'
+                ? <video src={msg.replyTo.url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} muted />
+                : <img    src={msg.replyTo.url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
+            )}
           </div>
         )}
 
@@ -1011,15 +1309,47 @@ function MessageBubble({ msg, isDark, T, onReply, isGroup, memberNames = {}, onE
           />
         ) : isVideo ? (
           <VideoThumb src={msg.url} onClick={() => onExpandPhoto?.({ type: 'video', src: msg.url })} />
-        ) : isDocument ? (
-          <a href={msg.url} download={msg.fileName || 'archivo'}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, color: msg.isMine ? '#dbeafe' : '#000080', textDecoration: 'none' }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
-            </svg>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>{msg.fileName || 'Archivo'}</span>
-          </a>
-        ) : isContact ? (() => {
+        ) : isDocument ? (() => {
+          // Extraer nombre de fichero (con fallback para mensajes antiguos sin fileName)
+          const docName = msg.fileName
+            || msg.text?.match(/^\[Archivo: (.+)\]$/)?.[1]
+            || 'Archivo';
+          // Extensión para mostrar badge de tipo
+          const ext = docName.split('.').pop()?.toUpperCase().slice(0, 4) || 'DOC';
+          return (
+          <button
+            onClick={() => onViewDoc?.(msg)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              background: 'none', border: 'none', cursor: 'pointer',
+              padding: '4px 0', textAlign: 'left', width: '100%',
+            }}>
+            {/* Icono con badge de extensión — siempre azul oscuro sobre blanco */}
+            <span style={{
+              width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+              background: '#000080',
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 1,
+            }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+              </svg>
+              <span style={{ fontSize: 7, color: 'white', fontWeight: 900, lineHeight: 1, letterSpacing: '0.3px' }}>{ext}</span>
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{
+                fontSize: 13, fontWeight: 700,
+                color: msg.isMine ? (isDark ? '#dbeafe' : '#1e3a8a') : (isDark ? '#dce8ff' : '#1e3a8a'),
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180,
+              }}>{docName}</div>
+              <div style={{ fontSize: 11, color: msg.isMine ? (isDark ? '#93c5fd' : '#3b82f6') : (isDark ? '#93b8e0' : '#6b7280'), marginTop: 2 }}>
+                Toca para descargar
+              </div>
+            </div>
+          </button>
+          );
+        })()
+        : isContact ? (() => {
           let cName = '—', cPhone = '—';
           try { const d = JSON.parse(msg.url || '{}'); cName = d.name || '—'; cPhone = d.phone || '—'; } catch {}
           return (

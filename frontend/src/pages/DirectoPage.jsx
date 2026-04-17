@@ -108,7 +108,7 @@ export default function DirectoPage() {
       {/* Header */}
       <div style={{
         background: RED, color: 'white', flexShrink: 0,
-        paddingTop: 'env(safe-area-inset-top, 40px)',
+        paddingTop: 'var(--sat)',
         boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px 14px' }}>

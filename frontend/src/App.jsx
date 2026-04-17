@@ -17,6 +17,9 @@ import ContactsPage  from './pages/ContactsPage.jsx';
 import SettingsPage  from './pages/SettingsPage.jsx';
 import DirectoPage     from './pages/DirectoPage.jsx';
 import DirectoLivePage from './pages/DirectoLivePage.jsx';
+import TermsPage    from './pages/TermsPage.jsx';
+import PrivacyPage  from './pages/PrivacyPage.jsx';
+import CookiesPage  from './pages/CookiesPage.jsx';
 
 const BRAND = '#000080';
 
@@ -383,9 +386,21 @@ export default function AppRoot() {
               // El sonido lo gestiona el sistema; en foreground solo mostramos la notificación
             });
 
-            // Usuario pulsa la notificación → navegar al chat correspondiente
+            // Usuario pulsa la notificación → navegar al chat o a la llamada
             PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
               const data = action.notification?.data || {};
+              if (data.type === 'call' && data.callerId) {
+                // Llamada entrante via FCM (incluyendo invitaciones a videollamada en curso)
+                import('./store/zegoStore').then(({ useZegoStore }) => {
+                  useZegoStore.getState().setPendingFCMCall({
+                    callType:   data.callType || 'video',
+                    callerId:   data.callerId,
+                    callerName: data.callerName || data.callerId,
+                    roomId:     data.roomId    || null,
+                  });
+                }).catch(() => {});
+                return;
+              }
               if (data.chatId) {
                 window.location.hash = '';
                 // Navegar al chat usando la URL directamente (funciona fuera del router)
@@ -423,27 +438,20 @@ export default function AppRoot() {
 
 // ── Shell interior al BrowserRouter ──────────────────────────────────────────
 function AppShell() {
+  const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuthStore();
-  const { init: initZego, setContainerRef, incomingCall, isCallActive,
-          outgoingCancel, acceptCall, rejectCall, cancelOutgoing, callError,
-          currentCallInfo } = useZegoStore();
+  const { init: initZego, incomingCall, acceptCall, rejectCall, callError,
+          pendingCallOut, clearPendingCall, callAccepted, clearCallAccepted,
+          pendingFCMCall, clearPendingFCMCall } = useZegoStore();
 
-  // Div global donde UIKit renderiza el video de la llamada
-  const callContainerRef = useRef(null);
-  // Ref que siempre tiene el valor actual de isCallActive para el handler de back button
-  const isCallActiveRef = useRef(false);
-
-  // Inicializar ZIM + UIKit cuando el usuario se autentica (zegoStore gestiona ambos)
+  // Inicializar ZIM + UIKit cuando el usuario se autentica
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
-    // Validar que el userId no tenga caracteres inválidos para ZEGOCLOUD (+, espacios, etc.)
-    // Si el ID es inválido (sesión antigua), forzar re-login para obtener ID limpio
     if (!/^[a-zA-Z0-9_-]+$/.test(user.id)) {
       console.warn('[Auth] User ID inválido, forzando re-login:', user.id);
       logout();
       return;
     }
-    setContainerRef(callContainerRef);
     initZego(user);
 
     // Re-enviar token FCM al backend si el usuario acaba de autenticarse
@@ -457,13 +465,34 @@ function AppShell() {
     })();
   }, [isAuthenticated, user?.id]);
 
-  // Mantener el ref sincronizado con isCallActive
+  // ── Navegar a call room cuando el usuario inicia una llamada ─────────────
   useEffect(() => {
-    isCallActiveRef.current = isCallActive;
-  }, [isCallActive]);
+    if (!pendingCallOut) return;
+    const { calleeId, calleeName, callType, roomId } = pendingCallOut;
+    clearPendingCall();
+    const path = callType === 'video' ? 'video-call' : 'call';
+    navigate(`/${path}/${calleeId}`, { state: { chat: { name: calleeName }, isIncoming: false, roomId } });
+  }, [pendingCallOut]);
+
+  // ── Navegar a call room cuando el usuario acepta una llamada ─────────────
+  useEffect(() => {
+    if (!callAccepted) return;
+    const { callerId, callerName, callType, roomId } = callAccepted;
+    clearCallAccepted();
+    const path = callType === 'video' ? 'video-call' : 'call';
+    navigate(`/${path}/${callerId}`, { state: { chat: { name: callerName }, isIncoming: true, roomId } });
+  }, [callAccepted]);
+
+  // ── Navegar a call room al pulsar notificación FCM de llamada ─────────────
+  useEffect(() => {
+    if (!pendingFCMCall) return;
+    const { callerId, callerName, callType, roomId } = pendingFCMCall;
+    clearPendingFCMCall();
+    const path = callType === 'video' ? 'video-call' : 'call';
+    navigate(`/${path}/${callerId}`, { state: { chat: { name: callerName || callerId }, isIncoming: true, roomId: roomId || null } });
+  }, [pendingFCMCall]);
 
   // ── Único handler de back button Android ─────────────────────────────────
-  // Se registra una sola vez. Consulta el ref para decidir si ignorar.
   useEffect(() => {
     let handle = null;
     (async () => {
@@ -472,15 +501,16 @@ function AppShell() {
         if (!Capacitor.isNativePlatform()) return;
         const { App: CapApp } = await import('@capacitor/app');
         handle = await CapApp.addListener('backButton', ({ canGoBack }) => {
-          // Si hay llamada activa, no retroceder (el usuario usa el botón de colgar de ZEGOCLOUD)
-          if (isCallActiveRef.current) return;
+          // No interrumpir llamadas/videollamadas activas con el botón de retroceso
+          const path = window.location.pathname;
+          if (path.startsWith('/call/') || path.startsWith('/video-call/')) return;
           if (!canGoBack) CapApp.exitApp();
           else window.history.back();
         });
       } catch { /* web: no aplica */ }
     })();
     return () => { handle?.remove?.(); };
-  }, []); // solo se registra una vez
+  }, []);
 
   // ── Ringtone cuando hay llamada entrante ──────────────────────────────────
   const isRinging = !!incomingCall;
@@ -513,36 +543,22 @@ function AppShell() {
   return (
     <>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login"   element={<LoginPage />} />
+        <Route path="/terms"   element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/cookies" element={<CookiesPage />} />
         <Route path="/"        element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
         <Route path="/chat/:chatId" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
         <Route path="/contacts"    element={<ProtectedRoute><ContactsPage /></ProtectedRoute>} />
         <Route path="/settings"    element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
         <Route path="/directo"     element={<ProtectedRoute><DirectoPage /></ProtectedRoute>} />
         <Route path="/directo/:directoId/live" element={<ProtectedRoute><DirectoLivePage /></ProtectedRoute>} />
+        <Route path="/video-call/:userId" element={<ProtectedRoute><VideoCallPage /></ProtectedRoute>} />
+        <Route path="/call/:userId"        element={<ProtectedRoute><CallPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
-      {/* ── Contenedor global de videollamada (UIKit renderiza aquí) ─────── */}
-      {/* Siempre en el DOM con dimensiones reales para que UIKit pueda renderizar
-          en él antes de que React re-renderice. Ocultamos con zIndex/-1 y
-          pointer-events:none en lugar de display:none. */}
-      <div
-        ref={callContainerRef}
-        style={{
-          position: 'fixed', inset: 0,
-          zIndex:        isCallActive ? 200 : -1,
-          pointerEvents: isCallActive ? 'auto' : 'none',
-          visibility:    isCallActive ? 'visible' : 'hidden',
-        }}
-      />
-
-      {/* ── Pantalla de espera saliente (Llamando...) ────────────────────── */}
-      {isCallActive && outgoingCancel && !incomingCall && (
-        <OutgoingCallOverlay onCancel={cancelOutgoing} callInfo={currentCallInfo} />
-      )}
-
-      {/* ── Modal llamada entrante ─────────────────────────────────────── */}
+      {/* ── Modal llamada entrante (ZIM signaling) ─────────────────────── */}
       {incomingCall && (
         <IncomingCallModal
           call={incomingCall}

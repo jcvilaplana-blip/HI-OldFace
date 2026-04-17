@@ -4,9 +4,14 @@
 import React from 'react';
 
 const COLORS = [
-  'bg-oldface-400', 'bg-blue-400', 'bg-purple-400',
-  'bg-amber-400', 'bg-pink-400', 'bg-teal-400', 'bg-indigo-400'
+  '#3b82f6', '#8b5cf6', '#f59e0b',
+  '#ec4899', '#14b8a6', '#6366f1', '#000080'
 ];
+
+const FONT_SIZES = { sm: 13, md: 15, lg: 15, xl: 22 };
+
+// Tamaños en px — explícitos para evitar dependencia de clases Tailwind no estándar
+const SIZES_PX = { sm: 36, md: 44, lg: 48, xl: 80 };
 
 function getColor(name = '') {
   const idx = name.charCodeAt(0) % COLORS.length;
@@ -17,31 +22,36 @@ function getInitials(name = '') {
   return name.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
 }
 
-const SIZES = {
-  sm: 'w-9 h-9 text-sm',
-  md: 'w-11 h-11 text-base',
-  lg: 'w-13 h-13 text-lg',
-  xl: 'w-20 h-20 text-2xl'
-};
-
 export default function Avatar({ name = '', src = null, size = 'md', className = '' }) {
-  const sizeClass = SIZES[size] || SIZES.md;
-  const color = getColor(name);
+  const px     = SIZES_PX[size] || SIZES_PX.md;
+  const fs     = FONT_SIZES[size] || 15;
+  const color  = getColor(name);
   const initials = getInitials(name);
+
+  const baseStyle = {
+    width: px, height: px, borderRadius: '50%',
+    flexShrink: 0, overflow: 'hidden',
+  };
 
   if (src) {
     return (
       <img
         src={src}
         alt={name}
-        className={`${sizeClass} rounded-full object-cover flex-shrink-0 ${className}`}
+        className={className}
+        style={{ ...baseStyle, objectFit: 'cover', display: 'block' }}
       />
     );
   }
 
   return (
-    <div className={`${sizeClass} ${color} rounded-full flex items-center justify-center flex-shrink-0 ${className}`}>
-      <span className="text-white font-bold leading-none">{initials || '?'}</span>
+    <div
+      className={className}
+      style={{ ...baseStyle, background: color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+    >
+      <span style={{ color: 'white', fontWeight: 700, fontSize: fs, lineHeight: 1 }}>
+        {initials || '?'}
+      </span>
     </div>
   );
 }

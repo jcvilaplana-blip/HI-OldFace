@@ -55,11 +55,28 @@ export const useChatStore = create((set, get) => ({
       const res = await fetch(`${BACKEND}/chats?userId=${encodeURIComponent(userId)}`);
       if (res.ok) {
         const data = await res.json();
-        const mapped = (data.chats || []).map(c => ({
-          ...c,
-          lastTime: c.lastTime
-            ? new Date(c.lastTime).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
-            : '',
+        const mapped = await Promise.all((data.chats || []).map(async (c) => {
+          let name = c.name;
+          // Si el nombre es un userId (user_XXXXXXXX), intentar resolverlo al nombre real
+          if (name && name.startsWith('user_')) {
+            try {
+              const ur = await fetch(`${BACKEND}/find-user-by-id?userId=${encodeURIComponent(name)}`);
+              if (ur.ok) {
+                const ud = await ur.json();
+                if (ud.name && !ud.name.startsWith('user_')) name = ud.name;
+                else if (ud.phone) name = ud.phone;
+              }
+            } catch { /* silencioso */ }
+            // Último recurso: formatear como número de teléfono
+            if (name.startsWith('user_')) name = '+' + name.replace(/^user_/, '');
+          }
+          return {
+            ...c,
+            name,
+            lastTime: c.lastTime
+              ? new Date(c.lastTime).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+              : '',
+          };
         }));
         set({ chats: mapped });
       }
@@ -94,21 +111,31 @@ export const useChatStore = create((set, get) => ({
   },
 
   /** Carga el historial de mensajes de un chat desde el backend */
-  loadMessages: async (chatId, userId) => {
+  loadMessages: async (chatId, userId, participantId = null) => {
     try {
       const res = await fetch(`${BACKEND}/messages/${encodeURIComponent(chatId)}`);
       if (res.ok) {
         const data = await res.json();
-        const mapped = (data.messages || []).map(m => ({
-          id:     m.id,
-          text:   m.text,
-          sender: m.senderId,
-          time:   m.time,
-          type:   m.type || 'text',
-          url:    m.url || null,
-          status: 'received',
-          isMine: m.senderId === userId,
-        }));
+        const mapped = (data.messages || []).map(m => {
+          const isMine = m.senderId === userId;
+          let status = 'received';
+          if (isMine) {
+            const readBy = Array.isArray(m.readBy) ? m.readBy : [];
+            status = (participantId && readBy.includes(participantId)) ? 'read' : 'sent';
+          }
+          return {
+            id:       m.id,
+            text:     m.text,
+            sender:   m.senderId,
+            time:     m.time,
+            type:     m.type || 'text',
+            url:      m.url || null,
+            replyTo:  m.replyTo || null,
+            fileName: m.fileName || null,   // ← antes faltaba: documentos perdían el nombre
+            status,
+            isMine,
+          };
+        });
 
         // Detectar mensajes nuevos de otros (polling) — reproducir sonido
         const prev = get().messages[chatId] || [];
@@ -118,20 +145,81 @@ export const useChatStore = create((set, get) => ({
           if (hasNewFromOther) playMessageSound();
         }
 
-        set((state) => ({ messages: { ...state.messages, [chatId]: mapped } }));
+        // ── Preservar mensajes optimistas que aún están en tránsito ──────────
+        // Si el usuario acaba de enviar un archivo (status='sending'), ese mensaje
+        // vive solo en local mientras el upload (persistMessage) está en curso.
+        // loadMessages NO debe borrarlo; lo eliminamos solo cuando el backend
+        // devuelva una coincidencia (mismo sender + texto + tipo).
+        const localMsgs = get().messages[chatId] || [];
+        const pendingLocal = localMsgs.filter(lm => {
+          if (lm.status !== 'sending') return false;
+          // ¿Ya está confirmado por el backend?
+          const confirmedInBackend = mapped.some(bm =>
+            bm.sender === lm.sender &&
+            bm.text   === lm.text   &&
+            bm.type   === (lm.type || 'text')
+          );
+          return !confirmedInBackend;
+        });
+
+        set((state) => ({
+          messages: {
+            ...state.messages,
+            [chatId]: [...mapped, ...pendingLocal],
+          },
+        }));
       }
     } catch (err) {
       console.warn('[chatStore] loadMessages error:', err.message);
     }
   },
 
+  /** Marca todos los mensajes del chat como leídos por el usuario (para ✓✓ azul) */
+  markAsRead: async (chatId, userId) => {
+    try {
+      await fetch(`${BACKEND}/messages/${encodeURIComponent(chatId)}/mark-read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+    } catch { /* silencioso */ }
+  },
+
+  /** Elimina un chat y sus mensajes en backend + store local */
+  deleteChat: async (chatId) => {
+    try {
+      await fetch(`${BACKEND}/chats/${encodeURIComponent(chatId)}`, { method: 'DELETE' });
+    } catch { /* silencioso */ }
+    set((state) => {
+      const messages = { ...state.messages };
+      delete messages[chatId];
+      return {
+        chats: state.chats.filter(c => c.id !== chatId),
+        messages,
+      };
+    });
+  },
+
+  /** Elimina un mensaje concreto en backend + store local */
+  deleteMessage: async (chatId, messageId) => {
+    try {
+      await fetch(`${BACKEND}/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(messageId)}`, { method: 'DELETE' });
+    } catch { /* silencioso */ }
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [chatId]: (state.messages[chatId] || []).filter(m => m.id !== messageId),
+      },
+    }));
+  },
+
   /** Persiste un mensaje en el backend */
-  persistMessage: async (chatId, senderId, text, type = 'text', url = null) => {
+  persistMessage: async (chatId, senderId, text, type = 'text', url = null, replyTo = null, fileName = null) => {
     try {
       await fetch(`${BACKEND}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId, senderId, text, type, url }),
+        body: JSON.stringify({ chatId, senderId, text, type, url, replyTo, fileName }),
       });
     } catch {
       // Fallo silencioso — el mensaje ya está en el store local

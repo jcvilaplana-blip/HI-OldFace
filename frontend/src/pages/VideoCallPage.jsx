@@ -1,123 +1,346 @@
 /**
  * VideoCallPage — Videollamada con ZEGOCLOUD UIKit
  *
- * Flujo LLAMANTE:
- *   1. Envía invitación ZIM al destinatario
- *   2. Entra al room ZEGOCLOUD mostrando overlay "Llamando..."
- *   3. Si destinatario acepta → overlay desaparece, UIKit toma control
- *   4. Si destinatario rechaza / timeout → vuelve atrás automáticamente
- *   5. Botón "Cancelar" → cancela invitación ZIM y sale
- *
- * Flujo RECEPTOR (isIncoming=true):
- *   1. Llega desde IncomingCallModal (ya aceptó en ZIM)
- *   2. Entra directamente al mismo room (roomId determinista)
- *   3. UIKit conecta ambos usuarios
+ * Layout:
+ *  - Contenedor ZEGOCLOUD a pantalla completa (inset: 0)
+ *  - Controles de ZEGOCLOUD ocultos (showMyCameraToggleButton: false)
+ *  - Barra de controles propia en overlay a 130 px del borde inferior:
+ *      [Mic] [Colgar] [Cámara]
+ *  - zpRef guarda la instancia para llamar turnMicrophoneOn / turnCameraOn
+ *  - cleanedRef previene doble llamada a doCleanup
+ *  - Engine lock en zegoStore garantiza solo una instancia activa → sin 1002011
  */
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore }  from '../store/authStore';
-import { useZIMStore }   from '../store/zimStore';
+import { useZegoStore }  from '../store/zegoStore';
+import { useChatStore }  from '../store/chatStore';
+import { playRingSound } from '../utils/sounds';
 
-const APP_ID = parseInt(import.meta.env.VITE_ZEGOCLOUD_APP_ID);
+const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+
+// ── Clases CSS de ZEGOCLOUD que deben ocultarse ────────────────────────────────
+const ZEGO_HIDE = [
+  // Barra inferior (screenBottomBar + Left + Right)
+  'BK8wLjgIh8fTQu2lLdir','imtOkrRZytf3edIVDdeD','t7UX3TRe4IbZBz9_mSrz',
+  // Botón colgar de ZEGOCLOUD (leaveButton — el cuadrado rojo)
+  'QeMJj1LEulq1ApqLHxuM','vRymZYPLKPwd4n9uqA9E',
+  // Footer y bottomWrapper del UIKit
+  'ji5jASszKFf2CGCmbxEh','MMnj7hRGhI3yZw8790HU','ksNCFsY1D3z_EZnQqgBk','wuzomHUgi6CgnnW9l7eR',
+  // Etiquetas nombre / "You" / nameCircle (todas las variantes encontradas en el bundle)
+  'OSeYVFzQ3ebXxqDY9XKn','R5UUhzsZdRHH4U5V6kon',
+  'ecHsgwLx2_C2nnLn_n_N','uZlIxwHvmCQndAwgHDWs','Gm8t3M3jHjNCFCpOgvDR',
+  'f9zniVtZmhdi6k9f7gm2','MiLXxQuRUH4z5D2Ng3w2','mlMcU_ktgyvHvpgzjSpP',
+  'TYiiRFB3EhYJGVPE4k4q','pFuv8YwfjDjDiXQxu3AA','pTfkPoHDRs_MQWfVDwqz',
+  'xFYACJeFt5C453iKfvpF','s1mpVIshlpvGrfqWJ1cM','i8ct3MPKG0I8SA9qfu6m',
+  // Diálogo confirmación
+  'FQlBdJ7LgSchBX_9SZ1O',
+  // Pantalla post-llamada
+  'j9ygOVxEl2nClTPs77Ta','lflaXazrPGAK9SbOcNoC','IughcowXVrJ5wcOf6vH9','mCx2N1NwuMWObjjTeG0q',
+];
+
+// Aplica display:none como estilo INLINE (máxima prioridad, no puede ser sobrescrito)
+function applyZegoHide() {
+  ZEGO_HIDE.forEach(cls => {
+    document.querySelectorAll('.' + cls).forEach(el => {
+      el.style.setProperty('display', 'none', 'important');
+    });
+  });
+}
 
 export default function VideoCallPage() {
   const { userId }  = useParams();
   const { state }   = useLocation();
   const navigate    = useNavigate();
   const { user }    = useAuthStore();
-  const { sendCallInvitation, cancelCall, outgoingStatus, resetOutgoingStatus } = useZIMStore();
+  const {
+    zimEngine,
+    callRejected, clearCallRejected,
+    callEnded,    clearCallEnded,
+    acquireCallInstance, releaseCallInstance,
+  } = useZegoStore();
 
-  const containerRef = useRef(null);
-  const zegoRef      = useRef(null);
+  const containerRef    = useRef(null);
+  const zpRef           = useRef(null);   // instancia ZEGOCLOUD para controlar mic/cámara
+  const cancelledRef    = useRef(false);  // evita doble cancelación
+  const cleanedRef      = useRef(false);  // evita doble doCleanup
+  const zimSnapRef      = useRef(null);   // ZIM capturado ANTES del acquire
+  const startTimeRef    = useRef(null);
+  const loggedRef       = useRef(false);
+  const zegoObserverRef = useRef(null);   // MutationObserver para ocultar UI de ZEGOCLOUD
+  const cameraOnRef     = useRef(true);   // ref síncrona — usada en el handler de visibilidad
 
-  const [uiStatus, setUiStatus] = useState('connecting'); // connecting | active | error
+  const [uiStatus,    setUiStatus]    = useState('connecting');
+  const [micOn,       setMicOn]       = useState(true);
+  const [cameraOn,    setCameraOn]    = useState(true);
+  const [showInvite,  setShowInvite]  = useState(false);
+  const [inviteSent,  setInviteSent]  = useState({});  // { contactId: true } tras enviar invitación
 
-  const chat       = state?.chat;
-  const isIncoming = state?.isIncoming || false;
-  const calleeName = chat?.name || userId;
+  const { chats } = useChatStore();
 
-  // roomId determinista — igual para ambos usuarios con .sort()
-  const roomId = [user?.id, userId].sort().join('_vroom_');
+  const isIncoming = state?.isIncoming === true;
+  const calleeName = state?.chat?.name || userId;
+  // Usar roomId del state (generado por el emisor) o derivar como fallback
+  const roomId     = state?.roomId || [user?.id, userId].sort().join('_vroom_');
 
-  // ── Reaccionar al estado ZIM (para el llamante) ────────────────────────
+  // Contactos disponibles para invitar (todos los chats excepto el participante actual)
+  const inviteContacts = chats
+    .filter(c => {
+      const otherId = c.participants?.find(p => p !== user?.id);
+      return otherId && otherId !== userId;
+    })
+    .map(c => ({
+      id:   c.participants?.find(p => p !== user?.id),
+      name: c.name,
+    }));
+
+  // ── Señales de rechazo y fin de llamada ───────────────────────────────────
   useEffect(() => {
-    if (isIncoming) return; // el receptor no necesita escuchar esto
-    if (outgoingStatus === 'rejected' || outgoingStatus === 'timeout') {
-      cleanup();
-      resetOutgoingStatus();
-      navigate(-1);
-    }
-  }, [outgoingStatus, isIncoming]);
+    if (isIncoming || !callRejected) return;
+    clearCallRejected();
+    doCleanup();
+    navigate(-1);
+  }, [callRejected, isIncoming]);
 
-  // ── Montar: enviar invitación + unirse al room ─────────────────────────
   useEffect(() => {
-    if (!isIncoming) {
-      sendCallInvitation({
-        calleeId:   userId,
-        roomId,
-        callType:   'video',
-        callerName: user?.name || 'Usuario',
-      }).catch(() => {});
-    }
-    initZegoCall();
-    return () => cleanup();
-  }, []);
+    if (!callEnded) return;
+    clearCallEnded();
+    const secs = startTimeRef.current ? Math.round((Date.now() - startTimeRef.current) / 1000) : 0;
+    recordCallLog(secs);
+    doCleanup();
+    navigate(-1);
+  }, [callEnded]);
 
-  // ── Inicializar ZEGOCLOUD UIKit ────────────────────────────────────────
-  const initZegoCall = async () => {
+  // ── Tono de llamada saliente ──────────────────────────────────────────────
+  useEffect(() => {
+    if (uiStatus !== 'connecting' || isIncoming) return;
+    playRingSound();
+    const interval = setInterval(playRingSound, 3000);
+    return () => clearInterval(interval);
+  }, [uiStatus, isIncoming]);
+
+  // ── Iniciar llamada al montar ─────────────────────────────────────────────
+  useEffect(() => {
+    startCall();
+    return () => doCleanup();
+  }, []); // eslint-disable-line
+
+  // ── Al volver al primer plano: reactivar altavoz + descongelar vídeo ────────
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.hidden || uiStatus !== 'active') return;
+
+      // 1. Reactivar altavoz (videollamada usa altavoz por defecto)
+      window.OldFaceAudio?.turnSpeakerOn();
+
+      // 2. Forzar repaint del contenedor ZEGOCLOUD para descongelar el compositor WebGL
+      if (containerRef.current) {
+        containerRef.current.style.opacity = '0.99';
+        requestAnimationFrame(() => {
+          if (containerRef.current) containerRef.current.style.opacity = '';
+        });
+      }
+
+      // 3. Ciclo off→on de cámara local: fuerza a ZEGOCLOUD a reiniciar el pipeline
+      //    de vídeo, lo que también refresca los frames del participante remoto.
+      //    Solo si la cámara estaba encendida; con 200 ms de retardo para que el
+      //    WebView termine de reanudar su compositor antes del toggle.
+      if (cameraOnRef.current && zpRef.current) {
+        setTimeout(() => {
+          try { zpRef.current?.turnCameraOn?.(false); } catch {}
+          setTimeout(() => {
+            try { if (cameraOnRef.current) zpRef.current?.turnCameraOn?.(true); } catch {}
+          }, 250);
+        }, 200);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [uiStatus]);
+
+  // ── Señales ZIM (capturadas ANTES de acquireCallInstance) ─────────────────
+  const sendZIMInvite = async () => {
+    const zim = zimSnapRef.current;
+    if (!zim) return;
     try {
-      const { ZegoUIKitPrebuilt } = await import('@zegocloud/zego-uikit-prebuilt');
-      const SERVER_SECRET = import.meta.env.VITE_ZEGOCLOUD_SERVER_SECRET;
-
-      const kitToken = ZegoUIKitPrebuilt.generateKitTokenForTest(
-        APP_ID, SERVER_SECRET, roomId, user.id, user.name || 'Usuario'
+      await zim.sendMessage(
+        { type: 1, message: JSON.stringify({ _oc_type: 'call_invite', callType: 'video', callerName: user?.name || user?.id || 'Usuario', roomId }) },
+        userId, 0, { priority: 3 }
       );
+    } catch (err) { console.warn('[VideoCall] Invite error:', err?.message); }
+  };
 
-      zegoRef.current = ZegoUIKitPrebuilt.create(kitToken);
-      zegoRef.current.joinRoom({
+  const sendZIMEnd = async () => {
+    const zim = zimSnapRef.current;
+    if (!zim) return;
+    try {
+      await zim.sendMessage(
+        { type: 1, message: JSON.stringify({ _oc_type: 'call_end' }) },
+        userId, 0, { priority: 3 }
+      );
+    } catch { /* silencioso */ }
+  };
+
+  // ── Registro de llamada ───────────────────────────────────────────────────
+  const recordCallLog = useCallback(async (callDuration) => {
+    if (loggedRef.current) return;
+    loggedRef.current = true;
+    try {
+      await fetch(`${BACKEND}/call-log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId:      user?.id,
+          contactId:   userId,
+          contactName: calleeName,
+          type:        'video',
+          duration:    callDuration,
+          direction:   isIncoming ? 'incoming' : 'outgoing',
+          timestamp:   Date.now(),
+        }),
+      });
+    } catch { /* silencioso */ }
+  }, [user, userId, calleeName, isIncoming]);
+
+  // ── Flujo principal ────────────────────────────────────────────────────────
+  const startCall = async () => {
+    try {
+      // 1. Capturar ZIM antes del acquire (que destruirá UIKit)
+      const { ZIM } = await import('zego-zim-web');
+      zimSnapRef.current = ZIM.getInstance() || zimEngine;
+
+      // 2. Enviar invite mientras ZIM sigue vivo
+      if (!isIncoming) await sendZIMInvite();
+
+      // 3. Adquirir instancia UIKit (el lock en zegoStore serializa esto)
+      const zp = await acquireCallInstance(roomId, user.id, user.name);
+      if (!zp) { setUiStatus('error'); return; }
+      zpRef.current = zp;
+
+      // 4. Unirse al room — controles ZEGOCLOUD desactivados, usamos los nuestros
+      const { ZegoUIKitPrebuilt } = await import('@zegocloud/zego-uikit-prebuilt');
+      zp.joinRoom({
         container:                    containerRef.current,
         showPreJoinView:              false,
         turnOnMicrophoneWhenJoining:  true,
         turnOnCameraWhenJoining:      true,
-        showMyCameraToggleButton:     true,
-        showMyMicrophoneToggleButton: true,
+        // Ocultamos los botones de ZEGOCLOUD — usamos nuestra barra de controles
+        showMyCameraToggleButton:     false,
+        showMyMicrophoneToggleButton: false,
         showAudioVideoSettingsButton: false,
         showScreenSharingButton:      false,
         showTextChat:                 false,
         showUserList:                 false,
-        maxUsers:                     2,
-        layout:                       'Auto',
         showLayoutButton:             false,
-        scenario: { mode: ZegoUIKitPrebuilt.OneONoneCall },
-        onJoinRoom:  () => setUiStatus('active'),
-        onLeaveRoom: () => { cleanup(); navigate(-1); },
+        maxUsers:                     9,
+        layout:                       'Auto',
+        scenario:                     { mode: ZegoUIKitPrebuilt.GroupCall },
+        useSpeakerWhenJoining:        true,
+        showLeaveRoomConfirmDialog:   false,
+        onJoinRoom: () => {
+          setUiStatus('active');
+          startTimeRef.current = Date.now();
+          window.OldFaceAudio?.setCallActive(true);
+          // Aplicar hide inmediato y arrancar MutationObserver.
+          // Usamos style.setProperty('display','none','important') en línea:
+          // los estilos inline tienen máxima prioridad y no pueden ser
+          // sobrescritos por ninguna hoja de estilos, incluyendo las de ZEGOCLOUD.
+          applyZegoHide();
+          const obs = new MutationObserver(applyZegoHide);
+          obs.observe(document.body, { childList: true, subtree: true });
+          zegoObserverRef.current = obs;
+        },
+        onLeaveRoom: () => {
+          // ZEGOCLOUD detectó que el usuario local o remoto salió del room
+          if (!cancelledRef.current) {
+            const secs = startTimeRef.current ? Math.round((Date.now() - startTimeRef.current) / 1000) : 0;
+            sendZIMEnd();
+            recordCallLog(secs);
+          }
+          doCleanup();
+          navigate(-1);
+        },
       });
     } catch (err) {
-      console.error('[VideoCallPage] error:', err.message);
+      console.error('[VideoCallPage] error:', err?.message);
       setUiStatus('error');
     }
   };
 
-  const cleanup = useCallback(() => {
-    try { zegoRef.current?.destroy(); zegoRef.current = null; } catch {}
-  }, []);
+  // ── Cleanup protegido contra doble ejecución ──────────────────────────────
+  const doCleanup = useCallback(() => {
+    if (cleanedRef.current) return;
+    cleanedRef.current = true;
+    zegoObserverRef.current?.disconnect();
+    zegoObserverRef.current = null;
+    window.OldFaceAudio?.setCallActive(false);
+    releaseCallInstance(user);
+  }, [user]); // eslint-disable-line
 
+  // ── Colgar ────────────────────────────────────────────────────────────────
   const handleCancel = async () => {
-    if (!isIncoming) await cancelCall();
-    cleanup();
-    resetOutgoingStatus();
+    if (cancelledRef.current) return;
+    cancelledRef.current = true;
+    await sendZIMEnd();
+    const secs = startTimeRef.current ? Math.round((Date.now() - startTimeRef.current) / 1000) : 0;
+    recordCallLog(secs);
+    // Limpiamos directamente sin pasar por hangUp() de ZEGOCLOUD
+    // (hangUp dispara la pantalla "You have left the room" antes de onLeaveRoom)
+    doCleanup();
     navigate(-1);
   };
 
-  const handleRetry = () => {
-    setUiStatus('connecting');
-    initZegoCall();
+  // ── Controles de mic y cámara ─────────────────────────────────────────────
+  const handleMicToggle = () => {
+    const next = !micOn;
+    setMicOn(next);
+    try { zpRef.current?.turnMicrophoneOn?.(next); } catch {}
   };
 
+  const handleCameraToggle = () => {
+    const next = !cameraOn;
+    cameraOnRef.current = next;   // sincronizar ref antes de cualquier timeout
+    setCameraOn(next);
+    try { zpRef.current?.turnCameraOn?.(next); } catch {}
+  };
+
+  // ── Invitar contacto a la videollamada en curso ───────────────────────────
+  const sendInvite = async (contactId) => {
+    setInviteSent(prev => ({ ...prev, [contactId]: 'sending' }));
+    try {
+      await fetch(`${BACKEND}/call-notification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          calleeId:   contactId,
+          callerId:   user.id,
+          callerName: user.name || user.id,
+          callType:   'video',
+          roomId,
+        }),
+      });
+      setInviteSent(prev => ({ ...prev, [contactId]: 'sent' }));
+    } catch {
+      setInviteSent(prev => ({ ...prev, [contactId]: 'error' }));
+    }
+  };
+
+  // ── Reintentar tras error ─────────────────────────────────────────────────
+  const handleRetry = () => {
+    cancelledRef.current = false;
+    cleanedRef.current   = false;
+    loggedRef.current    = false;
+    setMicOn(true);
+    setCameraOn(true);
+    setUiStatus('connecting');
+    startCall();
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#111827', zIndex: 50 }}>
 
-      {/* ZEGOCLOUD UIKit — ocupa toda la pantalla */}
+      {/* ZEGOCLOUD UIKit — pantalla completa */}
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
       {/* ── Overlay: Conectando / Llamando ── */}
@@ -126,67 +349,249 @@ export default function VideoCallPage() {
           position: 'absolute', inset: 0, zIndex: 10,
           background: 'linear-gradient(160deg, #000080 0%, #111827 100%)',
           display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center',
-          paddingTop: 'env(safe-area-inset-top, 48px)',
+          alignItems: 'center', justifyContent: 'flex-start',
+          paddingTop: 'max(env(safe-area-inset-top, 48px), 48px)',
         }}>
-          {/* Anillos pulsantes */}
-          <div style={{ position: 'relative', width: 140, height: 140, marginBottom: 28 }}>
-            {!isIncoming && (
-              <>
-                <div style={{
-                  position: 'absolute', inset: -20, borderRadius: '50%',
-                  background: 'rgba(255,255,255,0.08)',
-                  animation: 'vcPulse 2s ease-out infinite',
-                }} />
-                <div style={{
-                  position: 'absolute', inset: -10, borderRadius: '50%',
-                  background: 'rgba(255,255,255,0.12)',
-                  animation: 'vcPulse 2s ease-out infinite 0.4s',
-                }} />
-              </>
-            )}
-            {/* Avatar */}
-            <div style={{
-              width: 140, height: 140, borderRadius: '50%',
-              background: 'rgba(255,255,255,0.15)',
-              border: '3px solid rgba(255,255,255,0.25)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              position: 'relative',
-            }}>
-              <span style={{ fontSize: 56, fontWeight: 900, color: 'white' }}>
-                {calleeName?.[0]?.toUpperCase() || '?'}
-              </span>
+          {/* Avatar + nombre */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 60 }}>
+            <div style={{ position: 'relative', width: 140, height: 140, marginBottom: 28 }}>
+              {!isIncoming && (
+                <>
+                  <div style={{
+                    position: 'absolute', inset: -20, borderRadius: '50%',
+                    background: 'rgba(255,255,255,0.08)',
+                    animation: 'vcPulse 2s ease-out infinite',
+                  }} />
+                  <div style={{
+                    position: 'absolute', inset: -10, borderRadius: '50%',
+                    background: 'rgba(255,255,255,0.12)',
+                    animation: 'vcPulse 2s ease-out infinite 0.4s',
+                  }} />
+                </>
+              )}
+              <div style={{
+                width: 140, height: 140, borderRadius: '50%',
+                background: 'rgba(255,255,255,0.15)',
+                border: '3px solid rgba(255,255,255,0.25)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                position: 'relative',
+              }}>
+                <span style={{ fontSize: 56, fontWeight: 900, color: 'white' }}>
+                  {calleeName?.[0]?.toUpperCase() || '?'}
+                </span>
+              </div>
             </div>
+            <p style={{ fontSize: 22, fontWeight: 700, color: 'white', margin: '0 0 8px' }}>
+              {calleeName}
+            </p>
+            <p style={{
+              fontSize: 14, color: 'rgba(255,255,255,0.6)', margin: 0,
+              animation: 'vcFade 1.4s ease-in-out infinite',
+            }}>
+              {isIncoming ? 'Conectando...' : 'Llamando...'}
+            </p>
           </div>
+        </div>
+      )}
 
-          <p style={{ fontSize: 22, fontWeight: 700, color: 'white', margin: '0 0 8px' }}>
-            {calleeName}
-          </p>
-          <p style={{
-            fontSize: 14, color: 'rgba(255,255,255,0.6)', margin: '0 0 56px',
-            animation: 'vcFade 1.4s ease-in-out infinite',
+      {/* Botón colgar en estado "conectando" — posición fija al 80% del alto */}
+      {uiStatus === 'connecting' && (
+        <div style={{
+          position: 'fixed',
+          top: '80%',
+          left: 0, right: 0,
+          zIndex: 20,
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+        }}>
+          <button onClick={handleCancel} style={{
+            width: 68, height: 68, borderRadius: '50%',
+            background: '#ef4444', border: 'none', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 6px 24px rgba(239,68,68,0.5)',
           }}>
-            {isIncoming ? 'Conectando...' : (outgoingStatus === 'accepted' ? 'Conectando...' : 'Llamando...')}
+            <PhoneIcon size={30} />
+          </button>
+          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', margin: '8px 0 0' }}>
+            {isIncoming ? 'Colgar' : 'Cancelar llamada'}
           </p>
+        </div>
+      )}
 
-          {/* Botón cancelar / colgar */}
+      {/* ── Botón Invitar — encima de los controles principales ── */}
+      {uiStatus === 'active' && (
+        <div style={{
+          position: 'fixed',
+          top: '68%',
+          left: 0, right: 0,
+          zIndex: 200,
+          display: 'flex', justifyContent: 'center',
+        }}>
+          <button
+            onClick={() => setShowInvite(true)}
+            style={{
+              pointerEvents: 'all',
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'rgba(255,255,255,0.18)',
+              border: '1px solid rgba(255,255,255,0.3)',
+              borderRadius: 20, padding: '8px 18px',
+              color: 'white', fontSize: 13, fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <line x1="19" y1="8" x2="19" y2="14"/>
+              <line x1="22" y1="11" x2="16" y2="11"/>
+            </svg>
+            Añadir participante
+          </button>
+        </div>
+      )}
+
+      {/* ── Controles durante llamada activa ─────────────────────────────────────
+           Una sola fila: [Mic] [Colgar] [Cámara] al 78% del alto.
+           En Samsung 900px: 78% = 702px desde arriba = 198px desde abajo → libre del nav bar. */}
+      {uiStatus === 'active' && (
+        <div style={{
+          position: 'fixed',
+          top: '78%',
+          left: 0, right: 0,
+          zIndex: 200,
+          pointerEvents: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          gap: 28,
+        }}>
+          <CallButton
+            active={!micOn}
+            activeColor="rgba(255,255,255,0.35)"
+            onPress={handleMicToggle}
+            label={micOn ? 'Silenciar' : 'Activar mic'}
+          >
+            {micOn ? <MicOnIcon /> : <MicOffIcon />}
+          </CallButton>
+
+          {/* Botón colgar — más grande, en el centro */}
           <button
             onClick={handleCancel}
             style={{
+              pointerEvents: 'all',
               width: 70, height: 70, borderRadius: '50%',
-              background: '#ef4444',
-              border: 'none', cursor: 'pointer',
+              background: '#ef4444', border: 'none', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 6px 24px rgba(239,68,68,0.5)',
+              boxShadow: '0 6px 28px rgba(239,68,68,0.65)',
             }}
           >
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="white" style={{ transform: 'rotate(135deg)' }}>
-              <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
-            </svg>
+            <PhoneIcon size={28} />
           </button>
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 10 }}>
-            {isIncoming ? 'Colgar' : 'Cancelar llamada'}
-          </p>
+
+          <CallButton
+            active={!cameraOn}
+            activeColor="rgba(255,255,255,0.35)"
+            onPress={handleCameraToggle}
+            label={cameraOn ? 'Apagar cám.' : 'Activar cám.'}
+          >
+            {cameraOn ? <CameraOnIcon /> : <CameraOffIcon />}
+          </CallButton>
+        </div>
+      )}
+
+      {/* ── Modal: Añadir participante ── */}
+      {showInvite && (
+        <div
+          onClick={() => setShowInvite(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 300,
+            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)',
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%', maxWidth: 480,
+              background: '#1a2340', borderRadius: '24px 24px 0 0',
+              padding: '20px 0 32px',
+              maxHeight: '60vh', display: 'flex', flexDirection: 'column',
+            }}
+          >
+            {/* Cabecera */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 16px' }}>
+              <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'white' }}>
+                Añadir participante
+              </p>
+              <button
+                onClick={() => setShowInvite(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+
+            {/* Lista de contactos */}
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {inviteContacts.length === 0 ? (
+                <p style={{ color: 'rgba(255,255,255,0.45)', textAlign: 'center', fontSize: 14, margin: '24px 0' }}>
+                  No hay más contactos disponibles
+                </p>
+              ) : (
+                inviteContacts.map(contact => {
+                  const sentState = inviteSent[contact.id];
+                  return (
+                    <div key={contact.id} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '12px 20px',
+                      borderBottom: '1px solid rgba(255,255,255,0.06)',
+                    }}>
+                      {/* Avatar + nombre */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{
+                          width: 42, height: 42, borderRadius: '50%',
+                          background: '#000080',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 18, fontWeight: 900, color: 'white',
+                          flexShrink: 0,
+                        }}>
+                          {contact.name?.[0]?.toUpperCase() || '?'}
+                        </div>
+                        <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'white' }}>
+                          {contact.name}
+                        </p>
+                      </div>
+
+                      {/* Botón invitar */}
+                      <button
+                        onClick={() => sendInvite(contact.id, contact.name)}
+                        disabled={!!sentState}
+                        style={{
+                          padding: '8px 16px', borderRadius: 16, border: 'none',
+                          cursor: sentState ? 'default' : 'pointer',
+                          fontWeight: 700, fontSize: 13,
+                          background: sentState === 'sent'
+                            ? 'rgba(34,197,94,0.25)'
+                            : sentState === 'sending'
+                            ? 'rgba(255,255,255,0.1)'
+                            : '#000080',
+                          color: sentState === 'sent'
+                            ? '#4ade80'
+                            : sentState === 'error'
+                            ? '#f87171'
+                            : 'white',
+                        }}
+                      >
+                        {sentState === 'sent'    ? 'Invitado'
+                          : sentState === 'sending' ? '...'
+                          : sentState === 'error'   ? 'Error'
+                          : 'Invitar'}
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -201,20 +606,16 @@ export default function VideoCallPage() {
           <p style={{ color: '#f87171', fontWeight: 700, fontSize: 16, margin: 0 }}>
             No se pudo conectar
           </p>
-          <button
-            onClick={handleRetry}
-            style={{
-              background: '#000080', color: 'white',
-              border: 'none', borderRadius: 18,
-              padding: '12px 28px', fontWeight: 800, fontSize: 15, cursor: 'pointer',
-            }}
-          >
+          <button onClick={handleRetry} style={{
+            background: '#000080', color: 'white',
+            border: 'none', borderRadius: 18,
+            padding: '12px 28px', fontWeight: 800, fontSize: 15, cursor: 'pointer',
+          }}>
             Reintentar
           </button>
-          <button
-            onClick={handleCancel}
-            style={{ color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14 }}
-          >
+          <button onClick={handleCancel} style={{
+            color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14,
+          }}>
             Volver
           </button>
         </div>
@@ -231,5 +632,71 @@ export default function VideoCallPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+// ── Componentes auxiliares ─────────────────────────────────────────────────
+function CallButton({ children, active, activeColor, onPress, label }) {
+  return (
+    <button
+      onClick={onPress}
+      title={label}
+      style={{
+        pointerEvents: 'all',
+        width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: 'pointer',
+        background: active ? activeColor : 'rgba(255,255,255,0.15)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexShrink: 0,
+        transition: 'background 0.15s',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function PhoneIcon({ size = 24 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="white"
+      style={{ transform: 'rotate(135deg)' }}>
+      <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+    </svg>
+  );
+}
+
+function MicOnIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+      <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/>
+    </svg>
+  );
+}
+
+function MicOffIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="1" y1="1" x2="23" y2="23"/>
+      <path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"/>
+      <path d="M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23M12 19v4M8 23h8"/>
+    </svg>
+  );
+}
+
+function CameraOnIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M23 7l-7 5 7 5V7z"/>
+      <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+    </svg>
+  );
+}
+
+function CameraOffIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 16v1a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2h2m5.66 0H14a2 2 0 012 2v3.34l1 1L23 7v10"/>
+      <line x1="1" y1="1" x2="23" y2="23"/>
+    </svg>
   );
 }

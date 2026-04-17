@@ -33,12 +33,15 @@ export default function HomePage() {
   const { user }  = useAuthStore();
   const { chats, fetchChats } = useChatStore();
   const { isDark } = useThemeStore();
-  const { sendVoiceCall, sendVideoCall } = useZegoStore();
+  const { sendVoiceCall, sendVideoCall, isCallActive } = useZegoStore();
   const T = isDark ? DARK : LIGHT;
 
   const [searchParams] = useSearchParams();
   const [showMenu,        setShowMenu]        = useState(false);
   const [showGroupCreate, setShowGroupCreate] = useState(false);
+  const [showSearch,      setShowSearch]      = useState(false);
+  const [searchQuery,     setSearchQuery]     = useState('');
+  const searchInputRef = React.useRef(null);
   const [activeTab,       setActiveTab]       = useState(() => {
     const t = searchParams.get('tab');
     return ['chats','estados','llamadas','contactos'].includes(t) ? t : 'chats';
@@ -76,7 +79,7 @@ export default function HomePage() {
           backgroundColor: T.bgSurface,
           flexShrink: 0,
           borderBottom: `1px solid ${T.border}`,
-          paddingTop: 'env(safe-area-inset-top, 40px)',
+          paddingTop: 'var(--sat)',
         }}
       >
         {/* Fila superior */}
@@ -91,14 +94,19 @@ export default function HomePage() {
 
           <div style={{ display: 'flex', gap: 6 }}>
             <button
+              onClick={() => {
+                setShowSearch(v => !v);
+                setSearchQuery('');
+                if (!showSearch) setTimeout(() => searchInputRef.current?.focus(), 80);
+              }}
               style={{
                 width: 34, height: 34, borderRadius: '50%',
-                background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)',
+                background: showSearch ? BRAND : (isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'),
                 border: 'none', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={showSearch ? 'white' : T.textSecondary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </button>
@@ -119,6 +127,32 @@ export default function HomePage() {
             </button>
           </div>
         </div>
+
+        {/* Barra de búsqueda */}
+        {showSearch && (
+          <div style={{ padding: '8px 12px 10px', borderTop: `1px solid ${T.border}`, background: T.bgSurface }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.bgInput, borderRadius: 20, padding: '8px 14px', border: `1px solid ${T.border}` }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Buscar conversación..."
+                style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 14, color: T.textPrimary, fontWeight: 500 }}
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Tabs */}
         <div style={{ display: 'flex', borderTop: `1px solid ${T.border}` }}>
@@ -155,7 +189,10 @@ export default function HomePage() {
       <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', background: T.bgMain }}>
         {activeTab === 'chats'     && <>
           <StoriesBar user={user} T={T} isDark={isDark} />
-          <ChatList chats={chats} />
+          <ChatList chats={searchQuery.trim()
+            ? chats.filter(c => c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase()))
+            : chats
+          } />
         </>}
         {activeTab === 'estados'   && <StoriesBar user={user} T={T} isDark={isDark} fullPage />}
         {activeTab === 'llamadas'  && <CallsTab T={T} user={user} isDark={isDark} />}
@@ -166,15 +203,16 @@ export default function HomePage() {
       <button
         onClick={() => setShowMenu(true)}
         style={{
-          position: 'absolute',
-          bottom: 82, right: 18,
+          position: 'fixed',
+          bottom: 'calc(var(--sab) + 76px)',
+          right: 18,
           width: 54, height: 54,
           borderRadius: '50%',
           backgroundColor: BRAND,
           border: 'none', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           boxShadow: '0 6px 22px rgba(37,99,235,0.35)',
-          zIndex: 10,
+          zIndex: 30,
         }}
       >
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -182,7 +220,7 @@ export default function HomePage() {
         </svg>
       </button>
 
-      <BottomNav />
+      {!isCallActive && <BottomNav />}
       {showMenu && (
         <PopupMenu
           onClose={() => setShowMenu(false)}
@@ -285,7 +323,8 @@ function ContactosTab({ T, isDark }) {
     );
   }
 
-  const PhoneSearch = () => (
+  // JSX inline — NO definir como componente dentro del render (causa remount en cada render → cierra el teclado)
+  const phoneSearchBlock = (
     <div style={{ background: T.bgSurface, padding: '14px 16px', borderBottom: `1px solid ${T.border}` }}>
       <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, letterSpacing: '0.5px', margin: '0 0 8px' }}>BUSCAR POR TELÉFONO</p>
       <div style={{ display: 'flex', gap: 8 }}>
@@ -337,7 +376,7 @@ function ContactosTab({ T, isDark }) {
   if (error === 'web') {
     return (
       <div style={{ paddingBottom: 16 }}>
-        <PhoneSearch />
+        {phoneSearchBlock}
         <div style={{ textAlign: 'center', padding: '32px 24px', color: T.textSecondary }}>
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 12px', display: 'block' }}>
             <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
@@ -355,7 +394,7 @@ function ContactosTab({ T, isDark }) {
   if (error) {
     return (
       <div style={{ paddingBottom: 16 }}>
-        <PhoneSearch />
+        {phoneSearchBlock}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 24px', gap: 14, textAlign: 'center' }}>
           <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: 0 }}>No se pudieron cargar los contactos</p>
           <p style={{ fontSize: 11, color: T.textMuted, margin: 0, fontFamily: 'monospace', background: T.bgHover, padding: '6px 12px', borderRadius: 8 }}>{error}</p>
@@ -371,7 +410,7 @@ function ContactosTab({ T, isDark }) {
 
   return (
     <div style={{ paddingBottom: 16 }}>
-      <PhoneSearch />
+      {phoneSearchBlock}
 
       <button
         onClick={() => navigate('/contacts')}
@@ -434,11 +473,18 @@ function StoriesBar({ user, T, isDark }) {
   const [creating,      setCreating]      = React.useState(false);
   const [storyText,     setStoryText]     = React.useState('');
   const [storyColor,    setStoryColor]    = React.useState('#000080');
-  const [mediaQueue,    setMediaQueue]    = React.useState([]); // hasta 5 medios {type,dataUrl,name}
+  const [mediaQueue,    setMediaQueue]    = React.useState([]); // hasta 10 medios {type,dataUrl,name}
   const [publishing,    setPublishing]    = React.useState(false);
-  const fileRef      = React.useRef(null);
-  const videoRef     = React.useRef(null);
-  const autoAdvRef   = React.useRef(null);
+  const [replyText,     setReplyText]     = React.useState('');
+  const [replySent,     setReplySent]     = React.useState(false);
+  const fileRef              = React.useRef(null);
+  const videoRef             = React.useRef(null);
+  const autoAdvRef           = React.useRef(null);
+  const viewerHistoryPushed  = React.useRef(false);
+
+  const navigate = useNavigate();
+  const { sendChatMessage } = useZegoStore();
+  const { persistMessage, createOrGetChat } = useChatStore();
 
   const fetchStories = () => {
     fetch(`${BACKEND_HOME}/stories`)
@@ -483,16 +529,50 @@ function StoriesBar({ user, T, isDark }) {
         if (viewerIdx < viewerStories.length - 1) {
           setViewerIdx(i => i + 1);
         } else {
-          setViewerUserId(null); setViewerIdx(0);
+          // Fin de estados → cerrar con cleanup de historial
+          setViewerUserId(null); setViewerIdx(0); setReplyText(''); setReplySent(false);
+          if (viewerHistoryPushed.current) { viewerHistoryPushed.current = false; window.history.back(); }
         }
       }, 5000);
     }
     return () => clearTimeout(autoAdvRef.current);
   }, [viewerStory?.id]);
 
+  // Cierra el visor y limpia el estado de historial para que el botón atrás funcione
+  const closeViewer = React.useCallback(() => {
+    setViewerUserId(null);
+    setViewerIdx(0);
+    setReplyText('');
+    setReplySent(false);
+    if (viewerHistoryPushed.current) {
+      viewerHistoryPushed.current = false;
+      window.history.back(); // eliminar el estado que pusimos al abrir
+    }
+  }, []);
+
+  // popstate: botón atrás de Android cierra el visor sin salir de la app
+  React.useEffect(() => {
+    const onPop = () => {
+      if (viewerHistoryPushed.current) {
+        viewerHistoryPushed.current = false;
+        setViewerUserId(null);
+        setViewerIdx(0);
+        setReplyText('');
+        setReplySent(false);
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
   const openViewer = async (uid, idx = 0) => {
+    // Empujar estado al historial → el botón atrás podrá cerrar el visor
+    window.history.pushState({ storyViewer: true }, '');
+    viewerHistoryPushed.current = true;
     setViewerUserId(uid);
     setViewerIdx(idx);
+    setReplyText('');
+    setReplySent(false);
     const userStories = stories.filter(s => s.userId === uid);
     // Marcar como vistas
     for (const s of userStories) {
@@ -506,6 +586,37 @@ function StoriesBar({ user, T, isDark }) {
     fetchStories();
   };
 
+  // Enviar respuesta a un estado
+  const sendReply = async () => {
+    const text = replyText.trim();
+    if (!text || !viewerStory) return;
+    clearTimeout(autoAdvRef.current); // pausar auto-avance mientras se responde
+    const msgChatId = `chat_${[user?.id, viewerStory.userId].sort().join('_')}`;
+
+    // Contexto del estado al que se responde (imagen/video/texto + autor)
+    const statusReplyTo = {
+      senderName: viewerStory.userName,
+      type: viewerStory.mediaType === 'image' ? 'image'
+          : viewerStory.mediaType === 'video' ? 'video'
+          : 'text',
+      url: (viewerStory.mediaType === 'image' || viewerStory.mediaType === 'video')
+          ? viewerStory.content
+          : null,
+      text: viewerStory.mediaType === 'text'
+          ? viewerStory.content
+          : `Estado de ${viewerStory.userName}`,
+    };
+
+    try {
+      await createOrGetChat(user?.id, viewerStory.userId, viewerStory.userName);
+      await persistMessage(msgChatId, user?.id, text, 'text', null, statusReplyTo);
+      sendChatMessage(viewerStory.userId, text);
+    } catch { /* silencioso */ }
+    setReplyText('');
+    setReplySent(true);
+    setTimeout(() => setReplySent(false), 2500);
+  };
+
   const deleteStory = async (storyId) => {
     await fetch(`${BACKEND_HOME}/stories/${storyId}`, {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },
@@ -514,13 +625,13 @@ function StoriesBar({ user, T, isDark }) {
     fetchStories();
     // Si ya no hay más stories de ese usuario, cerrar visor
     const remaining = stories.filter(s => s.userId === viewerUserId && s.id !== storyId);
-    if (remaining.length === 0) { setViewerUserId(null); setViewerIdx(0); }
+    if (remaining.length === 0) { closeViewer(); }
     else if (viewerIdx >= remaining.length) setViewerIdx(remaining.length - 1);
   };
 
   // Añadir imagen/video a la cola
   const addMediaToQueue = (file) => {
-    if (!file || mediaQueue.length >= 5) return;
+    if (!file || mediaQueue.length >= 10) return;
     const isVideo = file.type.startsWith('video/');
     const reader = new FileReader();
     reader.onload = async (ev) => {
@@ -637,7 +748,7 @@ function StoriesBar({ user, T, isDark }) {
 
         {/* Inputs ocultos */}
         <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
-          onChange={e => { [...(e.target.files || [])].slice(0, 5 - mediaQueue.length).forEach(addMediaToQueue); e.target.value = ''; }} />
+          onChange={e => { [...(e.target.files || [])].slice(0, 10 - mediaQueue.length).forEach(addMediaToQueue); e.target.value = ''; }} />
         <input ref={videoRef} type="file" accept="video/*" style={{ display: 'none' }}
           onChange={e => { addMediaToQueue(e.target.files?.[0]); e.target.value = ''; }} />
       </div>
@@ -688,7 +799,7 @@ function StoriesBar({ user, T, isDark }) {
                     )}
                   </div>
                 ))}
-                {mediaQueue.length < 5 && (
+                {mediaQueue.length < 10 && (
                   <button onClick={() => fileRef.current?.click()}
                     style={{ width: 72, height: 72, borderRadius: 10, border: `2px dashed ${isDark ? 'rgba(255,255,255,0.2)' : '#cbd5e1'}`, background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: isDark ? '#8fb3dd' : '#64748b', fontSize: 22 }}>+</button>
                 )}
@@ -697,12 +808,12 @@ function StoriesBar({ user, T, isDark }) {
 
             {/* Botones de acción */}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => fileRef.current?.click()} disabled={mediaQueue.length >= 5}
-                style={{ flex: 1, padding: '11px 6px', borderRadius: 12, background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9', border: 'none', cursor: mediaQueue.length >= 5 ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 12, color: isDark ? '#dce8ff' : '#1e293b', opacity: mediaQueue.length >= 5 ? 0.4 : 1 }}>
+              <button onClick={() => fileRef.current?.click()} disabled={mediaQueue.length >= 10}
+                style={{ flex: 1, padding: '11px 6px', borderRadius: 12, background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9', border: 'none', cursor: mediaQueue.length >= 10 ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 12, color: isDark ? '#dce8ff' : '#1e293b', opacity: mediaQueue.length >= 10 ? 0.4 : 1 }}>
                 🖼️ Foto
               </button>
-              <button onClick={() => videoRef.current?.click()} disabled={mediaQueue.length >= 5}
-                style={{ flex: 1, padding: '11px 6px', borderRadius: 12, background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9', border: 'none', cursor: mediaQueue.length >= 5 ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 12, color: isDark ? '#dce8ff' : '#1e293b', opacity: mediaQueue.length >= 5 ? 0.4 : 1 }}>
+              <button onClick={() => videoRef.current?.click()} disabled={mediaQueue.length >= 10}
+                style={{ flex: 1, padding: '11px 6px', borderRadius: 12, background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9', border: 'none', cursor: mediaQueue.length >= 10 ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 12, color: isDark ? '#dce8ff' : '#1e293b', opacity: mediaQueue.length >= 10 ? 0.4 : 1 }}>
                 🎥 Video
               </button>
               <button onClick={publishStories} disabled={publishing || (!storyText.trim() && mediaQueue.length === 0)}
@@ -712,7 +823,7 @@ function StoriesBar({ user, T, isDark }) {
             </div>
 
             <p style={{ fontSize: 10, color: isDark ? '#8fb3dd' : '#94a3b8', textAlign: 'center', margin: 0 }}>
-              Hasta 5 fotos/videos · Expira en 24 h
+              Hasta 10 fotos/videos · Expira en 24 h
             </p>
           </div>
         </div>
@@ -731,7 +842,7 @@ function StoriesBar({ user, T, isDark }) {
 
           {/* Barra superior */}
           <div style={{ padding: '36px 20px 12px', paddingTop: 'calc(env(safe-area-inset-top, 12px) + 28px)', display: 'flex', alignItems: 'center', gap: 12, background: 'linear-gradient(to bottom, rgba(0,0,0,0.45) 0%, transparent 100%)', zIndex: 5 }}>
-            <button onClick={() => { setViewerUserId(null); setViewerIdx(0); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+            <button onClick={closeViewer} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 6L6 18M6 6l12 12"/>
               </svg>
@@ -754,7 +865,7 @@ function StoriesBar({ user, T, isDark }) {
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
             onClick={() => {
               if (viewerIdx < viewerStories.length - 1) setViewerIdx(i => i + 1);
-              else { setViewerUserId(null); setViewerIdx(0); }
+              else closeViewer();
             }}>
             {viewerStory.mediaType === 'image'
               ? <img src={viewerStory.content} style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 16, objectFit: 'contain' }} />
@@ -772,11 +883,59 @@ function StoriesBar({ user, T, isDark }) {
                 style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', width: 36, height: 36, borderRadius: '50%', background: 'rgba(0,0,0,0.35)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: viewerIdx > 0 ? 1 : 0 }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 19l-7-7 7-7"/></svg>
               </button>
-              <button onClick={(e) => { e.stopPropagation(); if (viewerIdx < viewerStories.length - 1) setViewerIdx(i => i + 1); else { setViewerUserId(null); setViewerIdx(0); } }}
+              <button onClick={(e) => { e.stopPropagation(); if (viewerIdx < viewerStories.length - 1) setViewerIdx(i => i + 1); else closeViewer(); }}
                 style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', width: 36, height: 36, borderRadius: '50%', background: 'rgba(0,0,0,0.35)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5l7 7-7 7"/></svg>
               </button>
             </>
+          )}
+
+          {/* Barra de respuesta (solo para estados de otros) */}
+          {viewerStory.userId !== user?.id && (
+            <div style={{
+              padding: '10px 14px',
+              paddingBottom: 'max(14px, env(safe-area-inset-bottom, 14px))',
+              background: 'rgba(0,0,0,0.45)',
+              display: 'flex', alignItems: 'center', gap: 8,
+              zIndex: 6, position: 'relative',
+            }} onClick={e => e.stopPropagation()}>
+              {replySent ? (
+                <div style={{ flex: 1, textAlign: 'center', color: 'rgba(255,255,255,0.9)', fontWeight: 700, fontSize: 14, padding: '10px 0' }}>
+                  ✓ Respuesta enviada
+                </div>
+              ) : (
+                <>
+                  <input
+                    value={replyText}
+                    onChange={e => setReplyText(e.target.value)}
+                    onFocus={() => clearTimeout(autoAdvRef.current)}
+                    onKeyDown={e => { if (e.key === 'Enter') sendReply(); }}
+                    placeholder={`Responder a ${viewerStory.userName?.split(' ')[0] || ''}...`}
+                    style={{
+                      flex: 1, background: 'rgba(255,255,255,0.15)',
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      borderRadius: 24, padding: '10px 16px',
+                      color: 'white', fontSize: 14, outline: 'none',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                  <button
+                    onClick={sendReply}
+                    disabled={!replyText.trim()}
+                    style={{
+                      width: 42, height: 42, borderRadius: '50%',
+                      background: replyText.trim() ? '#000080' : 'rgba(255,255,255,0.2)',
+                      border: 'none', cursor: replyText.trim() ? 'pointer' : 'default',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      transition: 'background 0.2s',
+                    }}>
+                    <svg width="18" height="18" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ transform: 'translateX(1px)' }}>
+                      <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                  </button>
+                </>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -2,6 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Safe area CSS variables ────────────────────────────────────────────────
+   Web: env() devuelve 0px → no hay insets.
+   APK (html.cap-native): env() puede fallar en WebViews Android antiguos.
+   Usamos max() para garantizar mínimos razonables en APK.
+   28px ≈ status bar Samsung; 24px ≈ gesture nav; button nav lo da env().
+───────────────────────────────────────────────────────────────────────────── */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+}
+html.cap-native {
+  --sat: max(28px, env(safe-area-inset-top, 28px));
+  --sab: max(24px, env(safe-area-inset-bottom, 24px));
+}
+
 @layer base {
   * {
     -webkit-tap-highlight-color: transparent;
@@ -20,8 +37,6 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overscroll-behavior: none;
-    /* Escala global +6%: 14px → 14.8px, 13px → 13.8px, etc. */
-    zoom: 1.06;
   }
 }
 
@@ -166,3 +181,47 @@ html.dark .glass {
 /* ── Divisores y overlays ───────────────────────────── */
 html.dark .divide-gray-100 > * + * { border-color: rgba(255,255,255,0.06) !important; }
 html.dark hr { border-color: rgba(255,255,255,0.06) !important; }
+
+/* ── ZEGOCLOUD UIKit — Ocultar elementos no deseados ────────────────────────
+   Class names extraídos del bundle v1.11.0 (hashes fijos para esta versión).
+   Agrupa: barra inferior, etiquetas de nombre, diálogo de confirmación,
+   pantalla post-llamada ("You have left the room.").
+───────────────────────────────────────────────────────────────────────────── */
+
+/* Barra inferior de ZEGOCLOUD (screenBottomBar + Left + Right) */
+.BK8wLjgIh8fTQu2lLdir,
+.imtOkrRZytf3edIVDdeD,
+.t7UX3TRe4IbZBz9_mSrz,
+/* Botón colgar ZEGOCLOUD (leaveButton — el cuadrado rojo) */
+.QeMJj1LEulq1ApqLHxuM,
+.vRymZYPLKPwd4n9uqA9E,
+/* Footer y bottomWrapper del UIKit */
+.ji5jASszKFf2CGCmbxEh,
+.MMnj7hRGhI3yZw8790HU,
+.ksNCFsY1D3z_EZnQqgBk,
+.wuzomHUgi6CgnnW9l7eR {
+  display: none !important;
+}
+
+/* Etiquetas de nombre / "you" / "Team (You)" en los tiles de vídeo */
+.OSeYVFzQ3ebXxqDY9XKn,   /* nameTag */
+.R5UUhzsZdRHH4U5V6kon,   /* name (label sobre el tile) */
+.ecHsgwLx2_C2nnLn_n_N,   /* nameWrapper variante 1 */
+.uZlIxwHvmCQndAwgHDWs,   /* nameWrapper variante 2 */
+.Gm8t3M3jHjNCFCpOgvDR,   /* nameWrapper variante 3 */
+.f9zniVtZmhdi6k9f7gm2 {  /* nameCircle ("T." / iniciales) */
+  display: none !important;
+}
+
+/* Diálogo de confirmación "Leave the room / Are you sure?" */
+.FQlBdJ7LgSchBX_9SZ1O {  /* ZegoConfirm — el modal completo */
+  display: none !important;
+}
+
+/* Pantalla post-llamada "You have left the room." + botón Rejoin */
+.j9ygOVxEl2nClTPs77Ta,   /* rejoinRoomContainer */
+.lflaXazrPGAK9SbOcNoC,   /* title ("You have left the room.") */
+.IughcowXVrJ5wcOf6vH9,   /* rejoin button */
+.mCx2N1NwuMWObjjTeG0q {  /* returnHome button */
+  display: none !important;
+}
