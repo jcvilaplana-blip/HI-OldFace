@@ -153,10 +153,16 @@ export default function CallPage() {
       if (!hideStyleRef.current) {
         const s = document.createElement('style');
         s.id = 'oc-voice-hide';
+        // Dos capas de defensa:
+        // 1. Portals en body (hijos directos fuera de #root)
+        // 2. Cualquier <video> en cualquier lugar del DOM
         s.textContent =
           'body>*:not(#root):not(script):not(style)' +
           '{display:none!important;visibility:hidden!important;pointer-events:none!important;}' +
-          'video{display:none!important;visibility:hidden!important;}';
+          'body>div:not(#root)>*' +
+          '{display:none!important;visibility:hidden!important;}' +
+          'video,canvas[style*="position: fixed"],canvas[style*="position:fixed"]' +
+          '{display:none!important;visibility:hidden!important;}';
         document.head.appendChild(s);
         hideStyleRef.current = s;
       }
@@ -254,8 +260,15 @@ export default function CallPage() {
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#1c1c1e', zIndex: 50, overflow: 'hidden' }}>
 
-      {/* ── ZEGOCLOUD: tamaño 0, fuera de pantalla — solo procesa audio ────── */}
-      <div style={{ position: 'fixed', top: -9999, left: -9999, width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+      {/* ── ZEGOCLOUD: solo procesa audio, UI completamente oculta ─────────────
+           transform: translateZ(0) convierte este div en el containing block de
+           los hijos con position:fixed que ZEGOCLOUD renderice — quedan clipados
+           por overflow:hidden al ser 0×0 y estar a -9999px fuera de pantalla.   */}
+      <div style={{
+        position: 'fixed', top: -9999, left: -9999,
+        width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none',
+        transform: 'translateZ(0)',
+      }}>
         <div ref={containerRef} style={{ width: 1, height: 1 }} />
       </div>
 
