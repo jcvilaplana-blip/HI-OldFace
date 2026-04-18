@@ -47,16 +47,31 @@ export default function CallPage() {
   const earpieceTimer       = useRef([]);
   const zegoObserverRef     = useRef(null);
   const bodySnapshotRef     = useRef(null);
-  const hideStyleRef        = useRef(null); // <style> que oculta portals ZEGOCLOUD
+  const hideStyleRef        = useRef(null);
+  const keepAliveRef        = useRef(null); // AudioContext silencioso → evita throttling en background
+  const micOnRef            = useRef(true); // ref síncrona del estado del mic
 
-  const [status,    setStatus]   = useState('calling');
-  const [duration,  setDuration] = useState(0);
-  const [micOn,     setMicOn]    = useState(true);
-  const [speakerOn, setSpeakerOn] = useState(false);
+  const [status,     setStatus]    = useState('calling');
+  const [duration,   setDuration]  = useState(0);
+  const [micOn,      setMicOn]     = useState(true);
+  const [speakerOn,  setSpeakerOn] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteSent, setInviteSent] = useState({});
+  const [animKey,    setAnimKey]   = useState(0); // fuerza remount de animaciones al volver de background
 
   const isIncoming = state?.isIncoming || false;
   const calleeName = state?.chat?.name || userId;
-  const roomId     = [user?.id, userId].sort().join('_voice_');
+  const roomId     = state?.roomId || [user?.id, userId].sort().join('_voice_');
+
+  const inviteContacts = chats
+    .filter(c => {
+      const otherId = c.participants?.find(p => p !== user?.id);
+      return otherId && otherId !== userId;
+    })
+    .map(c => ({
+      id:   c.participants?.find(p => p !== user?.id),
+      name: c.name,
+    }));
 
   // ── Señales de rechazo / fin ──────────────────────────────────────────────
   useEffect(() => {
@@ -79,11 +94,21 @@ export default function CallPage() {
 
   useEffect(() => { startCall(); return () => doCleanup(); }, []); // eslint-disable-line
 
-  // ── Re-asegurar auricular al volver al primer plano ───────────────────────
+  // ── Recuperación al volver al primer plano ────────────────────────────────
   useEffect(() => {
     const onVisible = () => {
-      if (!document.hidden && status === 'active')
-        window.OldFaceAudio?.setEarpiece();
+      if (document.hidden) return;
+      // Reiniciar animaciones CSS que se congelen en background
+      setAnimKey(k => k + 1);
+      if (status !== 'active') return;
+      window.OldFaceAudio?.setEarpiece();
+      // Ciclar mic para relanzar el pipeline de audio de ZEGOCLOUD tras throttling
+      setTimeout(() => {
+        try { zpRef.current?.turnMicrophoneOn?.(false); } catch {}
+        setTimeout(() => {
+          try { zpRef.current?.turnMicrophoneOn?.(micOnRef.current); } catch {}
+        }, 200);
+      }, 300);
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -95,7 +120,7 @@ export default function CallPage() {
     if (!zim) return;
     try {
       await zim.sendMessage(
-        { type: 1, message: JSON.stringify({ _oc_type: 'call_invite', callType: 'voice', callerName: user?.name || user?.id || 'Usuario' }) },
+        { type: 1, message: JSON.stringify({ _oc_type: 'call_invite', callType: 'voice', callerName: user?.name || user?.id || 'Usuario', roomId }) },
         userId, 0, { priority: 3 }
       );
     } catch (err) { console.warn('[CallPage] ZIM invite error:', err?.message); }
@@ -177,16 +202,28 @@ export default function CallPage() {
         showAudioVideoSettingsButton: false,
         showTextChat:                 false,
         showUserList:                 false,
-        maxUsers:                     2,
+        maxUsers:                     9,
         useSpeakerWhenJoining:        false,
         leaveRoomConfirmDialogInfo:   null,
-        scenario:                     { mode: ZegoUIKitPrebuilt.OneONoneCall },
+        scenario:                     { mode: ZegoUIKitPrebuilt.GroupCall },
         showLeaveRoomConfirmDialog:   false,
 
         onJoinRoom: () => {
           setStatus('active');
           timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
           window.OldFaceAudio?.setCallActive(true);
+          // Tono silencioso → mantiene el AudioContext activo → evita que Android
+          // throttlee el JS del WebView a los ~3s cuando la app está en background
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc  = ctx.createOscillator();
+            const gain = ctx.createGain();
+            gain.gain.value = 0.001;
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            keepAliveRef.current = { ctx, osc };
+          } catch {}
 
           // ── Auricular: retardos escalonados para capturar init tardía de ZEGOCLOUD ──
           earpieceTimer.current.forEach(clearTimeout);
@@ -212,9 +249,10 @@ export default function CallPage() {
     earpieceTimer.current = [];
     zegoObserverRef.current?.disconnect();
     zegoObserverRef.current = null;
-    // Eliminar la regla CSS que ocultaba los portals de ZEGOCLOUD
     hideStyleRef.current?.remove();
     hideStyleRef.current = null;
+    try { keepAliveRef.current?.osc?.stop(); keepAliveRef.current?.ctx?.close(); } catch {}
+    keepAliveRef.current = null;
     window.OldFaceAudio?.setSpeaker();
     window.OldFaceAudio?.setCallActive(false);
     releaseCallInstance(user);
@@ -233,8 +271,30 @@ export default function CallPage() {
   // ── Mic ───────────────────────────────────────────────────────────────────
   const handleMicToggle = () => {
     const next = !micOn;
+    micOnRef.current = next;
     setMicOn(next);
     try { zpRef.current?.turnMicrophoneOn?.(next); } catch {}
+  };
+
+  // ── Invitar a la llamada en curso ─────────────────────────────────────────
+  const sendInvite = async (contactId) => {
+    setInviteSent(prev => ({ ...prev, [contactId]: 'sending' }));
+    try {
+      await fetch(`${BACKEND}/call-notification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          calleeId:   contactId,
+          callerId:   user.id,
+          callerName: user.name || user.id,
+          callType:   'voice',
+          roomId,
+        }),
+      });
+      setInviteSent(prev => ({ ...prev, [contactId]: 'sent' }));
+    } catch {
+      setInviteSent(prev => ({ ...prev, [contactId]: 'error' }));
+    }
   };
 
   // ── Speaker toggle ────────────────────────────────────────────────────────
@@ -315,8 +375,8 @@ export default function CallPage() {
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {status === 'calling' && (
               <>
-                <div style={{ position: 'absolute', inset: -32, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', animation: 'ocPulse 2.4s ease-out infinite' }} />
-                <div style={{ position: 'absolute', inset: -16, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', animation: 'ocPulse 2.4s ease-out infinite 0.6s' }} />
+                <div key={`p1-${animKey}`} style={{ position: 'absolute', inset: -32, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', animation: 'ocPulse 2.4s ease-out infinite' }} />
+                <div key={`p2-${animKey}`} style={{ position: 'absolute', inset: -16, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', animation: 'ocPulse 2.4s ease-out infinite 0.6s' }} />
               </>
             )}
             <div style={{ width: 190, height: 190, borderRadius: '50%', overflow: 'hidden', position: 'relative', zIndex: 2, border: '3px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -327,6 +387,30 @@ export default function CallPage() {
             </div>
           </div>
         </div>
+
+        {/* ── Botón Añadir participante ── */}
+        {status === 'active' && (
+          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'center' }}>
+            <button
+              onClick={() => setShowInvite(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: 'rgba(255,255,255,0.18)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                borderRadius: 20, padding: '8px 18px',
+                color: 'white', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <line x1="19" y1="8" x2="19" y2="14"/>
+                <line x1="22" y1="11" x2="16" y2="11"/>
+              </svg>
+              Añadir participante
+            </button>
+          </div>
+        )}
 
         {/* ── Controles: Mic + Colgar ── */}
         <div style={{ width: '100%', padding: '0 20px', marginBottom: 44 }}>
@@ -391,6 +475,78 @@ export default function CallPage() {
 
         <div style={{ height: 'env(safe-area-inset-bottom, 20px)' }} />
       </div>
+
+      {/* ── Modal: Añadir participante ── */}
+      {showInvite && (
+        <div
+          onClick={() => setShowInvite(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 300,
+            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)',
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%', maxWidth: 480,
+              background: '#1a2340', borderRadius: '24px 24px 0 0',
+              padding: '20px 0 32px',
+              maxHeight: '60vh', display: 'flex', flexDirection: 'column',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 16px' }}>
+              <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'white' }}>Añadir participante</p>
+              <button onClick={() => setShowInvite(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {inviteContacts.length === 0 ? (
+                <p style={{ color: 'rgba(255,255,255,0.45)', textAlign: 'center', fontSize: 14, margin: '24px 0' }}>
+                  No hay más contactos disponibles
+                </p>
+              ) : (
+                inviteContacts.map(contact => {
+                  const sentState = inviteSent[contact.id];
+                  return (
+                    <div key={contact.id} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{
+                          width: 42, height: 42, borderRadius: '50%', background: '#000080',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 18, fontWeight: 900, color: 'white', flexShrink: 0,
+                        }}>
+                          {contact.name?.[0]?.toUpperCase() || '?'}
+                        </div>
+                        <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'white' }}>{contact.name}</p>
+                      </div>
+                      <button
+                        onClick={() => sendInvite(contact.id)}
+                        disabled={!!sentState}
+                        style={{
+                          padding: '8px 16px', borderRadius: 16, border: 'none',
+                          cursor: sentState ? 'default' : 'pointer',
+                          fontWeight: 700, fontSize: 13,
+                          background: sentState === 'sent' ? 'rgba(34,197,94,0.25)' : sentState === 'sending' ? 'rgba(255,255,255,0.1)' : '#000080',
+                          color: sentState === 'sent' ? '#4ade80' : sentState === 'error' ? '#f87171' : 'white',
+                        }}
+                      >
+                        {sentState === 'sent' ? 'Invitado' : sentState === 'sending' ? '...' : sentState === 'error' ? 'Error' : 'Invitar'}
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes ocPulse {
