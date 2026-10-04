@@ -30,6 +30,7 @@ const CFG = {
   basePort:     parseInt(process.env.RTC_BASE_PORT || '40000', 10), // un puerto UDP+TCP por worker
   numWorkers:   Math.min(parseInt(process.env.RTC_WORKERS || '4', 10), os.cpus().length),
   allowGuests:  process.env.RTC_ALLOW_GUESTS === '1',   // página de prueba: ids guest_* en salas test_*
+  backendUrl:   process.env.RTC_BACKEND_URL || 'https://oldface.app/api', // para validar quién es el anfitrión de un directo
 };
 for (const k of ['secret', 'turnSecret', 'publicIp']) {
   if (!CFG[k]) { console.error(`[RTC] Falta configuración: ${k}`); process.exit(1); }
@@ -135,6 +136,56 @@ function peerSummary(peer) {
   };
 }
 
+// ── Directos (estilo Instagram / TikTok) ─────────────────────────────────────
+// La sala de medios de un directo es `live_<directoId>`. El anfitrión y los invitados aceptados
+// emiten; el resto solo ve. Chat, likes, espectadores e invitados viven aquí (en memoria).
+/** liveId → { id, roomId, hostId, hostName, title, startedAt, chat[], likes, guests:Map, requests:Map, invited:Set, hostTimer } */
+const lives = new Map();
+const liveRoomId = (liveId) => `live_${liveId}`;
+
+async function fetchDirecto(liveId) {
+  const res = await fetch(`${CFG.backendUrl}/directos`, { signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error('No se pudo consultar el directo');
+  const { directos } = await res.json();
+  return (directos || []).find(d => d.id === liveId) || null;
+}
+
+function liveState(live) {
+  return {
+    liveId: live.id, hostId: live.hostId, hostName: live.hostName, title: live.title,
+    startedAt: live.startedAt, likes: live.likes,
+    viewers: liveViewers(live),
+    guests: [...live.guests.entries()].map(([userId, name]) => ({ userId, name })),
+    chat: live.chat.slice(-50),
+  };
+}
+
+function liveViewers(live) {
+  return io.sockets.adapter.rooms.get(`live:${live.id}`)?.size || 0;
+}
+
+function broadcastViewers(live) {
+  io.to(`live:${live.id}`).emit('live:viewers', { liveId: live.id, viewers: liveViewers(live) });
+}
+
+function endLive(live, reason = 'ended') {
+  clearTimeout(live.hostTimer);
+  io.to(`live:${live.id}`).emit('live:ended', { liveId: live.id, reason });
+  lives.delete(live.id);
+  console.log(`[RTC] Directo finalizado ${live.id} (${reason})`);
+}
+
+/** Cambia el rol de todos los sockets de un usuario en la sala de medios del directo */
+function setLivePeerRole(live, userId, role) {
+  const room = rooms.get(live.roomId);
+  if (!room) return;
+  for (const peer of room.peers.values()) {
+    if (peer.userId !== userId) continue;
+    peer.role = role;
+    if (role === 'viewer') for (const p of [...peer.producers.values()]) p.close();
+  }
+}
+
 // ── HTTP + Socket.IO ─────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json({ limit: '256kb' }));
@@ -143,7 +194,7 @@ app.get('/rtc/health', (_req, res) => {
   res.json({
     ok: true, workers: workers.length, rooms: rooms.size,
     peers: [...rooms.values()].reduce((n, r) => n + r.peers.size, 0),
-    online: onlineUsers.size, uptime: Math.round(process.uptime()),
+    online: onlineUsers.size, lives: lives.size, uptime: Math.round(process.uptime()),
   });
 });
 
@@ -237,11 +288,19 @@ io.on('connection', (socket) => {
   // ── Salas mediasoup ─────────────────────────────────────────────────────
   handle(socket, 'rtc:join', async ({ roomId, role }) => {
     checkRoomId(roomId);
+    // Salas de directo: solo emiten el anfitrión y los invitados aceptados (lo decide el servidor)
+    let effectiveRole = role === 'viewer' ? 'viewer' : 'speaker';
+    if (roomId.startsWith('live_')) {
+      const live = lives.get(roomId.slice(5));
+      if (!live) throw new Error('El directo no está en emisión');
+      const canSpeak = live.hostId === userId || live.guests.has(userId);
+      effectiveRole = canSpeak && role !== 'viewer' ? 'speaker' : 'viewer';
+    }
     const room = await getOrCreateRoom(roomId);
     if (!room.peers.has(socket.id)) {
       room.peers.set(socket.id, {
         socketId: socket.id, userId, name: socket.data.name,
-        role: role === 'viewer' ? 'viewer' : 'speaker',
+        role: effectiveRole,
         transports: new Map(), producers: new Map(), consumers: new Map(),
       });
       socket.join(`room:${roomId}`);
@@ -348,7 +407,148 @@ io.on('connection', (socket) => {
     myRooms.delete(roomId);
   });
 
+  // ── Directos ────────────────────────────────────────────────────────────
+  const myLives = new Set();
+  const getLive = (liveId) => {
+    const live = lives.get(liveId);
+    if (!live) throw new Error('El directo no está en emisión');
+    return live;
+  };
+  const requireHost = (live) => { if (live.hostId !== userId) throw new Error('Solo el anfitrión puede hacer esto'); };
+  const enterLiveRoom = (live) => {
+    socket.join(`live:${live.id}`);
+    myLives.add(live.id);
+    broadcastViewers(live);
+  };
+  let likeWindow = { start: 0, count: 0 };
+
+  /** El anfitrión inicia (o retoma) la emisión */
+  handle(socket, 'live:start', async ({ liveId }) => {
+    if (typeof liveId !== 'string' || !/^[A-Za-z0-9_-]{3,80}$/.test(liveId)) throw new Error('Directo no válido');
+    let live = lives.get(liveId);
+    if (!live) {
+      const d = await fetchDirecto(liveId);
+      if (!d) throw new Error('Directo no encontrado');
+      if (d.creatorId !== userId) throw new Error('Solo el creador puede emitir este directo');
+      live = {
+        id: liveId, roomId: liveRoomId(liveId), hostId: userId, hostName: socket.data.name,
+        title: d.title, startedAt: Date.now(), chat: [], likes: 0,
+        guests: new Map(), requests: new Map(), invited: new Map(), hostTimer: null,
+      };
+      lives.set(liveId, live);
+      console.log(`[RTC] Directo iniciado ${liveId} por ${userId}`);
+    }
+    requireHost(live);
+    clearTimeout(live.hostTimer);
+    enterLiveRoom(live);
+    io.to(`live:${liveId}`).emit('live:hostBack', { liveId });
+    return { live: liveState(live) };
+  });
+
+  /** Un espectador entra al directo */
+  handle(socket, 'live:join', ({ liveId }) => {
+    const live = getLive(liveId);
+    enterLiveRoom(live);
+    return { live: liveState(live) };
+  });
+
+  handle(socket, 'live:leave', ({ liveId }) => {
+    socket.leave(`live:${liveId}`);
+    myLives.delete(liveId);
+    const live = lives.get(liveId);
+    if (live) broadcastViewers(live);
+  });
+
+  handle(socket, 'live:chat', ({ liveId, text }) => {
+    const live = getLive(liveId);
+    const clean = String(text || '').trim().slice(0, 200);
+    if (!clean) throw new Error('Mensaje vacío');
+    const msg = { id: `lc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, userId, name: socket.data.name, text: clean, ts: Date.now() };
+    live.chat.push(msg);
+    if (live.chat.length > 200) live.chat.splice(0, live.chat.length - 200);
+    io.to(`live:${liveId}`).emit('live:chat', { liveId, msg });
+  });
+
+  /** Likes: hasta 15 por segundo por persona (toques rápidos de corazón) */
+  handle(socket, 'live:like', ({ liveId, count = 1 }) => {
+    const live = getLive(liveId);
+    const now = Date.now();
+    if (now - likeWindow.start > 1000) likeWindow = { start: now, count: 0 };
+    const n = Math.max(1, Math.min(5, parseInt(count, 10) || 1));
+    if (likeWindow.count + n > 15) return { likes: live.likes };
+    likeWindow.count += n;
+    live.likes += n;
+    io.to(`live:${liveId}`).emit('live:like', { liveId, likes: live.likes, n, from: userId });
+    return { likes: live.likes };
+  });
+
+  /** Espectador pide subir al directo */
+  handle(socket, 'live:requestJoin', ({ liveId }) => {
+    const live = getLive(liveId);
+    if (live.hostId === userId) throw new Error('Ya eres el anfitrión');
+    live.requests.set(userId, socket.data.name);
+    io.to(`user:${live.hostId}`).emit('live:joinRequest', { liveId, userId, name: socket.data.name });
+  });
+
+  /** El anfitrión acepta una solicitud o invita directamente a un espectador */
+  handle(socket, 'live:approveGuest', ({ liveId, guestId }) => {
+    const live = getLive(liveId);
+    requireHost(live);
+    if (live.guests.size >= 3) throw new Error('Máximo 3 invitados a la vez');
+    const name = live.requests.get(guestId) || guestId;
+    live.requests.delete(guestId);
+    live.invited.set(guestId, name); // aparece en el escenario cuando pulse "Subir al directo"
+    io.to(`user:${guestId}`).emit('live:approved', { liveId });
+  });
+
+  handle(socket, 'live:rejectGuest', ({ liveId, guestId }) => {
+    const live = getLive(liveId);
+    requireHost(live);
+    live.requests.delete(guestId);
+    io.to(`user:${guestId}`).emit('live:rejected', { liveId });
+  });
+
+  /** El invitado aceptado pasa a emitir: su peer de la sala de medios pasa a 'speaker' */
+  handle(socket, 'live:goOnStage', ({ liveId }) => {
+    const live = getLive(liveId);
+    if (!live.invited.has(userId) && !live.guests.has(userId)) throw new Error('El anfitrión no te ha invitado');
+    if (!live.guests.has(userId) && live.guests.size >= 3) throw new Error('El escenario está lleno');
+    live.guests.set(userId, live.invited.get(userId) || socket.data.name);
+    live.invited.delete(userId);
+    setLivePeerRole(live, userId, 'speaker');
+    io.to(`live:${liveId}`).emit('live:guests', { liveId, guests: liveState(live).guests });
+  });
+
+  /** Quitar a un invitado (anfitrión) o bajarse uno mismo */
+  handle(socket, 'live:removeGuest', ({ liveId, guestId }) => {
+    const live = getLive(liveId);
+    const target = guestId || userId;
+    if (target !== userId) requireHost(live);
+    live.guests.delete(target);
+    live.invited.delete(target);
+    setLivePeerRole(live, target, 'viewer');
+    io.to(`user:${target}`).emit('live:removed', { liveId });
+    io.to(`live:${liveId}`).emit('live:guests', { liveId, guests: liveState(live).guests });
+  });
+
+  handle(socket, 'live:end', ({ liveId }) => {
+    const live = getLive(liveId);
+    requireHost(live);
+    endLive(live, 'ended');
+  });
+
   socket.on('disconnect', () => {
+    for (const liveId of myLives) {
+      const live = lives.get(liveId);
+      if (!live) continue;
+      if (live.hostId === userId) {
+        // El anfitrión puede volver (cambio de red, app en segundo plano): 60 s de gracia
+        io.to(`live:${liveId}`).emit('live:hostAway', { liveId });
+        clearTimeout(live.hostTimer);
+        live.hostTimer = setTimeout(() => { if (lives.get(liveId) === live) endLive(live, 'host_left'); }, 60000);
+      }
+      setTimeout(() => broadcastViewers(live), 0);
+    }
     for (const roomId of myRooms) {
       const room = rooms.get(roomId);
       if (room) closePeer(room, socket.id);

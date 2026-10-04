@@ -390,6 +390,11 @@ export default function AppRoot() {
             // Usuario pulsa la notificación → navegar al chat o a la llamada
             PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
               const data = action.notification?.data || {};
+              if (data.type === 'live' && data.directoId) {
+                // "X está en directo" → abrir el directo
+                window.location.href = `/directo/${encodeURIComponent(data.directoId)}/live`;
+                return;
+              }
               if (data.type === 'call' && data.callerId) {
                 // Llamada entrante via FCM (incluyendo invitaciones a videollamada en curso)
                 import('./store/zegoStore').then(({ useZegoStore }) => {

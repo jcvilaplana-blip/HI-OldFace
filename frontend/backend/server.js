@@ -1093,10 +1093,35 @@ router.post('/directos', (req, res) => {
   return res.status(201).json(directo);
 });
 
+router.get('/directos/:id', (req, res) => {
+  const d = directoStore.get(req.params.id);
+  if (!d) return res.status(404).json({ error: 'Directo no encontrado' });
+  const creator = [...userStore.values()].find(u => u.userId === d.creatorId);
+  return res.json({ ...d, creatorName: creator?.name || null, creatorAvatar: creator?.avatar || null });
+});
+
+/** Avisa a todos los usuarios (menos el anfitrión) de que un directo ha empezado */
+function notifyLiveStarted(d) {
+  const creator = [...userStore.values()].find(u => u.userId === d.creatorId);
+  const hostName = creator?.name || 'Alguien';
+  for (const u of userStore.values()) {
+    if (u.userId === d.creatorId) continue;
+    rtcEmit(u.userId, 'live:started', { directoId: d.id, title: d.title, hostName });
+    const token = fcmStore.get(u.userId);
+    if (token) {
+      sendFCMPush(token, `🔴 ${hostName} está en directo`, d.title || 'Toca para verlo',
+        { type: 'live', directoId: d.id }).catch(() => {});
+    }
+  }
+}
+
 router.put('/directos/:id', (req, res) => {
   const d = directoStore.get(req.params.id);
   if (!d) return res.status(404).json({ error: 'Directo no encontrado' });
   const { title, description, scheduledAt, contacts, price, status } = req.body || {};
+  const goingLive = status === 'live' && d.status !== 'live';
+  if (goingLive) d.startedAt = Date.now();
+  if (status === 'ended' && d.status !== 'ended') d.endedAt = Date.now();
   if (title       !== undefined) d.title       = title;
   if (description !== undefined) d.description = description;
   if (scheduledAt !== undefined) d.scheduledAt = scheduledAt;
@@ -1105,6 +1130,7 @@ router.put('/directos/:id', (req, res) => {
   if (status      !== undefined) d.status      = status;
   directoStore.set(d.id, d);
   saveDirectos();
+  if (goingLive) notifyLiveStarted(d);
   return res.json(d);
 });
 

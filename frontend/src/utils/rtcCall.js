@@ -16,9 +16,15 @@ import { Device } from 'mediasoup-client';
 import { rtcRequest, onRtc } from './rtcClient';
 
 export class RtcCall {
-  constructor({ roomId, video = false, onPeerStream, onPeerLeft, onPeerMedia }) {
+  /**
+   * @param publish  false = solo ver/escuchar (espectador de un directo). Se puede emitir después con publish().
+   */
+  constructor({ roomId, video = false, publish = true, onPeerStream, onPeerLeft, onPeerMedia }) {
     this.roomId = roomId;
     this.video = video;
+    this.willPublish = publish;
+    this.facingMode = 'user';
+    this.iceServers = [];
     this.cb = { onPeerStream, onPeerLeft, onPeerMedia };
     this.device = null;
     this.sendTransport = null;
@@ -31,13 +37,28 @@ export class RtcCall {
     this.closed = false;
   }
 
+  getMedia(video) {
+    return navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: video ? { facingMode: this.facingMode, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } } : false,
+    });
+  }
+
+  async produceLocal() {
+    for (const track of this.localStream.getTracks()) {
+      const opts = track.kind === 'video'
+        ? { track, encodings: [{ maxBitrate: 900_000 }], codecOptions: { videoGoogleStartBitrate: 600 } }
+        : { track, codecOptions: { opusStereo: false, opusDtx: true, opusFec: true } };
+      this.producers[track.kind] = await this.sendTransport.produce(opts);
+    }
+  }
+
   async join() {
     // 1. Cámara / micrófono (antes de entrar, para fallar pronto si se deniega el permiso)
-    this.localStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      video: this.video ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } } : false,
-    });
-    if (this.closed) { this.stopLocal(); return; }
+    if (this.willPublish) {
+      this.localStream = await this.getMedia(this.video);
+      if (this.closed) { this.stopLocal(); return; }
+    }
 
     // 2. Eventos de la sala (suscribirse antes de unirse para no perder producers)
     this.unsubs.push(
@@ -49,18 +70,16 @@ export class RtcCall {
     );
 
     // 3. Entrar en la sala y preparar transports
-    const j = await rtcRequest('rtc:join', { roomId: this.roomId });
+    const j = await rtcRequest('rtc:join', { roomId: this.roomId, role: this.willPublish ? 'speaker' : 'viewer' });
+    this.iceServers = j.iceServers;
     this.device = new Device();
     await this.device.load({ routerRtpCapabilities: j.routerRtpCapabilities });
-    this.sendTransport = await this.createTransport('send', j.iceServers);
     this.recvTransport = await this.createTransport('recv', j.iceServers);
 
     // 4. Publicar micro (y cámara)
-    for (const track of this.localStream.getTracks()) {
-      const opts = track.kind === 'video'
-        ? { track, encodings: [{ maxBitrate: 900_000 }], codecOptions: { videoGoogleStartBitrate: 600 } }
-        : { track, codecOptions: { opusStereo: false, opusDtx: true, opusFec: true } };
-      this.producers[track.kind] = await this.sendTransport.produce(opts);
+    if (this.willPublish) {
+      this.sendTransport = await this.createTransport('send', j.iceServers);
+      await this.produceLocal();
     }
 
     // 5. Recibir a quien ya estaba en la sala
@@ -138,6 +157,40 @@ export class RtcCall {
 
   setMic(on)    { return this.setProducerPaused('audio', !on); }
   setCamera(on) { return this.setProducerPaused('video', !on); }
+
+  /** Empezar a emitir más tarde (invitado de un directo tras ser aceptado). Devuelve el stream local. */
+  async publish({ video = true } = {}) {
+    if (this.producers.audio || this.producers.video) return this.localStream;
+    this.localStream = await this.getMedia(video);
+    if (!this.sendTransport) this.sendTransport = await this.createTransport('send', this.iceServers);
+    await this.produceLocal();
+    return this.localStream;
+  }
+
+  /** Dejar de emitir (bajar del escenario) sin salir de la sala */
+  async unpublish() {
+    for (const p of Object.values(this.producers)) {
+      try { await rtcRequest('rtc:closeProducer', { roomId: this.roomId, producerId: p.id }); } catch {}
+      p.close();
+    }
+    this.producers = {};
+    this.stopLocal();
+    this.localStream = null;
+  }
+
+  /** Cambiar entre cámara frontal y trasera. Devuelve el nuevo stream local. */
+  async switchCamera() {
+    const producer = this.producers.video;
+    if (!producer) return this.localStream;
+    this.facingMode = this.facingMode === 'user' ? 'environment' : 'user';
+    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: this.facingMode, width: { ideal: 640 }, height: { ideal: 480 } } });
+    const newTrack = s.getVideoTracks()[0];
+    const old = this.localStream.getVideoTracks()[0];
+    await producer.replaceTrack({ track: newTrack });
+    old?.stop();
+    this.localStream = new MediaStream([...this.localStream.getAudioTracks(), newTrack]);
+    return this.localStream;
+  }
 
   get remoteCount() { return this.peers.size; }
 

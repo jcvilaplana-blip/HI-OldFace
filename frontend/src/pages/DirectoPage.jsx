@@ -7,19 +7,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useContacts } from '../hooks/useContacts';
+import { onRtc } from '../utils/rtcClient';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const BRAND   = '#000080';
 const RED     = '#ef4444';
 
-// Usuarios autorizados para crear directos
-const DIRECTO_ALLOWED_PHONES = ['641872224', '647148175'];
-
-function isDirectoCreator(user) {
-  if (!user?.phone) return false;
-  const digits = user.phone.replace(/\D/g, '');
-  return DIRECTO_ALLOWED_PHONES.some(p => digits.endsWith(p));
-}
+// Como en Instagram / TikTok: cualquier usuario puede hacer directos
+const isDirectoCreator = (user) => !!user?.id;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function formatScheduled(iso) {
@@ -60,7 +55,33 @@ export default function DirectoPage() {
     }
   }, []);
 
-  useEffect(() => { loadDirectos(); }, []);
+  useEffect(() => {
+    loadDirectos();
+    // Refrescar la lista cuando alguien empieza un directo (servidor RTC propio)
+    const off = onRtc('live:started', () => loadDirectos());
+    const t = setInterval(loadDirectos, 20000);
+    return () => { off(); clearInterval(t); };
+  }, []);
+
+  // "En directo ahora": crea un directo y empieza a emitir al instante
+  const [goingLive, setGoingLive] = useState(false);
+  const goLiveNow = async () => {
+    if (goingLive) return;
+    setGoingLive(true);
+    try {
+      const res = await fetch(`${BACKEND}/directos`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ creatorId: user.id, title: `Directo de ${user.name || 'OldFace'}`, price: 0 }),
+      });
+      if (!res.ok) throw new Error();
+      const d = await res.json();
+      navigate(`/directo/${d.id}/live`);
+    } catch {
+      window.alert?.('No se pudo crear el directo. Inténtalo de nuevo.');
+    } finally {
+      setGoingLive(false);
+    }
+  };
 
   const handleDelete = async (id) => {
     if (!window.confirm('¿Eliminar este directo?')) return;
@@ -164,6 +185,18 @@ export default function DirectoPage() {
 
       {/* Lista de directos */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0' }}>
+        {canCreate && (
+          <button onClick={goLiveNow} disabled={goingLive} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+            width: 'calc(100% - 24px)', margin: '0 12px 14px', padding: '16px',
+            background: `linear-gradient(135deg, ${RED}, #ec4899)`, color: 'white', border: 'none',
+            borderRadius: 18, fontSize: 16, fontWeight: 900, cursor: 'pointer',
+            boxShadow: '0 6px 20px rgba(239,68,68,0.35)', opacity: goingLive ? 0.7 : 1,
+          }}>
+            <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'white', animation: 'pulse 1.4s ease-in-out infinite' }} />
+            {goingLive ? 'Preparando…' : 'En directo ahora'}
+          </button>
+        )}
         {loading && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
             <div style={{
@@ -234,10 +267,11 @@ function DirectoCard({ directo: d, canManage, canWatch, onEdit, onDelete, onGoLi
   const handleShare = async () => {
     const when = d.scheduledAt ? `\nCuándo: ${formatScheduled(d.scheduledAt)}` : '';
     const price = d.price > 0 ? `\nPrecio: ${d.price}€` : '\nGratis';
-    const text = `${d.title}${d.description ? ' — ' + d.description : ''}${when}${price}\nDescarga OldFace: https://oldface.app`;
+    const link = `https://oldface.app/directo/${d.id}/live`;
+    const text = `${d.title}${d.description ? ' — ' + d.description : ''}${when}${price}\n${link}`;
     try {
       if (navigator.share) {
-        await navigator.share({ title: d.title, text, url: 'https://oldface.app' });
+        await navigator.share({ title: d.title, text, url: link });
       } else {
         // Fallback: abrir WhatsApp con el texto
         window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
