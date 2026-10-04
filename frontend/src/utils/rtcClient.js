@@ -21,8 +21,8 @@ export async function getRtcConfig(userId) {
   try {
     const res = await fetch(`${BACKEND}/config?userId=${encodeURIComponent(userId || '')}`);
     if (res.ok) return await res.json();
-  } catch { /* sin red: seguir con ZIM */ }
-  return { rtcSignaling: 'zim' };
+  } catch { /* sin red: se reintenta la conexión con el servidor propio */ }
+  return { rtcSignaling: 'oldface' };
 }
 
 function tokenExpired(token) {
@@ -90,6 +90,34 @@ export function sendSignal(to, type, payload = {}) {
 }
 
 export const isRtcConnected = () => !!socket?.connected;
+
+/** Garantiza la conexión con el servidor RTC (p. ej. al aceptar una llamada con motor propio). */
+export async function ensureRtcConnected(user, timeoutMs = 8000) {
+  if (!socket || currentUserId !== user.id) await connectRtc(user);
+  if (socket.connected) return;
+  await new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('Sin conexión con el servidor de llamadas')), timeoutMs);
+    socket.once('connect', () => { clearTimeout(t); resolve(); });
+  });
+}
+
+/** Petición con respuesta al servidor RTC (rtc:join, rtc:produce…). Rechaza con el error del servidor. */
+export function rtcRequest(event, data = {}, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    if (!socket?.connected) return reject(new Error('Sin conexión con el servidor de llamadas'));
+    socket.timeout(timeoutMs).emit(event, data, (err, res) => {
+      if (err) return reject(new Error('El servidor de llamadas no responde'));
+      if (!res?.ok) return reject(new Error(res?.error || 'Error del servidor de llamadas'));
+      resolve(res);
+    });
+  });
+}
+
+/** Suscribirse a un evento del servidor RTC. Devuelve la función para darse de baja. */
+export function onRtc(event, handler) {
+  socket?.on(event, handler);
+  return () => socket?.off(event, handler);
+}
 
 export function disconnectRtc() {
   if (socket) { socket.removeAllListeners(); socket.disconnect(); }

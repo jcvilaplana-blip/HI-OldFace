@@ -33,9 +33,12 @@ let grabZIMInterval = null;
 // Servidor RTC propio: se conecta una sola vez por sesión (sobrevive a acquire/release de UIKit)
 let rtcStartedFor = null;
 
+// Temporizador de llamada perdida (modal de llamada entrante)
+let incomingTimeout = null;
+
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function notifyCallViaFCM(calleeId, callType, roomId = '') {
+async function notifyCallViaFCM(calleeId, callType, roomId = '', media = 'zego') {
   try {
     const { useAuthStore } = await import('./authStore');
     const user = useAuthStore.getState().user;
@@ -43,7 +46,7 @@ async function notifyCallViaFCM(calleeId, callType, roomId = '') {
     await fetch(`${BACKEND}/call-notification`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ calleeId, callerId: user.id, callerName: user.name || user.id, callType, roomId }),
+      body: JSON.stringify({ calleeId, callerId: user.id, callerName: user.name || user.id, callType, roomId, media }),
     });
   } catch { /* silencioso */ }
 }
@@ -72,6 +75,27 @@ export const useZegoStore = create((set, get) => ({
     setTimeout(() => set({ callError: null }), 3500);
   },
 
+  // ── Llamada entrante: muestra el modal Aceptar/Rechazar (App.jsx) ─────────
+  // Se usa tanto para señales en vivo (ZIM / servidor RTC) como al tocar la notificación push.
+  showIncomingCall: ({ callerId, callerName, callType, roomId, media }) => {
+    const type = callType || 'video';
+    set({
+      incomingCall: {
+        callType:   type,
+        callerId,
+        callerName: callerName || callerId,
+        isVideo:    type === 'video',
+        roomId:     roomId || null,
+        media:      media === 'zego' ? 'zego' : 'oldface', // motor elegido por quien llama (por defecto el propio)
+      },
+    });
+    // Sin respuesta en 60 s → llamada perdida, se cierra el modal
+    clearTimeout(incomingTimeout);
+    incomingTimeout = setTimeout(() => {
+      if (get().incomingCall?.callerId === callerId) set({ incomingCall: null });
+    }, 60000);
+  },
+
   // ── Señales de llamada (comunes a ZIM y al servidor RTC) ─────────────────
   _handleCallSignal: ({ type, from, fromName, payload = {}, ts }) => {
     if (type === 'call_invite') {
@@ -79,25 +103,25 @@ export const useZegoStore = create((set, get) => ({
       const age = Date.now() - (ts || 0);
       if (age > 30000) { console.log('[Señal] call_invite obsoleto ignorado (age:', age, 'ms)'); return; }
       console.log('[Señal] Llamada entrante de:', from, payload);
-      set({
-        incomingCall: {
-          callType:   payload.callType || 'video',
-          callerId:   from,
-          callerName: payload.callerName || fromName || from,
-          isVideo:    (payload.callType || 'video') === 'video',
-          roomId:     payload.roomId || null,
-        },
-      });
+      get().showIncomingCall({ callerId: from, callerName: payload.callerName || fromName, callType: payload.callType, roomId: payload.roomId, media: payload.media });
     }
     else if (type === 'call_reject') set({ callRejected: true });
-    else if (type === 'call_cancel') set({ incomingCall: null });
-    else if (type === 'call_end')    set({ callEnded: true });
+    else if (type === 'call_cancel' || type === 'call_end') {
+      // Si aún está sonando (no se ha aceptado), solo se cierra el modal.
+      // No marcar callEnded: quedaría activo y cerraría la SIGUIENTE llamada al abrirse.
+      if (get().incomingCall?.callerId === from) { set({ incomingCall: null }); return; }
+      if (type === 'call_end') set({ callEnded: true });
+    }
     // call_accept: no requiere acción (la sala ya está abierta)
   },
 
+  /** Motor de audio/vídeo para llamadas que inicia este usuario: 'oldface' (servidor propio) o 'zego' */
+  // OldFace ya no usa ZEGOCLOUD para llamadas: siempre servidor propio
+  mediaProvider: () => 'oldface',
+
   /** Envía una señal de llamada por el servidor RTC (si está activo). ZIM lo envían las páginas. */
   sendCallSignal: (to, type, payload = {}) => {
-    if (get().signaling !== 'oldface') return Promise.resolve(false);
+    if (!isRtcConnected()) return Promise.resolve(false);
     return sendSignal(to, type, payload);
   },
 
@@ -169,8 +193,9 @@ export const useZegoStore = create((set, get) => ({
       return;
     }
     const roomId = `room_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    notifyCallViaFCM(calleeId, 'video', roomId);
-    set({ pendingCallOut: { calleeId, calleeName, callType: 'video', roomId } });
+    const media  = get().mediaProvider();
+    notifyCallViaFCM(calleeId, 'video', roomId, media);
+    set({ pendingCallOut: { calleeId, calleeName, callType: 'video', roomId, media } });
   },
 
   sendVoiceCall: async (calleeId, calleeName) => {
@@ -186,8 +211,9 @@ export const useZegoStore = create((set, get) => ({
       get().setCallError('No conectado — espera un momento e inténtalo de nuevo');
       return;
     }
-    notifyCallViaFCM(calleeId, 'voice');
-    set({ pendingCallOut: { calleeId, calleeName, callType: 'voice' } });
+    const media = get().mediaProvider();
+    notifyCallViaFCM(calleeId, 'voice', '', media);
+    set({ pendingCallOut: { calleeId, calleeName, callType: 'voice', media } });
   },
 
   clearPendingCall: () => set({ pendingCallOut: null }),
@@ -209,6 +235,7 @@ export const useZegoStore = create((set, get) => ({
         callerName: incomingCall.callerName,
         callType:   incomingCall.callType,
         roomId:     incomingCall.roomId || null,
+        media:      incomingCall.media || 'oldface',
       },
       incomingCall: null,
     });
@@ -237,7 +264,10 @@ export const useZegoStore = create((set, get) => ({
   // ── Init: UIKit + ZIM ────────────────────────────────────────────────────
   init: async (user) => {
     // Señalización propia: independiente de UIKit, se arranca una vez por sesión
-    get()._startRtc(user);
+    await get()._startRtc(user);
+
+    // Con el servidor RTC propio no se carga ZEGOCLOUD (ni UIKit ni ZIM)
+    if (get().signaling === 'oldface') return;
 
     // Doble guardia: instancia existente O init ya en marcha
     if (get().instance || initInProgress) return;

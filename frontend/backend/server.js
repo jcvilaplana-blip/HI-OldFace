@@ -400,15 +400,12 @@ router.post('/verify-otp', async (req, res) => {
 
 /**
  * GET /config?userId= — configuración en tiempo de ejecución para la app.
- * rtcSignaling: 'zim' (ZEGOCLOUD) | 'oldface' (servidor RTC propio).
- *   RTC_SIGNALING=oldface activa para todos; RTC_SIGNALING_USERS=user_1,user_2 solo para esos usuarios.
+ * rtcSignaling: 'oldface' (servidor RTC propio, por defecto) | 'zim' (ZEGOCLOUD, solo si RTC_SIGNALING=zim).
+ * OldFace ya no depende de ZEGOCLOUD: el servidor propio es el sistema por defecto.
  */
-router.get('/config', (req, res) => {
-  const { userId } = req.query;
-  const testers = (process.env.RTC_SIGNALING_USERS || '').split(',').map(s => s.trim()).filter(Boolean);
+router.get('/config', (_req, res) => {
   const rtcEnabled = !!process.env.RTC_SECRET;
-  const signaling = rtcEnabled && (process.env.RTC_SIGNALING === 'oldface' || (userId && testers.includes(userId)))
-    ? 'oldface' : 'zim';
+  const signaling = rtcEnabled && process.env.RTC_SIGNALING !== 'zim' ? 'oldface' : 'zim';
   res.json({ rtcSignaling: signaling });
 });
 
@@ -540,11 +537,12 @@ router.post('/register-fcm-token', (req, res) => {
 router.post('/call-notification', async (req, res) => {
   const { calleeId, callerId, callerName, callType, roomId } = req.body || {};
   if (!calleeId || !callerId) return res.status(400).json({ error: 'calleeId y callerId son requeridos' });
+  const media = req.body?.media === 'zego' ? 'zego' : 'oldface'; // motor de audio/vídeo (por defecto el propio)
 
   // Si el destinatario tiene la app abierta con el servidor RTC, recibe la invitación al instante
   rtcEmit(calleeId, 'signal', {
     from: callerId, fromName: callerName || callerId, type: 'call_invite', ts: Date.now(),
-    payload: { callType: callType || 'voice', callerName: callerName || callerId, roomId: roomId || null },
+    payload: { callType: callType || 'voice', callerName: callerName || callerId, roomId: roomId || null, media },
   });
 
   const fcmToken = fcmStore.get(calleeId);
@@ -561,6 +559,8 @@ router.post('/call-notification', async (req, res) => {
       callerId,
       callerName: callerName || callerId,
       roomId:     roomId    || '',
+      ts:         Date.now(), // la app descarta notificaciones de llamadas ya caducadas
+      media,
     }, 'oldface_calls');
     return res.json({ success: true });
   } catch (e) {

@@ -15,6 +15,8 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore }  from '../store/authStore';
 import { useZegoStore }  from '../store/zegoStore';
+import { RtcCall }       from '../utils/rtcCall';
+import { ensureRtcConnected } from '../utils/rtcClient';
 import { useChatStore }  from '../store/chatStore';
 import { playRingSound } from '../utils/sounds';
 
@@ -51,6 +53,7 @@ export default function CallPage() {
   const hideStyleRef        = useRef(null);
   const keepAliveRef        = useRef(null); // AudioContext silencioso → evita throttling en background
   const micOnRef            = useRef(true); // ref síncrona del estado del mic
+  const speakerOnRef        = useRef(false); // ref síncrona del altavoz (los timers de auricular la respetan)
 
   const [status,     setStatus]    = useState('calling');
   const [duration,   setDuration]  = useState(0);
@@ -63,6 +66,13 @@ export default function CallPage() {
   const isIncoming = state?.isIncoming || false;
   const calleeName = state?.chat?.name || userId;
   const roomId     = state?.roomId || [user?.id, userId].sort().join('_voice_');
+  // Motor de audio: 'oldface' = servidor RTC propio (mediasoup) | 'zego' = ZEGOCLOUD (APKs antiguos)
+  const useOwnRtc  = state?.media !== 'zego';
+
+  const rtcCallRef     = useRef(null);        // RtcCall (servidor propio)
+  const audioBoxRef    = useRef(null);        // contenedor de <audio> de los participantes
+  const activeRef      = useRef(false);
+  const durationRef    = useRef(0);
 
   const inviteContacts = chats
     .filter(c => {
@@ -102,7 +112,12 @@ export default function CallPage() {
       // Reiniciar animaciones CSS que se congelen en background
       setAnimKey(k => k + 1);
       if (status !== 'active') return;
-      window.OldFaceAudio?.setEarpiece();
+      if (!speakerOnRef.current) window.OldFaceAudio?.setEarpiece();
+      if (useOwnRtc) {
+        // Servidor propio: reanudar la reproducción si el WebView la pausó
+        audioBoxRef.current?.querySelectorAll('audio').forEach(a => a.play().catch(() => {}));
+        return;
+      }
       // Ciclar mic para relanzar el pipeline de audio de ZEGOCLOUD tras throttling
       setTimeout(() => {
         try { zpRef.current?.turnMicrophoneOn?.(false); } catch {}
@@ -118,7 +133,7 @@ export default function CallPage() {
   // ── ZIM ───────────────────────────────────────────────────────────────────
   const sendZIMInvite = async () => {
     const callerName = user?.name || user?.id || 'Usuario';
-    sendCallSignal(userId, 'call_invite', { callType: 'voice', callerName, roomId }); // servidor RTC propio
+    sendCallSignal(userId, 'call_invite', { callType: 'voice', callerName, roomId, media: useOwnRtc ? 'oldface' : 'zego' }); // servidor RTC propio
     const zim = zimSnapRef.current;
     if (!zim) return;
     try {
@@ -158,8 +173,80 @@ export default function CallPage() {
     } catch { /* silencioso */ }
   }, [user, userId, calleeName, isIncoming]);
 
+  // ── Llamada conectada (común a ambos motores) ─────────────────────────────
+  const onCallActive = () => {
+    if (activeRef.current) return;
+    activeRef.current = true;
+    setStatus('active');
+    timerRef.current = setInterval(() => { durationRef.current += 1; setDuration(d => d + 1); }, 1000);
+    window.OldFaceAudio?.setCallActive(true);
+    // Tono silencioso → mantiene el AudioContext activo → evita que Android
+    // throttlee el JS del WebView a los ~3s cuando la app está en background
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      gain.gain.value = 0.001;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      keepAliveRef.current = { ctx, osc };
+    } catch {}
+
+    // ── Auricular: retardos escalonados para capturar una init tardía del audio ──
+    earpieceTimer.current.forEach(clearTimeout);
+    earpieceTimer.current = [0, 300, 700, 1400, 2500, 4000, 6000, 9000].map(ms =>
+      setTimeout(() => { if (!speakerOnRef.current) window.OldFaceAudio?.setEarpiece(); }, ms)
+    );
+  };
+
+  // ── Servidor RTC propio: audio de cada participante en un <audio> oculto ──
+  const attachAudio = (peerId, stream) => {
+    const box = audioBoxRef.current;
+    if (!box) return;
+    let el = box.querySelector(`audio[data-peer="${peerId}"]`);
+    if (!el) {
+      el = document.createElement('audio');
+      el.dataset.peer = peerId;
+      el.autoplay = true;
+      el.setAttribute('playsinline', '');
+      box.appendChild(el);
+    }
+    el.srcObject = stream;
+    el.play().catch(() => {});
+  };
+
+  const startOwnCall = async () => {
+    await ensureRtcConnected(user);
+    if (!isIncoming) await sendZIMInvite();
+    window.OldFaceAudio?.setCallActive(true);
+    window.OldFaceAudio?.setEarpiece();
+    rtcCallRef.current?.leave();
+    const call = new RtcCall({
+      roomId,
+      video: false,
+      onPeerStream: (peerId, stream) => { attachAudio(peerId, stream); onCallActive(); },
+      onPeerLeft: (peerId) => {
+        audioBoxRef.current?.querySelector(`audio[data-peer="${peerId}"]`)?.remove();
+        // Sin nadie más en la sala → la llamada ha terminado
+        if (call.remoteCount === 0 && activeRef.current && !cancelledRef.current) {
+          cancelledRef.current = true;
+          recordCallLog(durationRef.current); doCleanup(); navigate(-1);
+        }
+      },
+    });
+    rtcCallRef.current = call;
+    await call.join();
+    if (!micOnRef.current) call.setMic(false);
+  };
+
   // ── Flujo principal ───────────────────────────────────────────────────────
   const startCall = async () => {
+    if (useOwnRtc) {
+      try { await startOwnCall(); }
+      catch (err) { console.error('[CallPage] RTC propio:', err?.message); setStatus('error'); }
+      return;
+    }
     try {
       const { ZIM } = await import('zego-zim-web');
       zimSnapRef.current = ZIM.getInstance() || zimEngine;
@@ -259,7 +346,13 @@ export default function CallPage() {
     keepAliveRef.current = null;
     window.OldFaceAudio?.setSpeaker();
     window.OldFaceAudio?.setCallActive(false);
-    releaseCallInstance(user);
+    if (useOwnRtc) {
+      rtcCallRef.current?.leave();
+      rtcCallRef.current = null;
+      if (audioBoxRef.current) audioBoxRef.current.innerHTML = '';
+    } else {
+      releaseCallInstance(user);
+    }
   }, [user]); // eslint-disable-line
 
   // ── Colgar ────────────────────────────────────────────────────────────────
@@ -277,6 +370,7 @@ export default function CallPage() {
     const next = !micOn;
     micOnRef.current = next;
     setMicOn(next);
+    if (useOwnRtc) { rtcCallRef.current?.setMic(next); return; }
     try { zpRef.current?.turnMicrophoneOn?.(next); } catch {}
   };
 
@@ -293,6 +387,7 @@ export default function CallPage() {
           callerName: user.name || user.id,
           callType:   'voice',
           roomId,
+          media:      useOwnRtc ? 'oldface' : 'zego',
         }),
       });
       setInviteSent(prev => ({ ...prev, [contactId]: 'sent' }));
@@ -304,6 +399,7 @@ export default function CallPage() {
   // ── Speaker toggle ────────────────────────────────────────────────────────
   const handleSpeakerToggle = () => {
     const next = !speakerOn;
+    speakerOnRef.current = next;
     setSpeakerOn(next);
     if (next) {
       window.OldFaceAudio?.enableSpeaker();   // altavoz ON, para el poller
@@ -335,6 +431,10 @@ export default function CallPage() {
       }}>
         <div ref={containerRef} style={{ width: 1, height: 1 }} />
       </div>
+
+      {/* Servidor RTC propio: elementos <audio> de los participantes (sin UI) */}
+      <div ref={audioBoxRef} style={{ display: 'none' }} />
+
 
       {/* ── Error ── */}
       {status === 'error' && (

@@ -398,6 +398,8 @@ export default function AppRoot() {
                     callerId:   data.callerId,
                     callerName: data.callerName || data.callerId,
                     roomId:     data.roomId    || null,
+                    ts:         Number(data.ts) || null,
+                    media:      data.media || 'oldface',
                   });
                 }).catch(() => {});
                 return;
@@ -443,7 +445,7 @@ function AppShell() {
   const { user, isAuthenticated, logout } = useAuthStore();
   const { init: initZego, incomingCall, acceptCall, rejectCall, callError,
           pendingCallOut, clearPendingCall, callAccepted, clearCallAccepted,
-          pendingFCMCall, clearPendingFCMCall } = useZegoStore();
+          pendingFCMCall, clearPendingFCMCall, showIncomingCall } = useZegoStore();
 
   // Inicializar ZIM + UIKit cuando el usuario se autentica
   useEffect(() => {
@@ -469,28 +471,29 @@ function AppShell() {
   // ── Navegar a call room cuando el usuario inicia una llamada ─────────────
   useEffect(() => {
     if (!pendingCallOut) return;
-    const { calleeId, calleeName, callType, roomId } = pendingCallOut;
+    const { calleeId, calleeName, callType, roomId, media } = pendingCallOut;
     clearPendingCall();
     const path = callType === 'video' ? 'video-call' : 'call';
-    navigate(`/${path}/${calleeId}`, { state: { chat: { name: calleeName }, isIncoming: false, roomId } });
+    navigate(`/${path}/${calleeId}`, { state: { chat: { name: calleeName }, isIncoming: false, roomId, media } });
   }, [pendingCallOut]);
 
   // ── Navegar a call room cuando el usuario acepta una llamada ─────────────
   useEffect(() => {
     if (!callAccepted) return;
-    const { callerId, callerName, callType, roomId } = callAccepted;
+    const { callerId, callerName, callType, roomId, media } = callAccepted;
     clearCallAccepted();
     const path = callType === 'video' ? 'video-call' : 'call';
-    navigate(`/${path}/${callerId}`, { state: { chat: { name: callerName }, isIncoming: true, roomId } });
+    navigate(`/${path}/${callerId}`, { state: { chat: { name: callerName }, isIncoming: true, roomId, media } });
   }, [callAccepted]);
 
-  // ── Navegar a call room al pulsar notificación FCM de llamada ─────────────
+  // ── Notificación FCM de llamada pulsada → modal Aceptar/Rechazar ──────────
+  // (antes entraba directamente en la llamada y el receptor no podía aceptar ni rechazar)
   useEffect(() => {
     if (!pendingFCMCall) return;
-    const { callerId, callerName, callType, roomId } = pendingFCMCall;
+    const { callerId, callerName, callType, roomId, ts, media } = pendingFCMCall;
     clearPendingFCMCall();
-    const path = callType === 'video' ? 'video-call' : 'call';
-    navigate(`/${path}/${callerId}`, { state: { chat: { name: callerName || callerId }, isIncoming: true, roomId: roomId || null } });
+    if (ts && Date.now() - ts > 60000) { console.log('[FCM] Llamada caducada, no se muestra'); return; }
+    showIncomingCall({ callerId, callerName: callerName || callerId, callType, roomId, media });
   }, [pendingFCMCall]);
 
   // ── Único handler de back button Android ─────────────────────────────────

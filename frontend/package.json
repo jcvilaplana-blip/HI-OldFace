@@ -24,6 +24,7 @@
     "@capacitor/share": "^8.0.1",
     "@capgo/capacitor-autofill-save-password": "^8.0.20",
     "@zegocloud/zego-uikit-prebuilt": "^1.0.0",
+    "mediasoup-client": "^3.24.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.21.0",

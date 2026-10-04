@@ -15,6 +15,8 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore }  from '../store/authStore';
 import { useZegoStore }  from '../store/zegoStore';
 import { useChatStore }  from '../store/chatStore';
+import { RtcCall }       from '../utils/rtcCall';
+import { ensureRtcConnected } from '../utils/rtcClient';
 import { playRingSound } from '../utils/sounds';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
@@ -83,6 +85,13 @@ export default function VideoCallPage() {
   const calleeName = state?.chat?.name || userId;
   // Usar roomId del state (generado por el emisor) o derivar como fallback
   const roomId     = state?.roomId || [user?.id, userId].sort().join('_vroom_');
+  // Motor de audio/vídeo: 'oldface' = servidor RTC propio (mediasoup) | 'zego' = ZEGOCLOUD (APKs antiguos)
+  const useOwnRtc  = state?.media !== 'zego';
+
+  const rtcCallRef    = useRef(null);
+  const localVideoRef = useRef(null);
+  const activeRef     = useRef(false);
+  const [remotes, setRemotes] = useState([]); // [{ id, name, stream, videoOff }]
 
   // Contactos disponibles para invitar (todos los chats excepto el participante actual)
   const inviteContacts = chats
@@ -132,7 +141,13 @@ export default function VideoCallPage() {
       if (document.hidden || uiStatus !== 'active') return;
 
       // 1. Reactivar altavoz (videollamada usa altavoz por defecto)
-      window.OldFaceAudio?.turnSpeakerOn();
+      window.OldFaceAudio?.enableSpeaker();
+
+      if (useOwnRtc) {
+        // Servidor propio: reanudar vídeos que el WebView haya pausado en segundo plano
+        document.querySelectorAll('video[data-rtc]').forEach(v => v.play().catch(() => {}));
+        return;
+      }
 
       // 2. Forzar repaint del contenedor ZEGOCLOUD para descongelar el compositor WebGL
       if (containerRef.current) {
@@ -162,7 +177,7 @@ export default function VideoCallPage() {
   // ── Señales ZIM (capturadas ANTES de acquireCallInstance) ─────────────────
   const sendZIMInvite = async () => {
     const callerName = user?.name || user?.id || 'Usuario';
-    sendCallSignal(userId, 'call_invite', { callType: 'video', callerName, roomId }); // servidor RTC propio
+    sendCallSignal(userId, 'call_invite', { callType: 'video', callerName, roomId, media: useOwnRtc ? 'oldface' : 'zego' }); // servidor RTC propio
     const zim = zimSnapRef.current;
     if (!zim) return;
     try {
@@ -206,8 +221,59 @@ export default function VideoCallPage() {
     } catch { /* silencioso */ }
   }, [user, userId, calleeName, isIncoming]);
 
+  // ── Servidor RTC propio (mediasoup) ───────────────────────────────────────
+  const onOwnCallActive = () => {
+    if (activeRef.current) return;
+    activeRef.current = true;
+    setUiStatus('active');
+    startTimeRef.current = Date.now();
+    window.OldFaceAudio?.setCallActive(true);
+    window.OldFaceAudio?.enableSpeaker(); // videollamada: altavoz por defecto
+  };
+
+  const startOwnCall = async () => {
+    await ensureRtcConnected(user);
+    if (!isIncoming) await sendZIMInvite();
+    rtcCallRef.current?.leave();
+    setRemotes([]);
+    const call = new RtcCall({
+      roomId,
+      video: true,
+      onPeerStream: (id, stream, { name }) => {
+        setRemotes(prev => {
+          const others = prev.filter(r => r.id !== id);
+          const old = prev.find(r => r.id === id);
+          return [...others, { id, name, stream, videoOff: old?.videoOff || false }];
+        });
+        onOwnCallActive();
+      },
+      onPeerMedia: (id, { kind, paused }) => {
+        if (kind === 'video') setRemotes(prev => prev.map(r => r.id === id ? { ...r, videoOff: paused } : r));
+      },
+      onPeerLeft: (id) => {
+        setRemotes(prev => prev.filter(r => r.id !== id));
+        // Sin nadie más en la sala → la llamada ha terminado
+        if (call.remoteCount === 0 && activeRef.current && !cancelledRef.current) {
+          cancelledRef.current = true;
+          const secs = startTimeRef.current ? Math.round((Date.now() - startTimeRef.current) / 1000) : 0;
+          recordCallLog(secs); doCleanup(); navigate(-1);
+        }
+      },
+    });
+    rtcCallRef.current = call;
+    await call.join();
+    if (localVideoRef.current) localVideoRef.current.srcObject = call.localStream;
+    if (!micOn) call.setMic(false);
+    if (!cameraOnRef.current) call.setCamera(false);
+  };
+
   // ── Flujo principal ────────────────────────────────────────────────────────
   const startCall = async () => {
+    if (useOwnRtc) {
+      try { await startOwnCall(); }
+      catch (err) { console.error('[VideoCallPage] RTC propio:', err?.message); setUiStatus('error'); }
+      return;
+    }
     try {
       // 1. Capturar ZIM antes del acquire (que destruirá UIKit)
       const { ZIM } = await import('zego-zim-web');
@@ -278,7 +344,13 @@ export default function VideoCallPage() {
     zegoObserverRef.current?.disconnect();
     zegoObserverRef.current = null;
     window.OldFaceAudio?.setCallActive(false);
-    releaseCallInstance(user);
+    if (useOwnRtc) {
+      rtcCallRef.current?.leave();
+      rtcCallRef.current = null;
+      window.OldFaceAudio?.setSpeaker();
+    } else {
+      releaseCallInstance(user);
+    }
   }, [user]); // eslint-disable-line
 
   // ── Colgar ────────────────────────────────────────────────────────────────
@@ -298,6 +370,7 @@ export default function VideoCallPage() {
   const handleMicToggle = () => {
     const next = !micOn;
     setMicOn(next);
+    if (useOwnRtc) { rtcCallRef.current?.setMic(next); return; }
     try { zpRef.current?.turnMicrophoneOn?.(next); } catch {}
   };
 
@@ -305,6 +378,7 @@ export default function VideoCallPage() {
     const next = !cameraOn;
     cameraOnRef.current = next;   // sincronizar ref antes de cualquier timeout
     setCameraOn(next);
+    if (useOwnRtc) { rtcCallRef.current?.setCamera(next); return; }
     try { zpRef.current?.turnCameraOn?.(next); } catch {}
   };
 
@@ -321,6 +395,7 @@ export default function VideoCallPage() {
           callerName: user.name || user.id,
           callType:   'video',
           roomId,
+          media:      useOwnRtc ? 'oldface' : 'zego',
         }),
       });
       setInviteSent(prev => ({ ...prev, [contactId]: 'sent' }));
@@ -344,8 +419,34 @@ export default function VideoCallPage() {
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#111827', zIndex: 50 }}>
 
-      {/* ZEGOCLOUD UIKit — pantalla completa */}
-      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+      {/* ZEGOCLOUD UIKit — pantalla completa (solo APKs/llamadas con motor ZEGOCLOUD) */}
+      {!useOwnRtc && <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />}
+
+      {/* Servidor RTC propio: vídeo remoto a pantalla completa (o cuadrícula) + vista propia */}
+      {useOwnRtc && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'grid', gap: remotes.length > 1 ? 4 : 0, background: '#000',
+          gridTemplateColumns: remotes.length > 1 ? '1fr 1fr' : '1fr',
+          gridAutoRows: remotes.length > 2 ? '1fr' : undefined,
+        }}>
+          {remotes.map(r => (
+            <RemoteTile key={r.id} stream={r.stream} name={r.name} videoOff={r.videoOff} showName={remotes.length > 1} />
+          ))}
+        </div>
+      )}
+      {useOwnRtc && (
+        <video
+          ref={localVideoRef} data-rtc="local" autoPlay playsInline muted
+          style={{
+            position: 'absolute', top: 'max(env(safe-area-inset-top, 16px), 16px)', right: 14, zIndex: 30,
+            width: 104, height: 146, objectFit: 'cover', borderRadius: 14,
+            border: '2px solid rgba(255,255,255,0.35)', background: '#1f2937',
+            transform: 'scaleX(-1)', boxShadow: '0 4px 18px rgba(0,0,0,0.45)',
+            visibility: cameraOn && uiStatus === 'active' ? 'visible' : 'hidden',
+          }}
+        />
+      )}
 
       {/* ── Overlay: Conectando / Llamando ── */}
       {uiStatus === 'connecting' && (
@@ -640,6 +741,41 @@ export default function VideoCallPage() {
 }
 
 // ── Componentes auxiliares ─────────────────────────────────────────────────
+
+/** Vídeo de un participante (servidor RTC propio). El audio suena por el propio <video>. */
+function RemoteTile({ stream, name, videoOff, showName }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current && ref.current.srcObject !== stream) {
+      ref.current.srcObject = stream;
+      ref.current.play().catch(() => {});
+    }
+  }, [stream]);
+  return (
+    <div style={{ position: 'relative', background: '#111827', overflow: 'hidden', minHeight: 0 }}>
+      <video ref={ref} data-rtc="remote" autoPlay playsInline
+        style={{ width: '100%', height: '100%', objectFit: 'cover', visibility: videoOff ? 'hidden' : 'visible' }} />
+      {videoOff && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{
+            width: 110, height: 110, borderRadius: '50%', background: 'rgba(255,255,255,0.12)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'white', fontSize: 46, fontWeight: 900,
+          }}>
+            {name?.[0]?.toUpperCase() || '?'}
+          </div>
+        </div>
+      )}
+      {showName && (
+        <span style={{
+          position: 'absolute', left: 8, bottom: 8, background: 'rgba(0,0,0,0.55)', color: 'white',
+          fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 8,
+        }}>{name}</span>
+      )}
+    </div>
+  );
+}
+
 function CallButton({ children, active, activeColor, onPress, label }) {
   return (
     <button
