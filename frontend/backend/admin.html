@@ -171,7 +171,39 @@
     #toast.show{transform:translateY(0);opacity:1}
     #toast.ok{border-color:rgba(34,197,94,.4);color:#86efac}
     #toast.er{border-color:rgba(239,68,68,.4);color:#fca5a5}
-    @media(max-width:768px){.sidebar{display:none}.charts-row{grid-template-columns:1fr}}
+    /* ── POLL ─────────────────────────────────────────── */
+    .btn-pri{background:linear-gradient(135deg,#000080,#3b5bdb);color:#fff;border:none;border-radius:9px;
+             padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+    .btn-pri:hover{opacity:.9}
+    .btn-sec{background:rgba(255,255,255,.06);color:var(--text2);border:1px solid var(--border);border-radius:9px;
+             padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer}
+    .b-active{background:rgba(34,197,94,.16);color:#86efac;border:1px solid rgba(34,197,94,.35)}
+    .b-scheduled{background:rgba(245,158,11,.16);color:#fbbf24;border:1px solid rgba(245,158,11,.35)}
+    .b-closed{background:rgba(100,116,139,.18);color:#94a3b8;border:1px solid rgba(100,116,139,.3)}
+    .b-draft{background:rgba(239,68,68,.14);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
+    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:500;
+              display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto}
+    .modal{background:#041e50;border:1px solid var(--border);border-radius:16px;width:100%;max-width:620px;
+           padding:24px;box-shadow:0 24px 64px rgba(0,0,0,.55)}
+    .modal h3{font-size:17px;font-weight:800;margin-bottom:16px}
+    .frow{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .fg textarea,.fg select{width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--border);
+              border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;font-family:inherit}
+    .fg select option{background:#041e50}
+    .fg textarea:focus,.fg select:focus{border-color:var(--accent)}
+    .opt-row{display:flex;gap:8px;margin-bottom:8px}
+    .opt-row input{flex:1}
+    .chk{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);cursor:pointer;margin-bottom:14px}
+    .m-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+    .m-err{color:#fca5a5;font-size:13px;min-height:18px;margin-top:8px}
+    .res-row{margin-bottom:12px}
+    .res-top{display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px}
+    .res-bar{height:10px;background:rgba(255,255,255,.07);border-radius:5px;overflow:hidden}
+    .res-fill{height:100%;background:linear-gradient(90deg,#3b5bdb,#60a5fa);border-radius:5px}
+    .demo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-top:18px}
+    .cat-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04)}
+    .cat-row:last-child{border-bottom:none}
+    @media(max-width:768px){.sidebar{display:none}.charts-row{grid-template-columns:1fr}.frow{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -221,6 +253,9 @@
         </div>
         <div class="nav-item" data-sec="calls" onclick="showSection('calls')">
           <span class="ico">📞</span> Llamadas
+        </div>
+        <div class="nav-item" data-sec="polls" onclick="showSection('polls')">
+          <span class="ico">🗳️</span> Encuestas
         </div>
       </nav>
       <div class="sb-footer">
@@ -318,12 +353,107 @@
           </div>
         </div>
 
+        <!-- ── ENCUESTAS (POLL) ── -->
+        <div class="section" id="s-polls">
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-label">Encuestas</div><div class="stat-value" id="pst-total">—</div><div class="stat-icon">🗳️</div></div>
+            <div class="stat-card"><div class="stat-label">En curso</div><div class="stat-value" id="pst-active">—</div><div class="stat-icon">🟢</div></div>
+            <div class="stat-card"><div class="stat-label">Programadas</div><div class="stat-value" id="pst-scheduled">—</div><div class="stat-icon">⏰</div></div>
+            <div class="stat-card"><div class="stat-label">Cerradas</div><div class="stat-value" id="pst-closed">—</div><div class="stat-icon">🔒</div></div>
+            <div class="stat-card"><div class="stat-label">Votos</div><div class="stat-value" id="pst-votes">—</div><div class="stat-icon">✅</div></div>
+            <div class="stat-card"><div class="stat-label">Perfiles</div><div class="stat-value" id="pst-profiles">—</div><div class="stat-icon">👤</div><div class="stat-sub">con datos demográficos</div></div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-hdr">
+              <h3>Encuestas</h3>
+              <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <select class="plan-sel" id="poll-filter" onchange="renderPolls()">
+                  <option value="">Todas</option>
+                  <option value="active">En curso</option>
+                  <option value="scheduled">Programadas</option>
+                  <option value="closed">Cerradas</option>
+                  <option value="draft">Borradores</option>
+                </select>
+                <button class="btn-pri" onclick="openPollForm()">+ Nueva encuesta</button>
+              </div>
+            </div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>Encuesta</th><th>Categoría</th><th>Estado</th><th>Votos</th><th>Inicio</th><th>Fin</th><th>Acciones</th></tr></thead>
+                <tbody id="poll-tbody"><tr><td colspan="7" class="empty"><div class="spinner"></div></td></tr></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-hdr">
+              <h3>Categorías</h3>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <input class="search-input" id="cat-name" placeholder="Nombre (ej: Política)" style="width:180px" />
+                <input class="search-input" id="cat-icon" placeholder="Emoji" style="width:70px" />
+                <button class="btn-pri" onclick="createCategory()">Añadir</button>
+              </div>
+            </div>
+            <div id="cat-list"><div class="empty"><div class="spinner"></div></div></div>
+          </div>
+        </div>
+
       </div><!-- /content -->
     </div><!-- /main -->
   </div><!-- /layout -->
 </div><!-- /dashboard -->
 
 <div id="toast"></div>
+
+<!-- ════════ MODAL: crear/editar encuesta ════════ -->
+<div class="modal-bg" id="poll-modal" style="display:none" onclick="if(event.target===this)closePollForm()">
+  <div class="modal">
+    <h3 id="pf-title">Nueva encuesta</h3>
+    <div class="fg"><label>Título *</label><input id="pf-q" placeholder="¿Cuál es tu pregunta?" /></div>
+    <div class="fg"><label>Descripción</label><textarea id="pf-desc" rows="2" placeholder="Contexto opcional"></textarea></div>
+    <div class="frow">
+      <div class="fg"><label>Tipo</label>
+        <select id="pf-type" onchange="onPollTypeChange()">
+          <option value="MULTIPLE">Múltiples opciones</option>
+          <option value="YES_NO">Sí / No</option>
+        </select>
+      </div>
+      <div class="fg"><label>Categoría</label><select id="pf-cat"></select></div>
+    </div>
+    <div class="frow">
+      <div class="fg"><label>País</label><select id="pf-country"></select></div>
+      <div class="fg"><label>Vídeo (YouTube / Vimeo)</label><input id="pf-video" placeholder="https://youtube.com/watch?v=..." /></div>
+    </div>
+    <div class="frow">
+      <div class="fg"><label>Inicio *</label><input id="pf-start" type="datetime-local" /></div>
+      <div class="fg"><label>Fin (opcional)</label><input id="pf-end" type="datetime-local" /></div>
+    </div>
+    <div class="fg">
+      <label>Opciones de respuesta * <span id="pf-optcount"></span></label>
+      <div id="pf-opts"></div>
+      <button class="btn-sec" id="pf-addopt" onclick="addPollOption('')" style="width:100%;margin-top:4px">+ Añadir opción</button>
+      <div class="stat-sub" id="pf-lockmsg" style="display:none;margin-top:8px">La encuesta ya tiene votos: las opciones no se pueden cambiar.</div>
+    </div>
+    <label class="chk"><input type="checkbox" id="pf-pub" checked /> Publicada (visible en la app desde la fecha de inicio)</label>
+    <div class="m-err" id="pf-err"></div>
+    <div class="m-actions">
+      <button class="btn-sec" onclick="closePollForm()">Cancelar</button>
+      <button class="btn-pri" id="pf-save" onclick="savePoll()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ MODAL: resultados ════════ -->
+<div class="modal-bg" id="res-modal" style="display:none" onclick="if(event.target===this)closeResults()">
+  <div class="modal" style="max-width:860px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+      <div><h3 id="res-title" style="margin-bottom:4px"></h3><div class="stat-sub" id="res-meta"></div></div>
+      <button class="btn-sec" onclick="closeResults()">Cerrar</button>
+    </div>
+    <div id="res-body" style="margin-top:18px"></div>
+  </div>
+</div>
 
 <script>
 // ── State ────────────────────────────────────────────────────
@@ -396,7 +526,7 @@ async function loadChats()  { try { const d = await api('/api/admin/chats'); ren
 async function loadCalls()  { try { const d = await api('/api/admin/calls'); renderCalls(d.calls||[]); } catch(e){ renderCalls([]); } }
 
 // ── Navigation ───────────────────────────────────────────────
-const TITLES = { overview:'Resumen', users:'Usuarios', plans:'Planes', chats:'Chats', calls:'Llamadas' };
+const TITLES = { overview:'Resumen', users:'Usuarios', plans:'Planes', chats:'Chats', calls:'Llamadas', polls:'Encuestas' };
 
 function showSection(id) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -407,6 +537,7 @@ function showSection(id) {
   if (id === 'calls')  loadCalls();
   if (id === 'users')  renderUsersTable(users);
   if (id === 'plans')  { renderPlanCards(); renderPlansTable(); }
+  if (id === 'polls')  loadPollSection();
 }
 
 // ── Overview ─────────────────────────────────────────────────
@@ -582,6 +713,247 @@ function renderCalls(list) {
     <td>${c.duration ? fmtDur(c.duration) : '—'}</td>
     <td style="font-size:11px;color:var(--text3)">${c.ts ? fmtD(c.ts) : '—'}</td>
   </tr>`).join('');
+}
+
+// ── Encuestas (POLL) ──────────────────────────────────────────
+let polls = [], pollCats = [], pollCountries = [], editingPoll = null, pollHasVotes = false;
+const STATUS_LBL = { active:'En curso', scheduled:'Programada', closed:'Cerrada', draft:'Borrador' };
+const SEX_LBL = { male:'Hombre', female:'Mujer', other:'Otro', prefer_not_say:'No indica' };
+const AGE_ORD = ['< 18','18-24','25-34','35-44','45-54','55+'];
+let demoCharts = [];
+
+// Igual que api() pero lanza el mensaje de error del servidor
+async function apiP(path, opts = {}) {
+  const r = await fetch(path, {
+    ...opts,
+    headers: { 'Content-Type':'application/json', 'x-admin-token': TOKEN, ...(opts.headers||{}) }
+  });
+  if (r.status === 401) { doLogout(); throw new Error('Sesión expirada'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error del servidor');
+  return d;
+}
+
+async function loadPollSection() {
+  try {
+    const [st, pl, cats, meta] = await Promise.all([
+      apiP('/api/admin/poll/stats'), apiP('/api/admin/poll/polls'),
+      apiP('/api/admin/poll/categories'), apiP('/api/poll/meta'),
+    ]);
+    set('pst-total', st.polls); set('pst-active', st.active); set('pst-scheduled', st.scheduled);
+    set('pst-closed', st.closed); set('pst-votes', fmtN(st.totalVotes)); set('pst-profiles', st.profiles);
+    polls = pl.polls || []; pollCats = cats.categories || []; pollCountries = meta.countries || [];
+    renderPolls(); renderCategories();
+  } catch (e) { toast(e.message, 'er'); }
+}
+
+function renderPolls() {
+  const f = document.getElementById('poll-filter').value;
+  const list = f ? polls.filter(p => p.status === f) : polls;
+  const tb = document.getElementById('poll-tbody');
+  if (!list.length) { tb.innerHTML = '<tr><td colspan="7" class="empty"><div class="eico">🗳️</div>No hay encuestas</td></tr>'; return; }
+  tb.innerHTML = list.map(p => `<tr>
+    <td style="max-width:280px"><div class="un" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.title)}</div>
+      <div class="up">${p.type === 'YES_NO' ? 'Sí / No' : p.options.length + ' opciones'}${p.videoUrl ? ' · 🎬 vídeo' : ''}${p.country ? ' · ' + esc(p.country) : ''}</div></td>
+    <td>${p.category ? esc((p.category.icon || '') + ' ' + p.category.name) : '—'}</td>
+    <td><span class="badge b-${p.status}">${STATUS_LBL[p.status]}</span></td>
+    <td>${p.totalVotes}</td>
+    <td style="font-size:11px;color:var(--text3)">${fmtD(p.startsAt)}</td>
+    <td style="font-size:11px;color:var(--text3)">${p.endsAt ? fmtD(p.endsAt) : 'Sin fin'}</td>
+    <td style="white-space:nowrap">
+      <button class="btn-ic" title="Resultados" onclick="openResults('${p.id}')">📊</button>
+      <button class="btn-ic" title="Editar" onclick="openPollForm('${p.id}')">✏️</button>
+      ${p.isPublished ? `<button class="btn-ic" title="${p.isActive && p.status !== 'closed' ? 'Cerrar' : 'Reabrir'}" onclick="togglePoll('${p.id}')">${p.isActive && p.status !== 'closed' ? '⏹️' : '▶️'}</button>` : ''}
+      <button class="btn-ic del" title="Eliminar" onclick="deletePoll('${p.id}')">🗑️</button>
+    </td>
+  </tr>`).join('');
+}
+
+function toLocalInput(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function fillSelect(id, items, value, emptyLabel) {
+  document.getElementById(id).innerHTML = `<option value="">${emptyLabel}</option>` +
+    items.map(([v, l]) => `<option value="${esc(v)}" ${v === value ? 'selected' : ''}>${esc(l)}</option>`).join('');
+}
+
+async function openPollForm(id) {
+  editingPoll = id ? polls.find(p => p.id === id) : null;
+  let full = null;
+  if (id) { try { full = (await apiP(`/api/admin/poll/polls/${id}`)).poll; } catch (e) { toast(e.message, 'er'); return; } }
+  pollHasVotes = !!(full && full.totalVotes > 0);
+  document.getElementById('pf-title').textContent = id ? 'Editar encuesta' : 'Nueva encuesta';
+  document.getElementById('pf-q').value     = full?.title || '';
+  document.getElementById('pf-desc').value  = full?.description || '';
+  document.getElementById('pf-type').value  = full?.type || 'MULTIPLE';
+  document.getElementById('pf-video').value = full?.videoUrl || '';
+  document.getElementById('pf-start').value = toLocalInput(full?.startsAt || Date.now());
+  document.getElementById('pf-end').value   = toLocalInput(full?.endsAt);
+  document.getElementById('pf-pub').checked = full ? full.isPublished : true;
+  fillSelect('pf-cat', pollCats.map(c => [c.id, (c.icon ? c.icon + ' ' : '') + c.name]), full?.categoryId || '', 'Sin categoría');
+  fillSelect('pf-country', pollCountries.map(c => [c, c]), full?.country || '', 'Todos los países');
+  document.getElementById('pf-opts').innerHTML = '';
+  (full?.options?.map(o => o.text) || ['', '']).forEach(t => addPollOption(t));
+  document.getElementById('pf-type').disabled = pollHasVotes;
+  document.getElementById('pf-lockmsg').style.display = pollHasVotes ? 'block' : 'none';
+  syncOptionsUI();
+  document.getElementById('pf-err').textContent = '';
+  document.getElementById('poll-modal').style.display = 'flex';
+  document.getElementById('pf-q').focus();
+}
+
+function closePollForm() { document.getElementById('poll-modal').style.display = 'none'; editingPoll = null; }
+
+function addPollOption(text) {
+  const box = document.getElementById('pf-opts');
+  if (box.children.length >= 10) return;
+  const row = document.createElement('div');
+  row.className = 'opt-row fg';
+  row.style.marginBottom = '8px';
+  row.innerHTML = `<input placeholder="Opción" /><button class="btn-ic del" title="Quitar">✕</button>`;
+  row.querySelector('input').value = text;
+  row.querySelector('button').onclick = () => { if (box.children.length > 2) { row.remove(); syncOptionsUI(); } };
+  box.appendChild(row);
+  syncOptionsUI();
+}
+
+function onPollTypeChange() {
+  const box = document.getElementById('pf-opts');
+  box.innerHTML = '';
+  if (document.getElementById('pf-type').value === 'YES_NO') { addPollOption('Sí'); addPollOption('No'); }
+  else { addPollOption(''); addPollOption(''); }
+}
+
+function syncOptionsUI() {
+  const yesNo = document.getElementById('pf-type').value === 'YES_NO';
+  const locked = yesNo || pollHasVotes;
+  const rows = [...document.getElementById('pf-opts').children];
+  rows.forEach(r => { r.querySelector('input').disabled = locked; r.querySelector('button').style.display = locked ? 'none' : ''; });
+  document.getElementById('pf-addopt').style.display = locked || rows.length >= 10 ? 'none' : '';
+  document.getElementById('pf-optcount').textContent = `(${rows.length})`;
+}
+
+async function savePoll() {
+  const errEl = document.getElementById('pf-err');
+  const start = document.getElementById('pf-start').value;
+  const end   = document.getElementById('pf-end').value;
+  const body = {
+    title:       document.getElementById('pf-q').value,
+    description: document.getElementById('pf-desc').value,
+    type:        document.getElementById('pf-type').value,
+    categoryId:  document.getElementById('pf-cat').value || null,
+    country:     document.getElementById('pf-country').value || null,
+    videoUrl:    document.getElementById('pf-video').value || null,
+    startsAt:    start ? new Date(start).toISOString() : null,
+    endsAt:      end ? new Date(end).toISOString() : null,
+    isPublished: document.getElementById('pf-pub').checked,
+    options:     [...document.querySelectorAll('#pf-opts input')].map(i => i.value),
+  };
+  errEl.textContent = '';
+  const btn = document.getElementById('pf-save'); btn.disabled = true;
+  try {
+    if (editingPoll) await apiP(`/api/admin/poll/polls/${editingPoll.id}`, { method:'PUT', body:JSON.stringify(body) });
+    else await apiP('/api/admin/poll/polls', { method:'POST', body:JSON.stringify(body) });
+    toast(editingPoll ? 'Encuesta actualizada' : 'Encuesta creada', 'ok');
+    closePollForm();
+    loadPollSection();
+  } catch (e) { errEl.textContent = e.message; }
+  finally { btn.disabled = false; }
+}
+
+async function togglePoll(id) {
+  try { await apiP(`/api/admin/poll/polls/${id}/toggle`, { method:'POST' }); toast('Estado actualizado', 'ok'); loadPollSection(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+
+async function deletePoll(id) {
+  const p = polls.find(x => x.id === id);
+  if (!confirm(`¿Eliminar la encuesta "${p?.title}" y sus ${p?.totalVotes || 0} votos?\nEsta acción no se puede deshacer.`)) return;
+  try { await apiP(`/api/admin/poll/polls/${id}`, { method:'DELETE' }); toast('Encuesta eliminada', 'ok'); loadPollSection(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+
+async function openResults(id) {
+  let p;
+  try { p = (await apiP(`/api/admin/poll/polls/${id}`)).poll; } catch (e) { toast(e.message, 'er'); return; }
+  document.getElementById('res-title').textContent = p.title;
+  document.getElementById('res-meta').textContent =
+    `${STATUS_LBL[p.status]} · ${p.totalVotes} votos · ${fmtD(p.startsAt)}${p.endsAt ? ' → ' + fmtD(p.endsAt) : ''}`;
+  const d = p.demographics;
+  document.getElementById('res-body').innerHTML =
+    p.options.map(o => `<div class="res-row">
+      <div class="res-top"><span>${esc(o.text)}</span><strong>${o.percentage}% · ${o.count}</strong></div>
+      <div class="res-bar"><div class="res-fill" style="width:${o.percentage}%"></div></div>
+    </div>`).join('') +
+    (d && d.totalVoters ? `<div class="demo-grid">
+      <div class="chart-card"><div class="chart-title">Sexo</div><div class="chart-wrap"><canvas id="dc-sex"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Edad</div><div class="chart-wrap"><canvas id="dc-age"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Nacionalidad</div><div class="chart-wrap"><canvas id="dc-nat"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Códigos postales (top 10)</div><div id="dc-cp" style="font-size:13px"></div></div>
+    </div>` : '<div class="empty">Aún no hay datos demográficos.</div>');
+  document.getElementById('res-modal').style.display = 'flex';
+  if (!d || !d.totalVoters) return;
+
+  demoCharts.forEach(c => c.destroy()); demoCharts = [];
+  const pal = ['#60a5fa','#818cf8','#22c55e','#fbbf24','#f87171','#a78bfa','#2dd4bf','#fb923c'];
+  const opts = { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom', labels:{ color:'#8fb3dd', font:{size:11} } } } };
+  const sexE = Object.entries(d.sex);
+  demoCharts.push(new Chart(document.getElementById('dc-sex'), { type:'doughnut',
+    data:{ labels:sexE.map(([k]) => SEX_LBL[k] || k), datasets:[{ data:sexE.map(([,v]) => v), backgroundColor:pal }] }, options:opts }));
+  const ageK = AGE_ORD.filter(k => d.age[k]);
+  demoCharts.push(new Chart(document.getElementById('dc-age'), { type:'bar',
+    data:{ labels:ageK, datasets:[{ data:ageK.map(k => d.age[k]), backgroundColor:'rgba(96,165,250,.6)', borderRadius:6 }] },
+    options:{ ...opts, plugins:{ legend:{ display:false } }, scales:{ x:{ ticks:{ color:'#8fb3dd' } }, y:{ ticks:{ color:'#8fb3dd', precision:0 }, beginAtZero:true } } } }));
+  const natE = Object.entries(d.nationality).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  demoCharts.push(new Chart(document.getElementById('dc-nat'), { type:'doughnut',
+    data:{ labels:natE.map(([k]) => k), datasets:[{ data:natE.map(([,v]) => v), backgroundColor:pal }] }, options:opts }));
+  document.getElementById('dc-cp').innerHTML = Object.entries(d.postalCode).sort((a, b) => b[1] - a[1]).slice(0, 10)
+    .map(([cp, n]) => `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04)"><span>${esc(cp)}</span><strong>${n}</strong></div>`).join('');
+}
+
+function closeResults() { document.getElementById('res-modal').style.display = 'none'; demoCharts.forEach(c => c.destroy()); demoCharts = []; }
+
+function renderCategories() {
+  const box = document.getElementById('cat-list');
+  if (!pollCats.length) { box.innerHTML = '<div class="empty"><div class="eico">🏷️</div>No hay categorías. Crea la primera.</div>'; return; }
+  box.innerHTML = pollCats.map(c => `<div class="cat-row">
+    <span style="font-size:20px;width:28px;text-align:center">${esc(c.icon || '🏷️')}</span>
+    <div style="flex:1"><div class="un">${esc(c.name)}</div><div class="up">${c.polls} encuesta${c.polls === 1 ? '' : 's'}</div></div>
+    <button class="btn-ic" title="Editar" onclick="editCategory('${c.id}')">✏️</button>
+    <button class="btn-ic del" title="Eliminar" onclick="deleteCategory('${c.id}')">🗑️</button>
+  </div>`).join('');
+}
+
+async function createCategory() {
+  const name = document.getElementById('cat-name').value.trim();
+  const icon = document.getElementById('cat-icon').value.trim();
+  if (!name) { toast('Escribe un nombre', 'er'); return; }
+  try {
+    await apiP('/api/admin/poll/categories', { method:'POST', body:JSON.stringify({ name, icon }) });
+    document.getElementById('cat-name').value = ''; document.getElementById('cat-icon').value = '';
+    toast('Categoría creada', 'ok'); loadPollSection();
+  } catch (e) { toast(e.message, 'er'); }
+}
+
+async function editCategory(id) {
+  const c = pollCats.find(x => x.id === id);
+  const name = prompt('Nombre de la categoría:', c.name);
+  if (name === null || !name.trim()) return;
+  const icon = prompt('Emoji (opcional):', c.icon || '');
+  try {
+    await apiP(`/api/admin/poll/categories/${id}`, { method:'PUT', body:JSON.stringify({ name, icon: icon || '' }) });
+    toast('Categoría actualizada', 'ok'); loadPollSection();
+  } catch (e) { toast(e.message, 'er'); }
+}
+
+async function deleteCategory(id) {
+  const c = pollCats.find(x => x.id === id);
+  if (!confirm(`¿Eliminar la categoría "${c.name}"?\nLas encuestas asociadas se quedarán sin categoría.`)) return;
+  try { await apiP(`/api/admin/poll/categories/${id}`, { method:'DELETE' }); toast('Categoría eliminada', 'ok'); loadPollSection(); }
+  catch (e) { toast(e.message, 'er'); }
 }
 
 // ── Helpers ───────────────────────────────────────────────────

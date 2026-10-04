@@ -14,7 +14,7 @@ import BottomNav from '../components/BottomNav.jsx';
 import Avatar from '../components/Avatar.jsx';
 
 const BRAND   = '#000080';
-const APP_URL = 'https://oldface.fullstark.es';
+const APP_URL = 'https://oldface.app';
 
 async function inviteContact(contact) {
   const text = `¡Hola ${contact.name}! Te invito a OldFace, la app para conectar con quienes más quieres. Descárgala aquí: ${APP_URL}`;

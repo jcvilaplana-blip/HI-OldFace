@@ -51,6 +51,10 @@ const _callLog  = loadJSON('call_log.json', {});
 const _stories  = loadJSON('stories.json', []);
 const _groups   = loadJSON('groups.json', {});
 const _subs     = loadJSON('subscriptions.json', {});
+const _polls         = loadJSON('poll_polls.json', {});
+const _pollVotes     = loadJSON('poll_votes.json', {});
+const _pollCats      = loadJSON('poll_categories.json', {});
+const _pollProfiles  = loadJSON('poll_profiles.json', {});
 
 // Convertir a Map (operaciones en memoria, persistimos después de cada escritura)
 const userStore    = new Map(Object.entries(_users));
@@ -62,6 +66,10 @@ const callLogStore = new Map(Object.entries(_callLog)); // userId → [calls]
 let   storiesList  = Array.isArray(_stories) ? _stories : []; // array plano de stories
 const groupStore   = new Map(Object.entries(_groups));  // groupId → group
 const subStore     = new Map(Object.entries(_subs));    // userId → { plan, since }
+const pollStore        = new Map(Object.entries(_polls));        // pollId → poll
+const pollVoteStore    = new Map(Object.entries(_pollVotes));    // pollId → { userId: optionId }
+const pollCatStore     = new Map(Object.entries(_pollCats));     // categoryId → category
+const pollProfileStore = new Map(Object.entries(_pollProfiles)); // userId → { age, sex, postalCode, nationality }
 
 const saveUsers    = () => saveJSON('users.json',    Object.fromEntries(userStore));
 const saveChats    = () => saveJSON('chats.json',    Object.fromEntries(chatStore2));
@@ -72,6 +80,10 @@ const saveCallLog  = () => saveJSON('call_log.json',  Object.fromEntries(callLog
 const saveStories  = () => saveJSON('stories.json',   storiesList);
 const saveGroups   = () => saveJSON('groups.json',    Object.fromEntries(groupStore));
 const saveSubs     = () => saveJSON('subscriptions.json', Object.fromEntries(subStore));
+const savePolls        = () => saveJSON('poll_polls.json',      Object.fromEntries(pollStore));
+const savePollVotes    = () => saveJSON('poll_votes.json',      Object.fromEntries(pollVoteStore));
+const savePollCats     = () => saveJSON('poll_categories.json', Object.fromEntries(pollCatStore));
+const savePollProfiles = () => saveJSON('poll_profiles.json',   Object.fromEntries(pollProfileStore));
 
 console.log(`[DB] Usuarios: ${userStore.size} | Chats: ${chatStore2.size} | Directos: ${directoStore.size} | CallLog: ${callLogStore.size}`);
 
@@ -312,30 +324,27 @@ router.post('/send-otp', async (req, res) => {
   const smtpPass = process.env.SMTP_PASS;
   const toEmail  = email && email.includes('@') ? email.trim().toLowerCase() : null;
 
-  if (smtpUser && smtpPass && toEmail) {
-    try {
-      await sendOtpEmail(toEmail, code);
-      console.log(`✅ OTP enviado por email a ${toEmail}`);
-      otpStore.set(normalizedPhone, {
-        code, expiry, attempts: 0,
-        sendCount: (existing?.sendCount || 0) + 1,
-        firstSent: existing?.firstSent || Date.now(),
-      });
-      return res.json({ success: true, message: `Código enviado a ${toEmail}`, channel: 'email' });
-    } catch (err) {
-      console.error('❌ Email send error:', err.message);
-      return res.status(500).json({ error: 'Error enviando email. Comprueba la dirección.' });
-    }
+  if (!toEmail)
+    return res.status(400).json({ error: 'Introduce un email válido para recibir el código' });
+
+  if (!smtpUser || !smtpPass) {
+    console.error('❌ SMTP no configurado (SMTP_USER/SMTP_PASS)');
+    return res.status(503).json({ error: 'Servicio de correo no disponible. Inténtalo más tarde.' });
   }
 
-  // Fallback: modo desarrollo — OTP en logs
-  otpStore.set(normalizedPhone, {
-    code, expiry, attempts: 0,
-    sendCount: (existing?.sendCount || 0) + 1,
-    firstSent: existing?.firstSent || Date.now(),
-  });
-  console.log(`\n🔑 OTP para ${normalizedPhone}: ${code} (modo desarrollo)\n`);
-  return res.json({ success: true, message: 'Código enviado', channel: 'dev' });
+  try {
+    await sendOtpEmail(toEmail, code);
+    console.log(`✅ OTP enviado por email a ${toEmail}`);
+    otpStore.set(normalizedPhone, {
+      code, expiry, attempts: 0,
+      sendCount: (existing?.sendCount || 0) + 1,
+      firstSent: existing?.firstSent || Date.now(),
+    });
+    return res.json({ success: true, message: `Código enviado a ${toEmail}`, channel: 'email' });
+  } catch (err) {
+    console.error('❌ Email send error:', err.message);
+    return res.status(500).json({ error: 'No se pudo enviar el email. Revisa la dirección o inténtalo más tarde.' });
+  }
 });
 
 /** POST /verify-otp */
@@ -1147,6 +1156,305 @@ router.get('/admin/calls', adminAuth, (_req, res) => {
   for (const calls of callLogStore.values()) if (Array.isArray(calls)) all.push(...calls);
   all.sort((a, b) => (b.ts || b.timestamp || 0) - (a.ts || a.timestamp || 0));
   res.json({ calls: all.slice(0, 200) });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  POLL — encuestas integradas (antes poll.fullstark.es)
+// ════════════════════════════════════════════════════════════════
+const POLL_COUNTRIES = [
+  'España', 'México', 'Argentina', 'Colombia', 'Chile', 'Perú', 'Venezuela', 'Ecuador',
+  'Guatemala', 'Cuba', 'Bolivia', 'República Dominicana', 'Honduras', 'Paraguay', 'El Salvador',
+  'Nicaragua', 'Costa Rica', 'Panamá', 'Uruguay', 'Puerto Rico', 'Estados Unidos', 'Otro',
+];
+const POLL_SEX = ['male', 'female', 'other', 'prefer_not_say'];
+
+const findUserById = (userId) => [...userStore.values()].find(u => u.userId === userId) || null;
+
+function slugify(s) {
+  return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
+
+/** draft | scheduled | active | closed */
+function pollStatus(p, now = Date.now()) {
+  if (!p.isPublished) return 'draft';
+  if (!p.isActive || (p.endsAt && p.endsAt <= now)) return 'closed';
+  if (p.startsAt > now) return 'scheduled';
+  return 'active';
+}
+
+function pollResults(p) {
+  const votes  = pollVoteStore.get(p.id) || {};
+  const counts = {};
+  for (const optId of Object.values(votes)) counts[optId] = (counts[optId] || 0) + 1;
+  const total = Object.keys(votes).length;
+  return {
+    totalVotes: total,
+    options: p.options.map(o => ({
+      id: o.id, text: o.text,
+      count: counts[o.id] || 0,
+      percentage: total ? Math.round(((counts[o.id] || 0) / total) * 100) : 0,
+    })),
+  };
+}
+
+function pollDemographics(p) {
+  const voterIds = Object.keys(pollVoteStore.get(p.id) || {});
+  const sex = {}, age = {}, nationality = {}, postalCode = {};
+  let withProfile = 0;
+  for (const uid of voterIds) {
+    const pr = pollProfileStore.get(uid);
+    if (!pr) continue;
+    withProfile++;
+    sex[pr.sex] = (sex[pr.sex] || 0) + 1;
+    const a = pr.age;
+    const range = a < 18 ? '< 18' : a < 25 ? '18-24' : a < 35 ? '25-34' : a < 45 ? '35-44' : a < 55 ? '45-54' : '55+';
+    age[range] = (age[range] || 0) + 1;
+    nationality[pr.nationality] = (nationality[pr.nationality] || 0) + 1;
+    postalCode[pr.postalCode] = (postalCode[pr.postalCode] || 0) + 1;
+  }
+  return { totalVoters: withProfile, sex, age, nationality, postalCode };
+}
+
+function serializePoll(p, userId, { withDemographics = false } = {}) {
+  const cat = p.categoryId ? pollCatStore.get(p.categoryId) : null;
+  const votes = pollVoteStore.get(p.id) || {};
+  return {
+    id: p.id, title: p.title, description: p.description, type: p.type,
+    category: cat ? { id: cat.id, name: cat.name, icon: cat.icon } : null,
+    country: p.country || null, videoUrl: p.videoUrl || null,
+    startsAt: p.startsAt, endsAt: p.endsAt, createdAt: p.createdAt,
+    isPublished: p.isPublished, isActive: p.isActive,
+    status: pollStatus(p),
+    ...pollResults(p),
+    myVote: userId ? (votes[userId] || null) : null,
+    ...(withDemographics ? { demographics: pollDemographics(p) } : {}),
+  };
+}
+
+/** Valida y normaliza el cuerpo de creación/edición de encuesta (admin) */
+function parsePollInput(body, existing = null) {
+  const { title, description, type, options, categoryId, country, videoUrl, startsAt, endsAt, isPublished } = body || {};
+  if (!title || !String(title).trim()) return { error: 'El título es obligatorio' };
+  const pollType = type === 'YES_NO' ? 'YES_NO' : 'MULTIPLE';
+  const texts = pollType === 'YES_NO'
+    ? ['Sí', 'No']
+    : (Array.isArray(options) ? options : []).map(o => String(typeof o === 'object' ? o.text : o || '').trim()).filter(Boolean);
+  if (texts.length < 2)  return { error: 'Debe haber al menos 2 opciones' };
+  if (texts.length > 10) return { error: 'Máximo 10 opciones' };
+  if (new Set(texts.map(t => t.toLowerCase())).size !== texts.length) return { error: 'Hay opciones repetidas' };
+  const start = startsAt ? new Date(startsAt).getTime() : (existing?.startsAt ?? Date.now());
+  const end   = endsAt   ? new Date(endsAt).getTime()   : null;
+  if (Number.isNaN(start) || (end !== null && Number.isNaN(end))) return { error: 'Fechas inválidas' };
+  if (end !== null && end <= start) return { error: 'La fecha de fin debe ser posterior a la de inicio' };
+  if (categoryId && !pollCatStore.has(categoryId)) return { error: 'Categoría no válida' };
+
+  // Conservar IDs de opciones existentes cuando el texto no cambia (no romper votos)
+  const prevOpts = existing?.options || [];
+  const opts = texts.map((text, i) => {
+    const same = prevOpts.find(o => o.text === text);
+    return same ? { id: same.id, text } : { id: `opt_${Date.now()}_${i}_${crypto.randomBytes(2).toString('hex')}`, text };
+  });
+
+  return {
+    data: {
+      title: String(title).trim(),
+      description: description ? String(description).trim() : '',
+      type: pollType, options: opts,
+      categoryId: categoryId || null,
+      country: country || null,
+      videoUrl: videoUrl ? String(videoUrl).trim() : null,
+      startsAt: start, endsAt: end,
+      isPublished: isPublished !== false,
+    },
+  };
+}
+
+// ── POLL: endpoints de usuario ────────────────────────────────────
+
+/** GET /poll/meta — categorías y listas para formularios */
+router.get('/poll/meta', (_req, res) => {
+  const categories = [...pollCatStore.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  res.json({ categories, countries: POLL_COUNTRIES });
+});
+
+/** GET /poll/polls?userId= — encuestas visibles (activas + cerradas) */
+router.get('/poll/polls', (req, res) => {
+  const { userId } = req.query;
+  const visible = [...pollStore.values()]
+    .map(p => serializePoll(p, userId))
+    .filter(p => p.status === 'active' || p.status === 'closed');
+  const active   = visible.filter(p => p.status === 'active').sort((a, b) => b.startsAt - a.startsAt);
+  const finished = visible.filter(p => p.status === 'closed')
+    .sort((a, b) => (b.endsAt || b.startsAt) - (a.endsAt || a.startsAt)).slice(0, 50);
+  res.json({ current: active[0] || null, active: active.slice(1), finished });
+});
+
+/** GET /poll/polls/:id?userId= — detalle con resultados y demografía */
+router.get('/poll/polls/:id', (req, res) => {
+  const p = pollStore.get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Encuesta no encontrada' });
+  const status = pollStatus(p);
+  if (status === 'draft' || status === 'scheduled') return res.status(404).json({ error: 'Encuesta no disponible' });
+  res.json({ poll: serializePoll(p, req.query.userId, { withDemographics: true }) });
+});
+
+/** POST /poll/polls/:id/vote — { userId, optionId } */
+router.post('/poll/polls/:id/vote', (req, res) => {
+  const { userId, optionId } = req.body || {};
+  const p = pollStore.get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Encuesta no encontrada' });
+  if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  if (pollStatus(p) !== 'active') return res.status(400).json({ error: 'Esta encuesta no acepta votos' });
+  if (!pollProfileStore.has(userId)) return res.status(409).json({ error: 'Completa tu perfil para votar', needsProfile: true });
+  if (!p.options.some(o => o.id === optionId)) return res.status(400).json({ error: 'Opción no válida' });
+
+  const votes = pollVoteStore.get(p.id) || {};
+  if (votes[userId]) return res.status(409).json({ error: 'Ya has votado en esta encuesta' });
+  votes[userId] = optionId;
+  pollVoteStore.set(p.id, votes);
+  savePollVotes();
+  res.json({ success: true, poll: serializePoll(p, userId, { withDemographics: true }) });
+});
+
+/** GET /poll/profile/:userId */
+router.get('/poll/profile/:userId', (req, res) => {
+  res.json({ profile: pollProfileStore.get(req.params.userId) || null });
+});
+
+/** POST /poll/profile — { userId, age, sex, postalCode, nationality } */
+router.post('/poll/profile', (req, res) => {
+  const { userId, age, sex, postalCode, nationality } = req.body || {};
+  if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  const ageNum = parseInt(age, 10);
+  if (Number.isNaN(ageNum) || ageNum < 16 || ageNum > 120) return res.status(400).json({ error: 'La edad debe estar entre 16 y 120' });
+  if (!POLL_SEX.includes(sex)) return res.status(400).json({ error: 'Sexo no válido' });
+  if (!postalCode || !/^[A-Za-z0-9 -]{3,10}$/.test(String(postalCode).trim())) return res.status(400).json({ error: 'Código postal no válido' });
+  if (!POLL_COUNTRIES.includes(nationality)) return res.status(400).json({ error: 'Nacionalidad no válida' });
+  const profile = { age: ageNum, sex, postalCode: String(postalCode).trim().toUpperCase(), nationality, updatedAt: Date.now() };
+  pollProfileStore.set(userId, profile);
+  savePollProfiles();
+  res.json({ success: true, profile });
+});
+
+/** GET /poll/history?userId= — encuestas en las que ha votado el usuario */
+router.get('/poll/history', (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ error: 'userId requerido' });
+  const list = [...pollStore.values()]
+    .filter(p => (pollVoteStore.get(p.id) || {})[userId])
+    .map(p => serializePoll(p, userId))
+    .sort((a, b) => b.startsAt - a.startsAt);
+  res.json({ polls: list });
+});
+
+// ── POLL: endpoints de administración ─────────────────────────────
+
+router.get('/admin/poll/stats', adminAuth, (_req, res) => {
+  const all = [...pollStore.values()];
+  const byStatus = { draft: 0, scheduled: 0, active: 0, closed: 0 };
+  for (const p of all) byStatus[pollStatus(p)]++;
+  let totalVotes = 0;
+  for (const v of pollVoteStore.values()) totalVotes += Object.keys(v).length;
+  res.json({ polls: all.length, ...byStatus, totalVotes, profiles: pollProfileStore.size, categories: pollCatStore.size });
+});
+
+router.get('/admin/poll/polls', adminAuth, (_req, res) => {
+  const list = [...pollStore.values()].map(p => serializePoll(p, null)).sort((a, b) => b.createdAt - a.createdAt);
+  res.json({ polls: list });
+});
+
+router.get('/admin/poll/polls/:id', adminAuth, (req, res) => {
+  const p = pollStore.get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Encuesta no encontrada' });
+  res.json({ poll: { ...serializePoll(p, null, { withDemographics: true }), categoryId: p.categoryId } });
+});
+
+router.post('/admin/poll/polls', adminAuth, (req, res) => {
+  const { data, error } = parsePollInput(req.body);
+  if (error) return res.status(400).json({ error });
+  const poll = {
+    id: `poll_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+    ...data, isActive: true, createdAt: Date.now(), updatedAt: Date.now(),
+  };
+  pollStore.set(poll.id, poll);
+  savePolls();
+  res.status(201).json({ poll: serializePoll(poll, null) });
+});
+
+router.put('/admin/poll/polls/:id', adminAuth, (req, res) => {
+  const p = pollStore.get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Encuesta no encontrada' });
+  const { data, error } = parsePollInput(req.body, p);
+  if (error) return res.status(400).json({ error });
+  // Si ya hay votos, no permitir cambiar las opciones (falsearía resultados)
+  const votes = pollVoteStore.get(p.id) || {};
+  const sameOptions = data.options.length === p.options.length && data.options.every((o, i) => o.id === p.options[i].id);
+  if (Object.keys(votes).length && !sameOptions)
+    return res.status(409).json({ error: 'La encuesta ya tiene votos: no se pueden cambiar las opciones' });
+  Object.assign(p, data, { updatedAt: Date.now() });
+  pollStore.set(p.id, p);
+  savePolls();
+  res.json({ poll: serializePoll(p, null) });
+});
+
+/** POST /admin/poll/polls/:id/toggle — abrir/cerrar manualmente */
+router.post('/admin/poll/polls/:id/toggle', adminAuth, (req, res) => {
+  const p = pollStore.get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Encuesta no encontrada' });
+  if (pollStatus(p) === 'closed') {
+    p.isActive = true;
+    if (p.endsAt && p.endsAt <= Date.now()) p.endsAt = null; // reabrir quita la fecha de fin vencida
+  } else {
+    p.isActive = false;
+  }
+  p.updatedAt = Date.now();
+  savePolls();
+  res.json({ poll: serializePoll(p, null) });
+});
+
+router.delete('/admin/poll/polls/:id', adminAuth, (req, res) => {
+  if (!pollStore.delete(req.params.id)) return res.status(404).json({ error: 'Encuesta no encontrada' });
+  pollVoteStore.delete(req.params.id);
+  savePolls(); savePollVotes();
+  res.json({ success: true });
+});
+
+router.get('/admin/poll/categories', adminAuth, (_req, res) => {
+  const count = {};
+  for (const p of pollStore.values()) if (p.categoryId) count[p.categoryId] = (count[p.categoryId] || 0) + 1;
+  const list = [...pollCatStore.values()].map(c => ({ ...c, polls: count[c.id] || 0 }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  res.json({ categories: list });
+});
+
+router.post('/admin/poll/categories', adminAuth, (req, res) => {
+  const { name, icon } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  const cat = { id: `cat_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
+    name: String(name).trim(), slug: slugify(name), icon: icon ? String(icon).trim() : null, createdAt: Date.now() };
+  pollCatStore.set(cat.id, cat);
+  savePollCats();
+  res.status(201).json({ category: cat });
+});
+
+router.put('/admin/poll/categories/:id', adminAuth, (req, res) => {
+  const c = pollCatStore.get(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Categoría no encontrada' });
+  const { name, icon } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  Object.assign(c, { name: String(name).trim(), slug: slugify(name), icon: icon ? String(icon).trim() : null });
+  savePollCats();
+  res.json({ category: c });
+});
+
+router.delete('/admin/poll/categories/:id', adminAuth, (req, res) => {
+  if (!pollCatStore.delete(req.params.id)) return res.status(404).json({ error: 'Categoría no encontrada' });
+  let changed = false;
+  for (const p of pollStore.values()) if (p.categoryId === req.params.id) { p.categoryId = null; changed = true; }
+  savePollCats();
+  if (changed) savePolls();
+  res.json({ success: true });
 });
 
 // ── Montar router ─────────────────────────────────────────────────

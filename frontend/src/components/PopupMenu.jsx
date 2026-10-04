@@ -1,7 +1,7 @@
 /**
  * PopupMenu — Menú emergente OldFace
  * TODAS las acciones están conectadas a sus rutas reales.
- * POLL abre https://poll.fullstark.es dentro de la app.
+ * POLL abre las encuestas integradas en /poll.
  */
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -165,25 +165,9 @@ export default function PopupMenu({ onClose, onGroups }) {
     onClose(); // siempre cerrar primero
 
     switch (item.action) {
-      case 'poll': {
-        // Abre poll.fullstark.es dentro de la app en nativo, en nueva pestaña en web
-        try {
-          const { Capacitor } = await import('@capacitor/core');
-          if (Capacitor.isNativePlatform()) {
-            const { Browser } = await import('@capacitor/browser');
-            await Browser.open({
-              url: 'https://poll.fullstark.es',
-              presentationStyle: 'fullscreen',
-              toolbarColor: '#000080',
-            });
-          } else {
-            window.open('https://poll.fullstark.es', '_blank', 'noopener');
-          }
-        } catch {
-          window.open('https://poll.fullstark.es', '_blank', 'noopener');
-        }
+      case 'poll':
+        navigate('/poll');
         break;
-      }
       case 'location': {
         // Navegar al chat activo con acción de ubicación
         navigate('/?action=location');

@@ -20,6 +20,7 @@ import DirectoLivePage from './pages/DirectoLivePage.jsx';
 import TermsPage    from './pages/TermsPage.jsx';
 import PrivacyPage  from './pages/PrivacyPage.jsx';
 import CookiesPage  from './pages/CookiesPage.jsx';
+import PollPage     from './pages/PollPage.jsx';
 
 const BRAND = '#000080';
 
@@ -553,6 +554,8 @@ function AppShell() {
         <Route path="/settings"    element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
         <Route path="/directo"     element={<ProtectedRoute><DirectoPage /></ProtectedRoute>} />
         <Route path="/directo/:directoId/live" element={<ProtectedRoute><DirectoLivePage /></ProtectedRoute>} />
+        <Route path="/poll"         element={<ProtectedRoute><PollPage /></ProtectedRoute>} />
+        <Route path="/poll/:pollId" element={<ProtectedRoute><PollPage /></ProtectedRoute>} />
         <Route path="/video-call/:userId" element={<ProtectedRoute><VideoCallPage /></ProtectedRoute>} />
         <Route path="/call/:userId"        element={<ProtectedRoute><CallPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />

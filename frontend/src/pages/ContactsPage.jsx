@@ -11,7 +11,7 @@ import { useZegoStore } from '../store/zegoStore';
 import Avatar from '../components/Avatar.jsx';
 
 const BRAND       = '#000080';
-const APP_URL     = 'https://oldface.fullstark.es';
+const APP_URL     = 'https://oldface.app';
 const APP_NAME    = 'OldFace';
 
 // Misma lógica que el backend — genera el userId correcto desde cualquier formato de teléfono

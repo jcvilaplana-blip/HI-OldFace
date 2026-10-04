@@ -234,10 +234,10 @@ function DirectoCard({ directo: d, canManage, canWatch, onEdit, onDelete, onGoLi
   const handleShare = async () => {
     const when = d.scheduledAt ? `\nCuándo: ${formatScheduled(d.scheduledAt)}` : '';
     const price = d.price > 0 ? `\nPrecio: ${d.price}€` : '\nGratis';
-    const text = `${d.title}${d.description ? ' — ' + d.description : ''}${when}${price}\nDescarga OldFace: https://oldface.fullstark.es`;
+    const text = `${d.title}${d.description ? ' — ' + d.description : ''}${when}${price}\nDescarga OldFace: https://oldface.app`;
     try {
       if (navigator.share) {
-        await navigator.share({ title: d.title, text, url: 'https://oldface.fullstark.es' });
+        await navigator.share({ title: d.title, text, url: 'https://oldface.app' });
       } else {
         // Fallback: abrir WhatsApp con el texto
         window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
