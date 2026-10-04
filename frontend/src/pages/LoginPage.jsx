@@ -134,6 +134,7 @@ export default function LoginPage() {
       };
 
       await fetchToken(userId);
+      if (data.rtcToken) useAuthStore.getState().setRtcToken(data.rtcToken);
       setUser(userData);
 
       // Ofrecer guardar el teléfono en el autofill del dispositivo

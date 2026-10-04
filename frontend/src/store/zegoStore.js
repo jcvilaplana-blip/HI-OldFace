@@ -13,6 +13,7 @@
  */
 import { create } from 'zustand';
 import { playMessageSound } from '../utils/sounds.js';
+import { getRtcConfig, connectRtc, sendSignal, isRtcConnected } from '../utils/rtcClient.js';
 
 const APP_ID        = parseInt(import.meta.env.VITE_ZEGOCLOUD_APP_ID);
 const SERVER_SECRET = import.meta.env.VITE_ZEGOCLOUD_SERVER_SECRET;
@@ -28,6 +29,9 @@ let initInProgress = false;
 
 // Referencia al intervalo grabZIM para poder cancelarlo en acquireCallInstance
 let grabZIMInterval = null;
+
+// Servidor RTC propio: se conecta una sola vez por sesión (sobrevive a acquire/release de UIKit)
+let rtcStartedFor = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -50,6 +54,10 @@ export const useZegoStore = create((set, get) => ({
   zimEngine:      null,
   zimConnected:   false,
 
+  // ── Señalización: 'zim' (ZEGOCLOUD) o 'oldface' (servidor RTC propio) ─────
+  signaling:      'zim',
+  rtcConnected:   false,
+
   // ── Estado de llamadas (ZIM signaling) ───────────────────────────────────
   incomingCall:   null,   // { callType, callerId, callerName, isVideo, roomId }
   callError:      null,   // mensaje de error toast
@@ -62,6 +70,85 @@ export const useZegoStore = create((set, get) => ({
   setCallError: (msg) => {
     set({ callError: msg });
     setTimeout(() => set({ callError: null }), 3500);
+  },
+
+  // ── Señales de llamada (comunes a ZIM y al servidor RTC) ─────────────────
+  _handleCallSignal: ({ type, from, fromName, payload = {}, ts }) => {
+    if (type === 'call_invite') {
+      // Ignorar invitaciones viejas (p. ej. entregadas al reconectar)
+      const age = Date.now() - (ts || 0);
+      if (age > 30000) { console.log('[Señal] call_invite obsoleto ignorado (age:', age, 'ms)'); return; }
+      console.log('[Señal] Llamada entrante de:', from, payload);
+      set({
+        incomingCall: {
+          callType:   payload.callType || 'video',
+          callerId:   from,
+          callerName: payload.callerName || fromName || from,
+          isVideo:    (payload.callType || 'video') === 'video',
+          roomId:     payload.roomId || null,
+        },
+      });
+    }
+    else if (type === 'call_reject') set({ callRejected: true });
+    else if (type === 'call_cancel') set({ incomingCall: null });
+    else if (type === 'call_end')    set({ callEnded: true });
+    // call_accept: no requiere acción (la sala ya está abierta)
+  },
+
+  /** Envía una señal de llamada por el servidor RTC (si está activo). ZIM lo envían las páginas. */
+  sendCallSignal: (to, type, payload = {}) => {
+    if (get().signaling !== 'oldface') return Promise.resolve(false);
+    return sendSignal(to, type, payload);
+  },
+
+  // ── Mensaje de chat entregado por el servidor RTC (antes: peerMessageReceived de ZIM) ──
+  _handleChatPush: (user, msg) => {
+    if (!msg?.chatId || msg.senderId === user.id) return;
+    import('./chatStore').then(({ useChatStore }) => {
+      const { addMessage, createOrGetChat, fetchChats } = useChatStore.getState();
+      const existing = useChatStore.getState().messages[msg.chatId] || [];
+      if (!existing.some(m => m.id === msg.id)) {
+        addMessage(msg.chatId, {
+          id:       msg.id,
+          text:     msg.text,
+          sender:   msg.senderId,
+          time:     msg.time,
+          type:     msg.type || 'text',
+          url:      msg.url || null,
+          replyTo:  msg.replyTo || null,
+          fileName: msg.fileName || null,
+          status:   'received',
+          isMine:   false,
+        });
+        playMessageSound();
+      }
+      if (msg.chatId.startsWith('chat_')) {
+        createOrGetChat(user.id, msg.senderId, msg.senderName || msg.senderId).then(() => fetchChats(user.id));
+      } else {
+        fetchChats(user.id);
+      }
+    });
+  },
+
+  // ── Conexión con el servidor RTC propio (según el interruptor del backend) ──
+  _startRtc: async (user) => {
+    if (rtcStartedFor === user.id) return;
+    rtcStartedFor = user.id;
+    const { rtcSignaling } = await getRtcConfig(user.id);
+    if (rtcSignaling !== 'oldface') { set({ signaling: 'zim' }); return; }
+    set({ signaling: 'oldface' });
+    try {
+      await connectRtc(user, {
+        onSignal:           (sig) => get()._handleCallSignal(sig),
+        onChatMessage:      (msg) => get()._handleChatPush(user, msg),
+        onConnectionChange: (ok)  => set({ rtcConnected: ok }),
+      });
+      console.log('[RTC] Señalización propia activa para', user.id);
+    } catch (err) {
+      console.warn('[RTC] No se pudo conectar, se sigue con ZIM:', err.message);
+      set({ signaling: 'zim' });
+      rtcStartedFor = null;
+    }
   },
 
   setPendingFCMCall: (data) => set({ pendingFCMCall: data }),
@@ -77,7 +164,7 @@ export const useZegoStore = create((set, get) => ({
         if (zimEngine) set({ zimEngine, zimConnected: true });
       } catch {}
     }
-    if (!zimEngine) {
+    if (!zimEngine && !isRtcConnected()) {
       get().setCallError('No conectado — espera un momento e inténtalo de nuevo');
       return;
     }
@@ -95,7 +182,7 @@ export const useZegoStore = create((set, get) => ({
         if (zimEngine) set({ zimEngine, zimConnected: true });
       } catch {}
     }
-    if (!zimEngine) {
+    if (!zimEngine && !isRtcConnected()) {
       get().setCallError('No conectado — espera un momento e inténtalo de nuevo');
       return;
     }
@@ -115,6 +202,7 @@ export const useZegoStore = create((set, get) => ({
         incomingCall.callerId, 0, { priority: 3 }
       ).catch(() => {});
     }
+    if (incomingCall.callerId) get().sendCallSignal(incomingCall.callerId, 'call_accept');
     set({
       callAccepted: {
         callerId:   incomingCall.callerId,
@@ -138,6 +226,7 @@ export const useZegoStore = create((set, get) => ({
         incomingCall.callerId, 0, { priority: 3 }
       ).catch(() => {});
     }
+    if (incomingCall.callerId) get().sendCallSignal(incomingCall.callerId, 'call_reject');
     set({ incomingCall: null });
   },
 
@@ -147,6 +236,9 @@ export const useZegoStore = create((set, get) => ({
 
   // ── Init: UIKit + ZIM ────────────────────────────────────────────────────
   init: async (user) => {
+    // Señalización propia: independiente de UIKit, se arranca una vez por sesión
+    get()._startRtc(user);
+
     // Doble guardia: instancia existente O init ya en marcha
     if (get().instance || initInProgress) return;
     initInProgress = true;
@@ -176,6 +268,8 @@ export const useZegoStore = create((set, get) => ({
 
           zimInst.off('peerMessageReceived');
           zimInst.on('peerMessageReceived', (_zim, { messageList, fromConversationID }) => {
+            // Con señalización propia, mensajes y llamadas llegan por el servidor RTC (evita duplicados)
+            if (get().signaling === 'oldface') return;
             import('./chatStore').then(({ useChatStore }) => {
               const { addMessage, createOrGetChat, fetchChats } = useChatStore.getState();
               const msgChatId = `chat_${[user.id, fromConversationID].sort().join('_')}`;
@@ -187,30 +281,12 @@ export const useZegoStore = create((set, get) => ({
                 let parsed = null;
                 try { parsed = JSON.parse(msg.message); } catch {}
 
-                if (parsed?._oc_type === 'call_invite') {
-                  // Ignorar mensajes ZIM offline entregados al reconectar (e.g. al instalar)
-                  // ZIM guarda mensajes no entregados y los envía cuando el receptor conecta
-                  const msgAge = Date.now() - (msg.timestamp || 0);
-                  if (msgAge > 30000) {
-                    console.log('[ZIM] call_invite obsoleto ignorado (age:', msgAge, 'ms)');
-                    return;
-                  }
-                  console.log('[Zego] Llamada entrante ZIM de:', fromConversationID, parsed);
-                  set({
-                    incomingCall: {
-                      callType:   parsed.callType || 'video',
-                      callerId:   fromConversationID,
-                      callerName: parsed.callerName || fromConversationID,
-                      isVideo:    (parsed.callType || 'video') === 'video',
-                      roomId:     parsed.roomId || null,
-                    },
-                  });
+                if (parsed?._oc_type?.startsWith('call_')) {
+                  // ZIM guarda mensajes no entregados: _handleCallSignal descarta invitaciones viejas
+                  const { _oc_type, ...payload } = parsed;
+                  get()._handleCallSignal({ type: _oc_type, from: fromConversationID, payload, ts: msg.timestamp });
                   return;
                 }
-                if (parsed?._oc_type === 'call_accept') { return; }
-                if (parsed?._oc_type === 'call_reject') { set({ callRejected: true }); return; }
-                if (parsed?._oc_type === 'call_cancel') { set({ incomingCall: null }); return; }
-                if (parsed?._oc_type === 'call_end')    { set({ callEnded: true });    return; }
 
                 // Si es un mensaje de archivo/documento, recargar mensajes desde el
                 // backend para obtener el tipo, url y fileName correctos.

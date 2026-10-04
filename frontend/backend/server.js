@@ -240,6 +240,16 @@ async function sendFCMPush(fcmToken, title, body, data = {}, channelId = 'oldfac
   }
 }
 
+// ── Token para el servidor RTC propio (rtc-server) ───────────────
+// Formato: <userId>.<expSeg>.<hmac-sha256 base64url>, firmado con RTC_SECRET (compartido con rtc-server)
+function signRtcToken(userId, ttlSec = 30 * 24 * 3600) {
+  const secret = process.env.RTC_SECRET;
+  if (!secret) return null;
+  const exp = Math.floor(Date.now() / 1000) + ttlSec;
+  const sig = crypto.createHmac('sha256', secret).update(`${userId}.${exp}`).digest('base64url');
+  return `${userId}.${exp}.${sig}`;
+}
+
 // ── Helper ────────────────────────────────────────────────────────
 function normalizePhone(phone) {
   const p = phone.trim().replace(/\s+/g, '');
@@ -385,7 +395,43 @@ router.post('/verify-otp', async (req, res) => {
   saveUsers(); // ← persistir en disco
 
   console.log(`✅ Usuario verificado: ${userData.name} (${normalizedPhone})`);
-  return res.json({ success: true, verified: true, userId, user: userData });
+  return res.json({ success: true, verified: true, userId, user: userData, rtcToken: signRtcToken(userId) });
+});
+
+/**
+ * GET /config?userId= — configuración en tiempo de ejecución para la app.
+ * rtcSignaling: 'zim' (ZEGOCLOUD) | 'oldface' (servidor RTC propio).
+ *   RTC_SIGNALING=oldface activa para todos; RTC_SIGNALING_USERS=user_1,user_2 solo para esos usuarios.
+ */
+router.get('/config', (req, res) => {
+  const { userId } = req.query;
+  const testers = (process.env.RTC_SIGNALING_USERS || '').split(',').map(s => s.trim()).filter(Boolean);
+  const rtcEnabled = !!process.env.RTC_SECRET;
+  const signaling = rtcEnabled && (process.env.RTC_SIGNALING === 'oldface' || (userId && testers.includes(userId)))
+    ? 'oldface' : 'zim';
+  res.json({ rtcSignaling: signaling });
+});
+
+/** Avisa a usuarios conectados al servidor RTC (no bloquea; si falla, la app recurre al polling) */
+function rtcEmit(to, event, data) {
+  const url = process.env.RTC_INTERNAL_URL, secret = process.env.RTC_SECRET;
+  if (!url || !secret) return;
+  fetch(`${url}/rtc/internal/emit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
+    body: JSON.stringify({ to, event, data }),
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {});
+}
+
+/** POST /rtc-token — token para el servidor RTC (sesiones iniciadas antes de existir rtcToken) */
+router.post('/rtc-token', (req, res) => {
+  const { userId } = req.body || {};
+  if (!userId || ![...userStore.values()].some(u => u.userId === userId))
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  const token = signRtcToken(userId);
+  if (!token) return res.status(503).json({ error: 'RTC no configurado' });
+  return res.json({ token });
 });
 
 /** POST /check-users — qué teléfonos tienen cuenta */
@@ -494,6 +540,12 @@ router.post('/register-fcm-token', (req, res) => {
 router.post('/call-notification', async (req, res) => {
   const { calleeId, callerId, callerName, callType, roomId } = req.body || {};
   if (!calleeId || !callerId) return res.status(400).json({ error: 'calleeId y callerId son requeridos' });
+
+  // Si el destinatario tiene la app abierta con el servidor RTC, recibe la invitación al instante
+  rtcEmit(calleeId, 'signal', {
+    from: callerId, fromName: callerName || callerId, type: 'call_invite', ts: Date.now(),
+    payload: { callType: callType || 'voice', callerName: callerName || callerId, roomId: roomId || null },
+  });
 
   const fcmToken = fcmStore.get(calleeId);
   if (!fcmToken) return res.json({ success: false, reason: 'sin token FCM para el destinatario' });
@@ -672,6 +724,14 @@ router.post('/messages', async (req, res) => {
     c.lastTime = Date.now();
     chatStore2.set(chatId, c);
     saveChats();
+  }
+
+  // ── Entrega en tiempo real por el servidor RTC propio (sustituye a ZIM) ──
+  const senderUser = [...userStore.values()].find(u => u.userId === senderId);
+  const rtcRecipients = chatStore2.get(chatId)?.participants
+    || chatId.replace(/^chat_/, '').split(/_(?=user_)/);
+  for (const to of rtcRecipients) {
+    if (to && to !== senderId) rtcEmit(to, 'chat:message', { ...msg, senderName: senderUser?.name || null });
   }
 
   // ── Enviar push FCM al destinatario ─────────────────────────────────────

@@ -24,7 +24,11 @@ export const useAuthStore = create(
 
       setToken: (token) => set({ token }),
 
-      logout: () => set({ user: null, isAuthenticated: false, token: null }),
+      // Token del servidor RTC propio (rtc-server) — ver utils/rtcClient.js
+      rtcToken: null,
+      setRtcToken: (rtcToken) => set({ rtcToken }),
+
+      logout: () => set({ user: null, isAuthenticated: false, token: null, rtcToken: null }),
 
       generateUserId: (phone) => `user_${phone.replace(/\D/g, '')}`,
 
@@ -50,6 +54,7 @@ export const useAuthStore = create(
         user: state.user,
         isAuthenticated: state.isAuthenticated,
         token: state.token,
+        rtcToken: state.rtcToken,
       }),
     }
   )

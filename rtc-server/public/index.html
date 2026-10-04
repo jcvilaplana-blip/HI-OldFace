@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OldFace RTC — Prueba</title>
+<style>
+  *{box-sizing:border-box} body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#020e2a;color:#dce8ff}
+  header{background:#000080;padding:14px 18px;font-weight:900;font-size:18px}
+  main{padding:16px;max-width:1100px;margin:0 auto}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+  input,button,label{font-size:14px} input{background:#041e50;border:1px solid #1e3a8a;color:#dce8ff;border-radius:8px;padding:8px 10px}
+  button{background:#3b5bdb;color:#fff;border:0;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer}
+  button.red{background:#ef4444} button:disabled{opacity:.5;cursor:default}
+  #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+  .tile{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:4/3}
+  .tile video{width:100%;height:100%;object-fit:cover}
+  .tile span{position:absolute;left:8px;bottom:8px;background:rgba(0,0,0,.6);padding:3px 8px;border-radius:8px;font-size:12px}
+  #log{margin-top:14px;background:#010c22;border-radius:10px;padding:10px;font:12px/1.5 monospace;max-height:220px;overflow:auto;white-space:pre-wrap}
+  .ok{color:#86efac}.er{color:#fca5a5}
+</style>
+</head>
+<body>
+<header>OldFace RTC · prueba de llamada</header>
+<main>
+  <div class="bar">
+    <input id="room" value="test_sala1" size="14" title="Sala (debe empezar por test_)" />
+    <input id="name" placeholder="Tu nombre" size="12" />
+    <label><input type="checkbox" id="relay" /> Forzar TURN (relay)</label>
+    <label><input type="checkbox" id="video" checked /> Vídeo</label>
+    <label><input type="checkbox" id="fake" /> Medios sintéticos (sin cámara)</label>
+    <button id="join">Entrar</button>
+    <button id="mute" disabled>Silenciar</button>
+    <button id="leave" class="red" disabled>Salir</button>
+  </div>
+  <div id="grid"></div>
+  <div id="log"></div>
+</main>
+
+<script src="/rtc/socket.io/socket.io.js"></script>
+<script type="module">
+import * as mediasoupClient from './mediasoup-client.js'; // bundle propio (esbuild) de mediasoup-client 3.24
+
+const $ = (id) => document.getElementById(id);
+const log = (msg, cls = '') => { const d = document.createElement('div'); d.className = cls; d.textContent = `${new Date().toLocaleTimeString()}  ${msg}`; $('log').prepend(d); };
+
+let socket, device, sendT, recvT, roomId, localStream, audioProducer;
+const tiles = new Map(); // userId → { el, stream }
+
+const req = (ev, data) => new Promise((resolve, reject) =>
+  socket.emit(ev, data, (r) => r?.ok ? resolve(r) : reject(new Error(r?.error || 'sin respuesta'))));
+
+function tileFor(userId, label) {
+  if (tiles.has(userId)) return tiles.get(userId);
+  const el = document.createElement('div'); el.className = 'tile';
+  el.innerHTML = `<video autoplay playsinline></video><span></span>`;
+  el.querySelector('span').textContent = label;
+  $('grid').appendChild(el);
+  const t = { el, stream: new MediaStream() };
+  el.querySelector('video').srcObject = t.stream;
+  tiles.set(userId, t);
+  return t;
+}
+function removeTile(userId) { const t = tiles.get(userId); if (t) { t.el.remove(); tiles.delete(userId); } }
+
+function watchIce(transport, label) {
+  transport.on('connectionstatechange', async (s) => {
+    log(`${label}: ${s}`, s === 'connected' ? 'ok' : s === 'failed' ? 'er' : '');
+    if (s === 'connected') {
+      try {
+        const stats = await transport.getStats();
+        for (const r of stats.values()) {
+          if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') {
+            const lc = stats.get(r.localCandidateId);
+            log(`${label}: ruta ${lc?.candidateType} / ${lc?.protocol}`, 'ok');
+          }
+        }
+      } catch {}
+    }
+  });
+}
+
+// Pista de vídeo animada (canvas) + tono de audio: permite probar sin cámara/micrófono
+function syntheticStream(label, withVideo) {
+  const ac = new AudioContext();
+  const osc = ac.createOscillator(); const gain = ac.createGain(); gain.gain.value = 0.05;
+  const dest = ac.createMediaStreamDestination();
+  osc.frequency.value = 440; osc.connect(gain).connect(dest); osc.start();
+  const tracks = [...dest.stream.getAudioTracks()];
+  if (withVideo) {
+    const cv = document.createElement('canvas'); cv.width = 640; cv.height = 480;
+    const ctx = cv.getContext('2d'); let t = 0;
+    setInterval(() => {
+      t++; ctx.fillStyle = `hsl(${t % 360},70%,35%)`; ctx.fillRect(0, 0, 640, 480);
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 40px sans-serif';
+      ctx.fillText(label, 40, 240); ctx.fillText(new Date().toLocaleTimeString(), 40, 300);
+    }, 66);
+    tracks.push(...cv.captureStream(15).getVideoTracks());
+  }
+  return new MediaStream(tracks);
+}
+
+async function consume(producerId, userId, name) {
+  const r = await req('rtc:consume', { roomId, transportId: recvT.id, producerId, rtpCapabilities: device.rtpCapabilities });
+  const consumer = await recvT.consume({ id: r.id, producerId: r.producerId, kind: r.kind, rtpParameters: r.rtpParameters });
+  tileFor(userId, name || userId).stream.addTrack(consumer.track);
+  await req('rtc:resumeConsumer', { roomId, consumerId: consumer.id });
+  log(`Recibiendo ${r.kind} de ${name || userId}`);
+}
+
+$('join').onclick = async () => {
+  try {
+    roomId = $('room').value.trim();
+    const name = $('name').value.trim() || 'Invitado';
+    const guestId = 'guest_' + Math.random().toString(36).slice(2, 10);
+    $('join').disabled = true;
+
+    socket = io({ path: '/rtc/socket.io', auth: { guestId, name }, transports: ['websocket', 'polling'] });
+    await new Promise((res, rej) => { socket.once('connect', res); socket.once('connect_error', rej); });
+    log(`Conectado a la señalización (${socket.io.engine.transport.name})`, 'ok');
+
+    socket.on('rtc:newProducer', (p) => consume(p.producerId, p.userId, p.name).catch(e => log(e.message, 'er')));
+    socket.on('rtc:peerLeft', (p) => { removeTile(p.userId); log(`${p.userId} salió`); });
+
+    const j = await req('rtc:join', { roomId });
+    device = new mediasoupClient.Device();
+    await device.load({ routerRtpCapabilities: j.routerRtpCapabilities });
+    const iceTransportPolicy = $('relay').checked ? 'relay' : 'all';
+
+    const mk = async (direction) => {
+      const t = await req('rtc:createTransport', { roomId, direction });
+      const opts = { id: t.id, iceParameters: t.iceParameters, iceCandidates: t.iceCandidates,
+                     dtlsParameters: t.dtlsParameters, iceServers: j.iceServers, iceTransportPolicy };
+      const tr = direction === 'send' ? device.createSendTransport(opts) : device.createRecvTransport(opts);
+      tr.on('connect', ({ dtlsParameters }, cb, eb) => req('rtc:connectTransport', { roomId, transportId: tr.id, dtlsParameters }).then(() => cb(), eb));
+      if (direction === 'send') {
+        tr.on('produce', ({ kind, rtpParameters, appData }, cb, eb) =>
+          req('rtc:produce', { roomId, transportId: tr.id, kind, rtpParameters, appData }).then(r => cb({ id: r.id }), eb));
+      }
+      watchIce(tr, direction === 'send' ? 'Envío' : 'Recepción');
+      return tr;
+    };
+    sendT = await mk('send');
+    recvT = await mk('recv');
+
+    localStream = $('fake').checked ? syntheticStream(name, $('video').checked)
+      : await navigator.mediaDevices.getUserMedia({ audio: true, video: $('video').checked });
+    const me = tileFor('me', `${name} (tú)`);
+    me.el.querySelector('video').muted = true;
+    for (const track of localStream.getTracks()) {
+      me.stream.addTrack(track);
+      const p = await sendT.produce({ track });
+      if (track.kind === 'audio') audioProducer = p;
+    }
+    log(`En la sala ${roomId} · ${j.peers.length} participante(s) más`, 'ok');
+    for (const peer of j.peers) for (const pr of peer.producers) await consume(pr.id, peer.userId, peer.name);
+
+    $('mute').disabled = false; $('leave').disabled = false;
+  } catch (e) {
+    log('Error: ' + e.message, 'er'); $('join').disabled = false;
+  }
+};
+
+$('mute').onclick = async () => {
+  if (!audioProducer) return;
+  const paused = !audioProducer.paused;
+  paused ? audioProducer.pause() : audioProducer.resume();
+  await req('rtc:setProducerPaused', { roomId, producerId: audioProducer.id, paused });
+  $('mute').textContent = paused ? 'Activar micro' : 'Silenciar';
+};
+
+$('leave').onclick = async () => {
+  try { await req('rtc:leave', { roomId }); } catch {}
+  localStream?.getTracks().forEach(t => t.stop());
+  sendT?.close(); recvT?.close(); socket?.disconnect();
+  for (const id of [...tiles.keys()]) removeTile(id);
+  $('join').disabled = false; $('mute').disabled = true; $('leave').disabled = true;
+  log('Has salido');
+};
+</script>
+</body>
+</html>

@@ -58,6 +58,7 @@ export default function VideoCallPage() {
     callRejected, clearCallRejected,
     callEnded,    clearCallEnded,
     acquireCallInstance, releaseCallInstance,
+    sendCallSignal,
   } = useZegoStore();
 
   const containerRef    = useRef(null);
@@ -160,17 +161,20 @@ export default function VideoCallPage() {
 
   // ── Señales ZIM (capturadas ANTES de acquireCallInstance) ─────────────────
   const sendZIMInvite = async () => {
+    const callerName = user?.name || user?.id || 'Usuario';
+    sendCallSignal(userId, 'call_invite', { callType: 'video', callerName, roomId }); // servidor RTC propio
     const zim = zimSnapRef.current;
     if (!zim) return;
     try {
       await zim.sendMessage(
-        { type: 1, message: JSON.stringify({ _oc_type: 'call_invite', callType: 'video', callerName: user?.name || user?.id || 'Usuario', roomId }) },
+        { type: 1, message: JSON.stringify({ _oc_type: 'call_invite', callType: 'video', callerName, roomId }) },
         userId, 0, { priority: 3 }
       );
     } catch (err) { console.warn('[VideoCall] Invite error:', err?.message); }
   };
 
   const sendZIMEnd = async () => {
+    sendCallSignal(userId, 'call_end'); // servidor RTC propio
     const zim = zimSnapRef.current;
     if (!zim) return;
     try {

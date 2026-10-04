@@ -31,6 +31,7 @@ export default function CallPage() {
     callRejected, clearCallRejected,
     callEnded,    clearCallEnded,
     acquireCallInstance, releaseCallInstance,
+    sendCallSignal,
   } = useZegoStore();
 
   // Avatar del contacto desde el store
@@ -116,17 +117,20 @@ export default function CallPage() {
 
   // ── ZIM ───────────────────────────────────────────────────────────────────
   const sendZIMInvite = async () => {
+    const callerName = user?.name || user?.id || 'Usuario';
+    sendCallSignal(userId, 'call_invite', { callType: 'voice', callerName, roomId }); // servidor RTC propio
     const zim = zimSnapRef.current;
     if (!zim) return;
     try {
       await zim.sendMessage(
-        { type: 1, message: JSON.stringify({ _oc_type: 'call_invite', callType: 'voice', callerName: user?.name || user?.id || 'Usuario', roomId }) },
+        { type: 1, message: JSON.stringify({ _oc_type: 'call_invite', callType: 'voice', callerName, roomId }) },
         userId, 0, { priority: 3 }
       );
     } catch (err) { console.warn('[CallPage] ZIM invite error:', err?.message); }
   };
 
   const sendZIMEnd = async () => {
+    sendCallSignal(userId, 'call_end'); // servidor RTC propio
     const zim = zimSnapRef.current;
     if (!zim) return;
     try {

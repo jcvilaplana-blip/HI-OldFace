@@ -1,0 +1,20 @@
+{
+  "name": "oldface-rtc",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OldFace RTC — señalización (Socket.IO) + SFU (mediasoup) propios, sustituto de ZEGOCLOUD",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "mediasoup": "^3.15.0",
+    "socket.io": "^4.8.1"
+  }
+}
