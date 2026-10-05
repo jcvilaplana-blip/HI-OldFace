@@ -24,6 +24,7 @@ import PollPage     from './pages/PollPage.jsx';
 import KaraokePage     from './pages/KaraokePage.jsx';
 import KaraokeSingPage from './pages/KaraokeSingPage.jsx';
 import KaraokeRoomPage from './pages/KaraokeRoomPage.jsx';
+import { listenDeepLinks, savePendingLink, takePendingLink } from './utils/deepLinks';
 
 const BRAND = '#000080';
 
@@ -503,6 +504,23 @@ function AppShell() {
     if (ts && Date.now() - ts > 60000) { console.log('[FCM] Llamada caducada, no se muestra'); return; }
     showIncomingCall({ callerId, callerName: callerName || callerId, callType, roomId, media });
   }, [pendingFCMCall]);
+
+  // ── Deep links: https://oldface.app/directo/<id>/live (WhatsApp, etc.) abre la app ──
+  useEffect(() => {
+    let stop = null;
+    listenDeepLinks((path) => {
+      if (useAuthStore.getState().isAuthenticated) navigate(path);
+      else savePendingLink(path);  // se abre al terminar el login
+    }).then(s => { stop = s; }).catch(() => {});
+    return () => { stop?.(); };
+  }, []);
+
+  // Enlace recibido antes de iniciar sesión → abrirlo al entrar
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const path = takePendingLink();
+    if (path) navigate(path);
+  }, [isAuthenticated]);
 
   // ── Único handler de back button Android ─────────────────────────────────
   useEffect(() => {

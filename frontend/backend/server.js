@@ -1894,6 +1894,22 @@ router.get('/internal/karaoke/bans', (req, res) => {
   res.json({ userIds: [...karaokeBanStore.keys()] });
 });
 
+// ── Android App Links: los enlaces https://oldface.app/directo/... abren la app instalada ──
+// Huellas SHA-256 de los certificados con que se firma el APK. La primera es la clave de
+// depuración con la que se compilan ahora los APK de prueba; para la versión de Play Store
+// añadir su huella en .env: ANDROID_CERT_SHA256=AA:BB:...,CC:DD:...
+// (express.static ignora las carpetas que empiezan por punto, por eso va como ruta explícita)
+const ANDROID_CERTS = [
+  'F2:86:7F:C0:C7:7E:F1:4D:B7:E1:A5:86:45:10:D6:95:88:0D:40:7F:0D:FE:53:AE:0D:1B:F1:8B:7A:50:18:48',
+  ...String(process.env.ANDROID_CERT_SHA256 || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean),
+];
+app.get('/.well-known/assetlinks.json', (_req, res) => {
+  res.json([{
+    relation: ['delegate_permission/common.handle_all_urls'],
+    target: { namespace: 'android_app', package_name: 'com.oldface.app', sha256_cert_fingerprints: [...new Set(ANDROID_CERTS)] },
+  }]);
+});
+
 // ── Montar router ─────────────────────────────────────────────────
 app.use('/api', router);
 app.use('/', router);

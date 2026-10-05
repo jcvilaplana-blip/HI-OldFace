@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { takePendingLink } from '../utils/deepLinks';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -140,7 +141,8 @@ export default function LoginPage() {
       // Ofrecer guardar el teléfono en el autofill del dispositivo
       autofillSave(phoneNormalized);
 
-      navigate('/', { replace: true });
+      // Si se abrió la app desde un enlace compartido (p. ej. un directo), ir ahí
+      navigate(takePendingLink() || '/', { replace: true });
 
     } catch {
       setError('Error de conexión. Inténtalo de nuevo.');
