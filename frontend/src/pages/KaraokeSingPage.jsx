@@ -58,7 +58,8 @@ export default function KaraokeSingPage() {
   const [hasVideo, setHasVideo] = useState(false);
   const [camOn,   setCamOn]   = useState(true);
   const [showMixer, setShowMixer] = useState(false);
-  const [mix, setMix] = useState({ music: 50, voice: 80, monitor: 0, reverb: 25, reverbType: 'estudio', key: 0, speed: 1 });
+  const [mix, setMix] = useState({ music: 45, voice: 85, monitor: 0, reverb: 25, reverbType: 'estudio', key: 0, speed: 1, sync: 0 });
+  const [autoSync, setAutoSync] = useState(0);
   const [canKey,  setCanKey]  = useState(false);
   const [liveScore, setLiveScore] = useState(null);
   const [flash,   setFlash]   = useState(null);     // nota de la última frase
@@ -113,7 +114,7 @@ export default function KaraokeSingPage() {
         mediaElement.preload = 'auto';
         mediaElement.src = absUrl(partner.audioUrl);
       }
-      const engine = new KaraokeEngine({ audioUrl: absUrl(song.audioUrl), mediaElement, headphones: withHeadphones, camera: true });
+      const engine = new KaraokeEngine({ audioUrl: absUrl(song.audioUrl), mediaElement, headphones: withHeadphones, camera: true, headphoneKind: hpKind });
       await engine.init();
       engineRef.current = engine;
       // Con auriculares: audio multimedia normal (todo por los auriculares, no también por el altavoz).
@@ -121,7 +122,8 @@ export default function KaraokeSingPage() {
       if (withHeadphones) window.OldFaceAudio?.setMediaMode?.();
       else window.OldFaceAudio?.enableSpeaker();
 
-      setMix(m => ({ ...m, monitor: engine.monitor, reverb: engine.reverb, reverbType: engine.reverbType, key: 0, speed: 1 }));
+      setMix(m => ({ ...m, monitor: engine.monitor, reverb: engine.reverb, reverbType: engine.reverbType, key: 0, speed: 1, sync: engine.syncMs }));
+      setAutoSync(engine.autoSyncMs);
       setCanKey(engine.canShiftKey && mode !== 'join');
       setHasVideo(engine.hasVideo);
       setCamOn(true); camOnRef.current = true;
@@ -184,12 +186,14 @@ export default function KaraokeSingPage() {
     const now = performance.now();
     if (!e.paused && scorerRef.current && now - lastScore.current > 80) {
       lastScore.current = now;
-      const done = scorerRef.current.sample(p, lvl, e.pitch());
+      // La voz que entra ahora corresponde a la música que sonó hace "sync" ms
+      const songT = e.songTime();
+      const done = scorerRef.current.sample(songT, lvl, e.pitch());
       if (done) {
         const f = { ...lineLabel(done.score), id: now };
         setFlash(f);
         setTimeout(() => setFlash(x => (x?.id === f.id ? null : x)), 1300);
-        setLiveScore(scorerRef.current.result(p).score);
+        setLiveScore(scorerRef.current.result(songT).score);
       }
     }
     rafRef.current = requestAnimationFrame(loop);
@@ -228,7 +232,7 @@ export default function KaraokeSingPage() {
     if (!e) return;
     cancelAnimationFrame(rafRef.current);
     const duration = Math.round(e.position);
-    const res = scorerRef.current?.result(e.position) || null;
+    const res = scorerRef.current?.result(e.songTime()) || null;
     e.pause();
     const blob = await e.stopRecording();
     if (!blob || blob.size < 2000) { setStage('ready'); return; }
@@ -248,6 +252,7 @@ export default function KaraokeSingPage() {
     if (k === 'reverbType') e.setReverbType(v);
     if (k === 'key') e.setKey(v);
     if (k === 'speed') e.setSpeed(v);
+    if (k === 'sync') e.setSync(v);
   };
 
   const toggleCamera = () => {
@@ -492,6 +497,23 @@ export default function KaraokeSingPage() {
             {headphones
               ? <Slider label="Oír mi voz en los auriculares" value={mix.monitor} onChange={v => changeMix('monitor', v)} />
               : <p style={{ fontSize: 12, opacity: 0.6, margin: '0 0 16px' }}>Oír tu voz solo está disponible con auriculares.</p>}
+
+            <Section title="🎯 Sincronizar voz con la música">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, marginBottom: 6 }}>
+                <span>Ajuste de la grabación</span>
+                <span style={{ fontWeight: 800 }}>{mix.sync} ms{mix.sync === autoSync ? ' (auto)' : ''}</span>
+              </div>
+              <input type="range" min="0" max="500" step="10" value={mix.sync} onChange={e => changeMix('sync', Number(e.target.value))}
+                style={{ width: '100%', accentColor: KARAOKE_ACCENT }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+                <p style={{ flex: 1, margin: 0, fontSize: 11, opacity: 0.7, lineHeight: 1.4 }}>
+                  Si al escuchar la grabación tu voz va <b>retrasada</b> respecto a la música, súbelo; si va <b>adelantada</b>, bájalo.
+                </p>
+                {mix.sync !== autoSync && (
+                  <button onClick={() => changeMix('sync', autoSync)} style={{ ...chip(false), flexShrink: 0 }}>Auto</button>
+                )}
+              </div>
+            </Section>
 
             <Section title="✨ Reverb (efecto de estudio)">
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>

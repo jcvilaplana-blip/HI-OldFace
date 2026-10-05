@@ -93,10 +93,11 @@ export class KaraokeEngine {
    * @param headphones    true = con auriculares (sin cancelación de eco, retorno de voz)
    * @param camera        true = abrir también la cámara frontal (si falla, se canta solo con audio)
    */
-  constructor({ audioUrl, mediaElement = null, headphones = true, camera = true }) {
+  constructor({ audioUrl, mediaElement = null, headphones = true, camera = true, headphoneKind = 'unknown' }) {
     this.audioUrl = audioUrl;
     this.mediaElement = mediaElement;
     this.headphones = headphones;
+    this.headphoneKind = headphoneKind;   // 'wired' | 'bluetooth' | 'usb' | 'none' | 'unknown' (para estimar el retardo)
     this.wantCamera = camera;
     this.recorder = null;
     this.chunks = [];
@@ -112,6 +113,9 @@ export class KaraokeEngine {
       echoCancellation: !this.headphones,  // sin auriculares, evitar que la música del altavoz entre por el micro
       noiseSuppression: false,             // la supresión de ruido "come" las notas largas al cantar
       autoGainControl: false,
+      sampleRate: { ideal: 48000 },        // calidad de estudio (no la de llamada)
+      channelCount: { ideal: 1 },
+      latency: { ideal: 0.01 },            // pedir la menor latencia de entrada posible
     };
     const video = { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } };
     this.media = null;
@@ -145,6 +149,13 @@ export class KaraokeEngine {
     }
 
     const dest = this.ac.createMediaStreamDestination();
+    // Bus de mezcla de la grabación → limitador (nunca satura) → stream
+    this.mixBus  = this.ac.createGain();
+    const limiter = this.ac.createDynamicsCompressor();
+    limiter.threshold.value = -3; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = 0.002; limiter.release.value = 0.12;
+    const master = this.ac.createGain(); master.gain.value = 0.92;
+    this.mixBus.connect(limiter); limiter.connect(master); master.connect(dest);
+
     this.musicGain = this.ac.createGain();
     const music = this.ac.createMediaElementSource(this.audio);
 
@@ -160,28 +171,37 @@ export class KaraokeEngine {
     } catch { this.pitchNode = null; }
     if (this.pitchNode) { music.connect(this.pitchNode); this.pitchNode.connect(this.musicGain); }
     else music.connect(this.musicGain);
-    this.musicGain.connect(this.ac.destination);
-    this.musicGain.connect(dest);
+    this.musicGain.connect(this.ac.destination);                  // lo que oye el cantante: sin retraso
+    // En la grabación la música se retrasa lo mismo que tarda la voz en volver por el micro
+    // (salida a auriculares + entrada del micro): así la voz cae a tiempo, como otra pista de la canción.
+    this.syncDelay = this.ac.createDelay(1.0);
+    this.musicGain.connect(this.syncDelay); this.syncDelay.connect(this.mixBus);
 
     // ── Voz: cadena de estudio ──
     const mic = this.ac.createMediaStreamSource(new MediaStream(this.media.getAudioTracks()));
-    const hp = this.ac.createBiquadFilter();       // quita graves de manejo/ruido
-    hp.type = 'highpass'; hp.frequency.value = 85;
-    const comp = this.ac.createDynamicsCompressor(); // voz más pareja y presente
-    comp.threshold.value = -24; comp.knee.value = 12; comp.ratio.value = 3; comp.attack.value = 0.005; comp.release.value = 0.15;
-    const presence = this.ac.createBiquadFilter();
-    presence.type = 'peaking'; presence.frequency.value = 3500; presence.Q.value = 0.9; presence.gain.value = 2.5;
-    mic.connect(hp); hp.connect(comp); comp.connect(presence);
+    const pre = this.ac.createGain(); pre.gain.value = 2.2;      // el micro del móvil entrega poco nivel
+    const hp = this.ac.createBiquadFilter();                     // quita graves de manejo/ruido
+    hp.type = 'highpass'; hp.frequency.value = 90; hp.Q.value = 0.7;
+    const mud = this.ac.createBiquadFilter();                    // menos "voz de caja"
+    mud.type = 'peaking'; mud.frequency.value = 280; mud.Q.value = 1; mud.gain.value = -2.5;
+    const comp = this.ac.createDynamicsCompressor();             // voz pareja y delante de la música
+    comp.threshold.value = -22; comp.knee.value = 8; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.2;
+    const makeup = this.ac.createGain(); makeup.gain.value = 1.6;
+    const presence = this.ac.createBiquadFilter();               // inteligibilidad
+    presence.type = 'peaking'; presence.frequency.value = 3200; presence.Q.value = 0.8; presence.gain.value = 3;
+    const air = this.ac.createBiquadFilter();                    // brillo de estudio
+    air.type = 'highshelf'; air.frequency.value = 9000; air.gain.value = 2.5;
+    mic.connect(pre); pre.connect(hp); hp.connect(mud); mud.connect(comp); comp.connect(makeup); makeup.connect(presence); presence.connect(air);
 
     this.convolver = this.ac.createConvolver();
     this.wetGain   = this.ac.createGain();
     const voiceOut = this.ac.createGain();
-    presence.connect(voiceOut);                                                  // seca
-    presence.connect(this.convolver); this.convolver.connect(this.wetGain); this.wetGain.connect(voiceOut); // reverb
+    air.connect(voiceOut);                                                  // seca
+    air.connect(this.convolver); this.convolver.connect(this.wetGain); this.wetGain.connect(voiceOut); // reverb
 
     this.voiceGain   = this.ac.createGain();
     this.monitorGain = this.ac.createGain();
-    voiceOut.connect(this.voiceGain);   this.voiceGain.connect(dest);
+    voiceOut.connect(this.voiceGain);   this.voiceGain.connect(this.mixBus);
     voiceOut.connect(this.monitorGain); this.monitorGain.connect(this.ac.destination);
 
     // Medidores: nivel (rápido) y tono (ventana larga)
@@ -194,8 +214,10 @@ export class KaraokeEngine {
     this.pitchBuf = new Float32Array(this.pitchAnalyser.fftSize);
 
     // Sin auriculares el retorno haría acople (pitido) con el altavoz
-    this.setMusic(50); this.setVoice(80); this.setMonitor(this.headphones ? DEFAULT_MONITOR : 0);
+    this.setMusic(45); this.setVoice(85); this.setMonitor(this.headphones ? DEFAULT_MONITOR : 0);
     this.setReverbType(this.reverbType); this.setReverb(this.reverb);
+    this.autoSyncMs = this.estimateLatencyMs();
+    this.setSync(this.autoSyncMs);
 
     // Stream final: mezcla de audio + cámara
     this.mixTracks = dest.stream.getAudioTracks();
@@ -206,6 +228,29 @@ export class KaraokeEngine {
 
   get hasVideo() { return !!this.videoTrack; }
   get canShiftKey() { return !!this.pitchNode; }
+
+  /**
+   * Retardo de ida y vuelta (ms): música → auriculares → oído → voz → micro.
+   * Usa lo que informa el navegador y, si no, valores típicos de Android (Bluetooth tarda mucho más).
+   */
+  estimateLatencyMs() {
+    const bt = this.headphoneKind === 'bluetooth';
+    const out = Number.isFinite(this.ac.outputLatency) && this.ac.outputLatency > 0
+      ? this.ac.outputLatency
+      : (this.ac.baseLatency || 0.01) + (bt ? 0.22 : 0.05);
+    const inLat = this.media.getAudioTracks()[0]?.getSettings?.().latency;
+    const input = Number.isFinite(inLat) && inLat > 0 ? inLat : 0.04;
+    return Math.round(Math.max(40, Math.min(500, (out + input) * 1000)));
+  }
+
+  /** Sincronizar voz y música en la grabación (ms que se retrasa la música) */
+  setSync(ms) {
+    this.syncMs = Math.max(0, Math.min(600, Math.round(ms)));
+    this.syncDelay.delayTime.setValueAtTime(this.syncMs / 1000, this.ac.currentTime);
+  }
+
+  /** Posición de la canción que corresponde a la voz que entra AHORA por el micro (puntuación y salas) */
+  songTime() { return Math.max(0, this.position - (this.syncMs || 0) / 1000); }
 
   /** Grabar con otra imagen (dúo: lienzo con las dos cámaras) en vez de la cámara */
   setRecordVideoTrack(track) {

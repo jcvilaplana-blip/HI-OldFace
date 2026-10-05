@@ -198,7 +198,9 @@ export default function KaraokeRoomPage() {
     const entry = queue[0];
     if (!entry || entry.userId !== user?.id) return;
     try {
-      const engine = new KaraokeEngine({ audioUrl: absUrl(entry.song.audioUrl), headphones, camera: true });
+      let headphoneKind = 'unknown';
+      try { headphoneKind = window.OldFaceAudio?.getHeadphones?.() || 'unknown'; } catch {}
+      const engine = new KaraokeEngine({ audioUrl: absUrl(entry.song.audioUrl), headphones, camera: true, headphoneKind });
       await engine.init();
       engineRef.current = engine;
       if (headphones) mediaAudio();               // todo por los auriculares (no también por el altavoz)
@@ -215,7 +217,8 @@ export default function KaraokeRoomPage() {
       clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
         const e = engineRef.current;
-        if (e) rtcEmit('karaoke:progress', { roomId, position: e.position });
+        // El público recibe la música retrasada lo mismo que la voz (sincronía): enviar esa posición
+        if (e) rtcEmit('karaoke:progress', { roomId, position: e.songTime() });
       }, 500);
     } catch (e) {
       engineRef.current?.destroy();
