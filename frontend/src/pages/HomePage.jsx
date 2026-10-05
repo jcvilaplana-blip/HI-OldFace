@@ -7,7 +7,7 @@ import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import { useContacts } from '../hooks/useContacts';
 import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
-import { useZegoStore } from '../store/zegoStore';
+import { useCallStore } from '../store/callStore';
 import PopupMenu from '../components/PopupMenu.jsx';
 import ChatList from '../components/ChatList.jsx';
 import BottomNav from '../components/BottomNav.jsx';
@@ -33,7 +33,7 @@ export default function HomePage() {
   const { user }  = useAuthStore();
   const { chats, fetchChats } = useChatStore();
   const { isDark } = useThemeStore();
-  const { sendVoiceCall, sendVideoCall, isCallActive } = useZegoStore();
+  const { sendVoiceCall, sendVideoCall } = useCallStore();
   const T = isDark ? DARK : LIGHT;
 
   const [searchParams] = useSearchParams();
@@ -58,7 +58,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!user?.id) return;
     fetchChats(user.id);
-    // Polling cada 5s para detectar chats y mensajes nuevos aunque ZIM no esté conectado
+    // Polling cada 5s para detectar chats y mensajes nuevos aunque se pierda la conexión en tiempo real
     const interval = setInterval(() => fetchChats(user.id), 5000);
     return () => clearInterval(interval);
   }, [user?.id]);
@@ -220,7 +220,7 @@ export default function HomePage() {
         </svg>
       </button>
 
-      {!isCallActive && <BottomNav />}
+      <BottomNav />
       {showMenu && (
         <PopupMenu
           onClose={() => setShowMenu(false)}
@@ -266,7 +266,7 @@ function ContactosTab({ T, isDark }) {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { contacts, loading, error, loadContacts, openSettings } = useContacts();
-  const { sendVoiceCall, sendVideoCall } = useZegoStore();
+  const { sendVoiceCall, sendVideoCall } = useCallStore();
   const [searchPhone, setSearchPhone] = React.useState('');
   const [searchResult, setSearchResult] = React.useState(null);
 
@@ -483,7 +483,6 @@ function StoriesBar({ user, T, isDark }) {
   const viewerHistoryPushed  = React.useRef(false);
 
   const navigate = useNavigate();
-  const { sendChatMessage } = useZegoStore();
   const { persistMessage, createOrGetChat } = useChatStore();
 
   const fetchStories = () => {
@@ -609,8 +608,7 @@ function StoriesBar({ user, T, isDark }) {
 
     try {
       await createOrGetChat(user?.id, viewerStory.userId, viewerStory.userName);
-      await persistMessage(msgChatId, user?.id, text, 'text', null, statusReplyTo);
-      sendChatMessage(viewerStory.userId, text);
+      await persistMessage(msgChatId, user?.id, text, 'text', null, statusReplyTo); // el backend lo entrega al instante
     } catch { /* silencioso */ }
     setReplyText('');
     setReplySent(true);
@@ -1175,7 +1173,7 @@ function GroupCreateModal({ user, T, isDark, onClose, onCreated }) {
 // ══ Tab LLAMADAS ═════════════════════════════════════════════════════════════
 function CallsTab({ T, user, isDark }) {
   const navigate = useNavigate();
-  const { sendVoiceCall, sendVideoCall } = useZegoStore();
+  const { sendVoiceCall, sendVideoCall } = useCallStore();
   const [calls,        setCalls]        = React.useState([]);
   const [loading,      setLoading]      = React.useState(true);
   const [pressedId,    setPressedId]    = React.useState(null); // long-press para mostrar delete

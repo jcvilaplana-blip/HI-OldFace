@@ -108,7 +108,7 @@ export default function KaraokeRoomPage() {
       });
       callRef.current = call;
       await call.join();
-      window.OldFaceAudio?.enableSpeaker();
+      mediaAudio();
       setStatus('live');
       rafRef.current = requestAnimationFrame(tick);
     } catch (e) {
@@ -201,7 +201,8 @@ export default function KaraokeRoomPage() {
       const engine = new KaraokeEngine({ audioUrl: absUrl(entry.song.audioUrl), headphones, camera: true });
       await engine.init();
       engineRef.current = engine;
-      if (!headphones) window.OldFaceAudio?.enableSpeaker();
+      if (headphones) mediaAudio();               // todo por los auriculares (no también por el altavoz)
+      else window.OldFaceAudio?.enableSpeaker();
       setLocalPreview(engine.preview);
       setCamOn(true);
       setMonitorOn(engine.monitor > 0);
@@ -232,7 +233,7 @@ export default function KaraokeRoomPage() {
     engineRef.current = null;
     setLocalPreview(null);
     setSinging(false);
-    window.OldFaceAudio?.enableSpeaker();
+    mediaAudio();
   };
 
   const toggleCamera = () => {
@@ -461,6 +462,15 @@ export default function KaraokeRoomPage() {
       `}</style>
     </div>
   );
+}
+
+/**
+ * Audio multimedia normal: con auriculares sale por ellos y si no, por el altavoz.
+ * (APK antiguos sin setMediaMode: forzar el altavoz como antes)
+ */
+function mediaAudio() {
+  if (window.OldFaceAudio?.setMediaMode) window.OldFaceAudio.setMediaMode();
+  else window.OldFaceAudio?.enableSpeaker();
 }
 
 function BgVideo({ stream, mirror }) {

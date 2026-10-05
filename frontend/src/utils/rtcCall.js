@@ -1,6 +1,6 @@
 /**
  * rtcCall — llamada de audio/vídeo con el servidor RTC propio (mediasoup SFU).
- * Sustituye a ZEGOCLOUD UIKit en CallPage / VideoCallPage. Sirve para 1:1 y grupo.
+ * Se usa en CallPage / VideoCallPage, directos y karaoke. Sirve para 1:1 y grupo.
  *
  *   const call = new RtcCall({ roomId, video, onPeerStream, onPeerLeft, onPeerMedia });
  *   await call.join();          // cámara/micro + entrar en la sala

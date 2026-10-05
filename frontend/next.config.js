@@ -10,7 +10,6 @@ const nextConfig = {
     unoptimized: true,     // Requerido con output: export
   },
   env: {
-    NEXT_PUBLIC_ZEGOCLOUD_APP_ID: process.env.VITE_ZEGOCLOUD_APP_ID,
     NEXT_PUBLIC_BACKEND_URL: process.env.VITE_BACKEND_URL,
     NEXT_PUBLIC_POLL_URL: process.env.VITE_POLL_URL,
   },

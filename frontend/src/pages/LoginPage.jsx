@@ -30,7 +30,7 @@ async function autofillSave(phone) {
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { setUser, generateUserId, fetchToken } = useAuthStore();
+  const { setUser, generateUserId } = useAuthStore();
 
   const [phone, setPhone] = useState('');
   const [phoneNormalized, setPhoneNormalized] = useState('');
@@ -134,7 +134,6 @@ export default function LoginPage() {
         createdAt: Date.now(),
       };
 
-      await fetchToken(userId);
       if (data.rtcToken) useAuthStore.getState().setRtcToken(data.rtcToken);
       setUser(userData);
 

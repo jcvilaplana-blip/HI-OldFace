@@ -13,12 +13,10 @@ export default defineConfig({
     // Ignorar advertencias de módulos dinámicos (Capacitor se carga en nativo)
     rollupOptions: {
       onwarn(warning, warn) {
-        // Ignorar errores de imports dinámicos de Capacitor y ZEGOCLOUD en build web
+        // Ignorar errores de imports dinámicos de Capacitor en build web
         if (
           warning.code === 'UNRESOLVED_IMPORT' ||
-          warning.message?.includes('@capacitor') ||
-          warning.message?.includes('zego') ||
-          warning.message?.includes('zegocloud')
+          warning.message?.includes('@capacitor')
         ) return;
         warn(warning);
       },

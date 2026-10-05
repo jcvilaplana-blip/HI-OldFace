@@ -99,12 +99,6 @@ html.cap-native {
   }
 }
 
-/* ZEGOCLOUD UI override */
-#zego-container {
-  height: 100% !important;
-  width: 100% !important;
-}
-
 /* ═══════════════════════════════════════════════════════
    MODO OSCURO — Dark Mode (por defecto)
    Primario: #021132 (azul marino profundo, degradado)
@@ -181,47 +175,3 @@ html.dark .glass {
 /* ── Divisores y overlays ───────────────────────────── */
 html.dark .divide-gray-100 > * + * { border-color: rgba(255,255,255,0.06) !important; }
 html.dark hr { border-color: rgba(255,255,255,0.06) !important; }
-
-/* ── ZEGOCLOUD UIKit — Ocultar elementos no deseados ────────────────────────
-   Class names extraídos del bundle v1.11.0 (hashes fijos para esta versión).
-   Agrupa: barra inferior, etiquetas de nombre, diálogo de confirmación,
-   pantalla post-llamada ("You have left the room.").
-───────────────────────────────────────────────────────────────────────────── */
-
-/* Barra inferior de ZEGOCLOUD (screenBottomBar + Left + Right) */
-.BK8wLjgIh8fTQu2lLdir,
-.imtOkrRZytf3edIVDdeD,
-.t7UX3TRe4IbZBz9_mSrz,
-/* Botón colgar ZEGOCLOUD (leaveButton — el cuadrado rojo) */
-.QeMJj1LEulq1ApqLHxuM,
-.vRymZYPLKPwd4n9uqA9E,
-/* Footer y bottomWrapper del UIKit */
-.ji5jASszKFf2CGCmbxEh,
-.MMnj7hRGhI3yZw8790HU,
-.ksNCFsY1D3z_EZnQqgBk,
-.wuzomHUgi6CgnnW9l7eR {
-  display: none !important;
-}
-
-/* Etiquetas de nombre / "you" / "Team (You)" en los tiles de vídeo */
-.OSeYVFzQ3ebXxqDY9XKn,   /* nameTag */
-.R5UUhzsZdRHH4U5V6kon,   /* name (label sobre el tile) */
-.ecHsgwLx2_C2nnLn_n_N,   /* nameWrapper variante 1 */
-.uZlIxwHvmCQndAwgHDWs,   /* nameWrapper variante 2 */
-.Gm8t3M3jHjNCFCpOgvDR,   /* nameWrapper variante 3 */
-.f9zniVtZmhdi6k9f7gm2 {  /* nameCircle ("T." / iniciales) */
-  display: none !important;
-}
-
-/* Diálogo de confirmación "Leave the room / Are you sure?" */
-.FQlBdJ7LgSchBX_9SZ1O {  /* ZegoConfirm — el modal completo */
-  display: none !important;
-}
-
-/* Pantalla post-llamada "You have left the room." + botón Rejoin */
-.j9ygOVxEl2nClTPs77Ta,   /* rejoinRoomContainer */
-.lflaXazrPGAK9SbOcNoC,   /* title ("You have left the room.") */
-.IughcowXVrJ5wcOf6vH9,   /* rejoin button */
-.mCx2N1NwuMWObjjTeG0q {  /* returnHome button */
-  display: none !important;
-}

@@ -1,7 +1,7 @@
 /**
- * OldFace RTC — servidor propio de tiempo real (sustituye a ZEGOCLOUD)
+ * OldFace RTC — servidor propio de tiempo real (llamadas, directos, karaoke y mensajes)
  *
- *  • Socket.IO  → autenticación, presencia, señalización de llamadas (antes ZIM)
+ *  • Socket.IO  → autenticación, presencia, señalización de llamadas
  *  • mediasoup  → SFU para llamadas 1:1, de grupo y directos (antes UIKit)
  *  • TURN       → credenciales temporales para coturn (TURN REST API)
  *  • /internal  → el backend Express avisa de eventos (p. ej. mensajes nuevos)
@@ -380,7 +380,7 @@ io.on('connection', (socket) => {
     if (socket.data.guest && !roomId.startsWith('test_')) throw new Error('Los invitados solo pueden usar salas test_');
   };
 
-  // ── Presencia y señalización (sustituye a ZIM) ──────────────────────────
+  // ── Presencia y señalización de llamadas ────────────────────────────────
   handle(socket, 'presence:query', ({ userIds }) => {
     const online = {};
     for (const id of (Array.isArray(userIds) ? userIds.slice(0, 500) : [])) online[id] = onlineUsers.has(id);

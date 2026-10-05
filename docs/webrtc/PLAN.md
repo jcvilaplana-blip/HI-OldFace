@@ -1,5 +1,9 @@
 # OldFace RTC — Plan de migración de ZEGOCLOUD a WebRTC propio
 
+> ✅ **MIGRACIÓN COMPLETADA (2026-10-05).** OldFace ya no contiene ningún código, SDK, variable ni endpoint de
+> ZEGOCLOUD (fase 6): llamadas, videollamadas, directos, karaoke y mensajería en tiempo real funcionan solo con
+> el servidor propio (`rtc-server/`) y `src/store/callStore.js`. Este documento se conserva como histórico.
+
 > Objetivo: que llamadas, videollamadas, llamadas de grupo, directos y la mensajería en tiempo real
 > funcionen con infraestructura propia en el VPS (212.227.110.244), sin ZEGOCLOUD,
 > **manteniendo el diseño actual de OldFace**.

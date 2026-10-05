@@ -1,19 +1,16 @@
 /**
- * VideoCallPage — Videollamada con ZEGOCLOUD UIKit
+ * VideoCallPage — Videollamada con el servidor RTC propio (mediasoup), 1:1 o en grupo.
  *
  * Layout:
- *  - Contenedor ZEGOCLOUD a pantalla completa (inset: 0)
- *  - Controles de ZEGOCLOUD ocultos (showMyCameraToggleButton: false)
- *  - Barra de controles propia en overlay a 130 px del borde inferior:
- *      [Mic] [Colgar] [Cámara]
- *  - zpRef guarda la instancia para llamar turnMicrophoneOn / turnCameraOn
+ *  - Vídeo remoto a pantalla completa (cuadrícula si hay varios participantes)
+ *  - Vista propia en miniatura arriba a la derecha (espejo)
+ *  - Barra de controles propia: [Mic] [Colgar] [Cámara]
  *  - cleanedRef previene doble llamada a doCleanup
- *  - Engine lock en zegoStore garantiza solo una instancia activa → sin 1002011
  */
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore }  from '../store/authStore';
-import { useZegoStore }  from '../store/zegoStore';
+import { useCallStore }  from '../store/callStore';
 import { useChatStore }  from '../store/chatStore';
 import { RtcCall }       from '../utils/rtcCall';
 import { ensureRtcConnected } from '../utils/rtcClient';
@@ -21,57 +18,22 @@ import { playRingSound } from '../utils/sounds';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
-// ── Clases CSS de ZEGOCLOUD que deben ocultarse ────────────────────────────────
-const ZEGO_HIDE = [
-  // Barra inferior (screenBottomBar + Left + Right)
-  'BK8wLjgIh8fTQu2lLdir','imtOkrRZytf3edIVDdeD','t7UX3TRe4IbZBz9_mSrz',
-  // Botón colgar de ZEGOCLOUD (leaveButton — el cuadrado rojo)
-  'QeMJj1LEulq1ApqLHxuM','vRymZYPLKPwd4n9uqA9E',
-  // Footer y bottomWrapper del UIKit
-  'ji5jASszKFf2CGCmbxEh','MMnj7hRGhI3yZw8790HU','ksNCFsY1D3z_EZnQqgBk','wuzomHUgi6CgnnW9l7eR',
-  // Etiquetas nombre / "You" / nameCircle (todas las variantes encontradas en el bundle)
-  'OSeYVFzQ3ebXxqDY9XKn','R5UUhzsZdRHH4U5V6kon',
-  'ecHsgwLx2_C2nnLn_n_N','uZlIxwHvmCQndAwgHDWs','Gm8t3M3jHjNCFCpOgvDR',
-  'f9zniVtZmhdi6k9f7gm2','MiLXxQuRUH4z5D2Ng3w2','mlMcU_ktgyvHvpgzjSpP',
-  'TYiiRFB3EhYJGVPE4k4q','pFuv8YwfjDjDiXQxu3AA','pTfkPoHDRs_MQWfVDwqz',
-  'xFYACJeFt5C453iKfvpF','s1mpVIshlpvGrfqWJ1cM','i8ct3MPKG0I8SA9qfu6m',
-  // Diálogo confirmación
-  'FQlBdJ7LgSchBX_9SZ1O',
-  // Pantalla post-llamada
-  'j9ygOVxEl2nClTPs77Ta','lflaXazrPGAK9SbOcNoC','IughcowXVrJ5wcOf6vH9','mCx2N1NwuMWObjjTeG0q',
-];
-
-// Aplica display:none como estilo INLINE (máxima prioridad, no puede ser sobrescrito)
-function applyZegoHide() {
-  ZEGO_HIDE.forEach(cls => {
-    document.querySelectorAll('.' + cls).forEach(el => {
-      el.style.setProperty('display', 'none', 'important');
-    });
-  });
-}
-
 export default function VideoCallPage() {
   const { userId }  = useParams();
   const { state }   = useLocation();
   const navigate    = useNavigate();
   const { user }    = useAuthStore();
   const {
-    zimEngine,
     callRejected, clearCallRejected,
     callEnded,    clearCallEnded,
-    acquireCallInstance, releaseCallInstance,
     sendCallSignal,
-  } = useZegoStore();
+  } = useCallStore();
 
-  const containerRef    = useRef(null);
-  const zpRef           = useRef(null);   // instancia ZEGOCLOUD para controlar mic/cámara
   const cancelledRef    = useRef(false);  // evita doble cancelación
   const cleanedRef      = useRef(false);  // evita doble doCleanup
-  const zimSnapRef      = useRef(null);   // ZIM capturado ANTES del acquire
   const startTimeRef    = useRef(null);
   const loggedRef       = useRef(false);
-  const zegoObserverRef = useRef(null);   // MutationObserver para ocultar UI de ZEGOCLOUD
-  const cameraOnRef     = useRef(true);   // ref síncrona — usada en el handler de visibilidad
+  const cameraOnRef     = useRef(true);   // ref síncrona — usada al reconectar
 
   const [uiStatus,    setUiStatus]    = useState('connecting');
   const [micOn,       setMicOn]       = useState(true);
@@ -85,8 +47,6 @@ export default function VideoCallPage() {
   const calleeName = state?.chat?.name || userId;
   // Usar roomId del state (generado por el emisor) o derivar como fallback
   const roomId     = state?.roomId || [user?.id, userId].sort().join('_vroom_');
-  // Motor de audio/vídeo: 'oldface' = servidor RTC propio (mediasoup) | 'zego' = ZEGOCLOUD (APKs antiguos)
-  const useOwnRtc  = state?.media !== 'zego';
 
   const rtcCallRef    = useRef(null);
   const localVideoRef = useRef(null);
@@ -142,63 +102,19 @@ export default function VideoCallPage() {
 
       // 1. Reactivar altavoz (videollamada usa altavoz por defecto)
       window.OldFaceAudio?.enableSpeaker();
-
-      if (useOwnRtc) {
-        // Servidor propio: reanudar vídeos que el WebView haya pausado en segundo plano
-        document.querySelectorAll('video[data-rtc]').forEach(v => v.play().catch(() => {}));
-        return;
-      }
-
-      // 2. Forzar repaint del contenedor ZEGOCLOUD para descongelar el compositor WebGL
-      if (containerRef.current) {
-        containerRef.current.style.opacity = '0.99';
-        requestAnimationFrame(() => {
-          if (containerRef.current) containerRef.current.style.opacity = '';
-        });
-      }
-
-      // 3. Ciclo off→on de cámara local: fuerza a ZEGOCLOUD a reiniciar el pipeline
-      //    de vídeo, lo que también refresca los frames del participante remoto.
-      //    Solo si la cámara estaba encendida; con 200 ms de retardo para que el
-      //    WebView termine de reanudar su compositor antes del toggle.
-      if (cameraOnRef.current && zpRef.current) {
-        setTimeout(() => {
-          try { zpRef.current?.turnCameraOn?.(false); } catch {}
-          setTimeout(() => {
-            try { if (cameraOnRef.current) zpRef.current?.turnCameraOn?.(true); } catch {}
-          }, 250);
-        }, 200);
-      }
+      // 2. Reanudar vídeos que el WebView haya pausado en segundo plano
+      document.querySelectorAll('video[data-rtc]').forEach(v => v.play().catch(() => {}));
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [uiStatus]);
 
-  // ── Señales ZIM (capturadas ANTES de acquireCallInstance) ─────────────────
-  const sendZIMInvite = async () => {
+  // ── Señales al otro participante ──────────────────────────────────────────
+  const sendInviteSignal = () => {
     const callerName = user?.name || user?.id || 'Usuario';
-    sendCallSignal(userId, 'call_invite', { callType: 'video', callerName, roomId, media: useOwnRtc ? 'oldface' : 'zego' }); // servidor RTC propio
-    const zim = zimSnapRef.current;
-    if (!zim) return;
-    try {
-      await zim.sendMessage(
-        { type: 1, message: JSON.stringify({ _oc_type: 'call_invite', callType: 'video', callerName, roomId }) },
-        userId, 0, { priority: 3 }
-      );
-    } catch (err) { console.warn('[VideoCall] Invite error:', err?.message); }
+    return sendCallSignal(userId, 'call_invite', { callType: 'video', callerName, roomId });
   };
-
-  const sendZIMEnd = async () => {
-    sendCallSignal(userId, 'call_end'); // servidor RTC propio
-    const zim = zimSnapRef.current;
-    if (!zim) return;
-    try {
-      await zim.sendMessage(
-        { type: 1, message: JSON.stringify({ _oc_type: 'call_end' }) },
-        userId, 0, { priority: 3 }
-      );
-    } catch { /* silencioso */ }
-  };
+  const sendEndSignal = () => sendCallSignal(userId, 'call_end');
 
   // ── Registro de llamada ───────────────────────────────────────────────────
   const recordCallLog = useCallback(async (callDuration) => {
@@ -221,7 +137,7 @@ export default function VideoCallPage() {
     } catch { /* silencioso */ }
   }, [user, userId, calleeName, isIncoming]);
 
-  // ── Servidor RTC propio (mediasoup) ───────────────────────────────────────
+  // ── Llamada conectada (llega el vídeo/audio del otro participante) ────────
   const onOwnCallActive = () => {
     if (activeRef.current) return;
     activeRef.current = true;
@@ -233,7 +149,7 @@ export default function VideoCallPage() {
 
   const startOwnCall = async () => {
     await ensureRtcConnected(user);
-    if (!isIncoming) await sendZIMInvite();
+    if (!isIncoming) await sendInviteSignal();
     rtcCallRef.current?.leave();
     setRemotes([]);
     const call = new RtcCall({
@@ -269,99 +185,27 @@ export default function VideoCallPage() {
 
   // ── Flujo principal ────────────────────────────────────────────────────────
   const startCall = async () => {
-    if (useOwnRtc) {
-      try { await startOwnCall(); }
-      catch (err) { console.error('[VideoCallPage] RTC propio:', err?.message); setUiStatus('error'); }
-      return;
-    }
-    try {
-      // 1. Capturar ZIM antes del acquire (que destruirá UIKit)
-      const { ZIM } = await import('zego-zim-web');
-      zimSnapRef.current = ZIM.getInstance() || zimEngine;
-
-      // 2. Enviar invite mientras ZIM sigue vivo
-      if (!isIncoming) await sendZIMInvite();
-
-      // 3. Adquirir instancia UIKit (el lock en zegoStore serializa esto)
-      const zp = await acquireCallInstance(roomId, user.id, user.name);
-      if (!zp) { setUiStatus('error'); return; }
-      zpRef.current = zp;
-
-      // 4. Unirse al room — controles ZEGOCLOUD desactivados, usamos los nuestros
-      const { ZegoUIKitPrebuilt } = await import('@zegocloud/zego-uikit-prebuilt');
-      zp.joinRoom({
-        container:                    containerRef.current,
-        showPreJoinView:              false,
-        turnOnMicrophoneWhenJoining:  true,
-        turnOnCameraWhenJoining:      true,
-        // Ocultamos los botones de ZEGOCLOUD — usamos nuestra barra de controles
-        showMyCameraToggleButton:     false,
-        showMyMicrophoneToggleButton: false,
-        showAudioVideoSettingsButton: false,
-        showScreenSharingButton:      false,
-        showTextChat:                 false,
-        showUserList:                 false,
-        showLayoutButton:             false,
-        maxUsers:                     9,
-        layout:                       'Auto',
-        scenario:                     { mode: ZegoUIKitPrebuilt.GroupCall },
-        useSpeakerWhenJoining:        true,
-        showLeaveRoomConfirmDialog:   false,
-        onJoinRoom: () => {
-          setUiStatus('active');
-          startTimeRef.current = Date.now();
-          window.OldFaceAudio?.setCallActive(true);
-          // Aplicar hide inmediato y arrancar MutationObserver.
-          // Usamos style.setProperty('display','none','important') en línea:
-          // los estilos inline tienen máxima prioridad y no pueden ser
-          // sobrescritos por ninguna hoja de estilos, incluyendo las de ZEGOCLOUD.
-          applyZegoHide();
-          const obs = new MutationObserver(applyZegoHide);
-          obs.observe(document.body, { childList: true, subtree: true });
-          zegoObserverRef.current = obs;
-        },
-        onLeaveRoom: () => {
-          // ZEGOCLOUD detectó que el usuario local o remoto salió del room
-          if (!cancelledRef.current) {
-            const secs = startTimeRef.current ? Math.round((Date.now() - startTimeRef.current) / 1000) : 0;
-            sendZIMEnd();
-            recordCallLog(secs);
-          }
-          doCleanup();
-          navigate(-1);
-        },
-      });
-    } catch (err) {
-      console.error('[VideoCallPage] error:', err?.message);
-      setUiStatus('error');
-    }
+    try { await startOwnCall(); }
+    catch (err) { console.error('[VideoCallPage] error:', err?.message); setUiStatus('error'); }
   };
 
   // ── Cleanup protegido contra doble ejecución ──────────────────────────────
   const doCleanup = useCallback(() => {
     if (cleanedRef.current) return;
     cleanedRef.current = true;
-    zegoObserverRef.current?.disconnect();
-    zegoObserverRef.current = null;
     window.OldFaceAudio?.setCallActive(false);
-    if (useOwnRtc) {
-      rtcCallRef.current?.leave();
-      rtcCallRef.current = null;
-      window.OldFaceAudio?.setSpeaker();
-    } else {
-      releaseCallInstance(user);
-    }
+    rtcCallRef.current?.leave();
+    rtcCallRef.current = null;
+    window.OldFaceAudio?.setSpeaker();
   }, [user]); // eslint-disable-line
 
   // ── Colgar ────────────────────────────────────────────────────────────────
   const handleCancel = async () => {
     if (cancelledRef.current) return;
     cancelledRef.current = true;
-    await sendZIMEnd();
+    await sendEndSignal();
     const secs = startTimeRef.current ? Math.round((Date.now() - startTimeRef.current) / 1000) : 0;
     recordCallLog(secs);
-    // Limpiamos directamente sin pasar por hangUp() de ZEGOCLOUD
-    // (hangUp dispara la pantalla "You have left the room" antes de onLeaveRoom)
     doCleanup();
     navigate(-1);
   };
@@ -370,16 +214,14 @@ export default function VideoCallPage() {
   const handleMicToggle = () => {
     const next = !micOn;
     setMicOn(next);
-    if (useOwnRtc) { rtcCallRef.current?.setMic(next); return; }
-    try { zpRef.current?.turnMicrophoneOn?.(next); } catch {}
+    rtcCallRef.current?.setMic(next);
   };
 
   const handleCameraToggle = () => {
     const next = !cameraOn;
-    cameraOnRef.current = next;   // sincronizar ref antes de cualquier timeout
+    cameraOnRef.current = next;
     setCameraOn(next);
-    if (useOwnRtc) { rtcCallRef.current?.setCamera(next); return; }
-    try { zpRef.current?.turnCameraOn?.(next); } catch {}
+    rtcCallRef.current?.setCamera(next);
   };
 
   // ── Invitar contacto a la videollamada en curso ───────────────────────────
@@ -395,7 +237,6 @@ export default function VideoCallPage() {
           callerName: user.name || user.id,
           callType:   'video',
           roomId,
-          media:      useOwnRtc ? 'oldface' : 'zego',
         }),
       });
       setInviteSent(prev => ({ ...prev, [contactId]: 'sent' }));
@@ -419,34 +260,27 @@ export default function VideoCallPage() {
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#111827', zIndex: 50 }}>
 
-      {/* ZEGOCLOUD UIKit — pantalla completa (solo APKs/llamadas con motor ZEGOCLOUD) */}
-      {!useOwnRtc && <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />}
-
-      {/* Servidor RTC propio: vídeo remoto a pantalla completa (o cuadrícula) + vista propia */}
-      {useOwnRtc && (
-        <div style={{
-          position: 'absolute', inset: 0,
-          display: 'grid', gap: remotes.length > 1 ? 4 : 0, background: '#000',
-          gridTemplateColumns: remotes.length > 1 ? '1fr 1fr' : '1fr',
-          gridAutoRows: remotes.length > 2 ? '1fr' : undefined,
-        }}>
-          {remotes.map(r => (
-            <RemoteTile key={r.id} stream={r.stream} name={r.name} videoOff={r.videoOff} showName={remotes.length > 1} />
-          ))}
-        </div>
-      )}
-      {useOwnRtc && (
-        <video
-          ref={localVideoRef} data-rtc="local" autoPlay playsInline muted
-          style={{
-            position: 'absolute', top: 'max(env(safe-area-inset-top, 16px), 16px)', right: 14, zIndex: 30,
-            width: 104, height: 146, objectFit: 'cover', borderRadius: 14,
-            border: '2px solid rgba(255,255,255,0.35)', background: '#1f2937',
-            transform: 'scaleX(-1)', boxShadow: '0 4px 18px rgba(0,0,0,0.45)',
-            visibility: cameraOn && uiStatus === 'active' ? 'visible' : 'hidden',
-          }}
-        />
-      )}
+      {/* Vídeo remoto a pantalla completa (o cuadrícula) + vista propia */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        display: 'grid', gap: remotes.length > 1 ? 4 : 0, background: '#000',
+        gridTemplateColumns: remotes.length > 1 ? '1fr 1fr' : '1fr',
+        gridAutoRows: remotes.length > 2 ? '1fr' : undefined,
+      }}>
+        {remotes.map(r => (
+          <RemoteTile key={r.id} stream={r.stream} name={r.name} videoOff={r.videoOff} showName={remotes.length > 1} />
+        ))}
+      </div>
+      <video
+        ref={localVideoRef} data-rtc="local" autoPlay playsInline muted
+        style={{
+          position: 'absolute', top: 'max(env(safe-area-inset-top, 16px), 16px)', right: 14, zIndex: 30,
+          width: 104, height: 146, objectFit: 'cover', borderRadius: 14,
+          border: '2px solid rgba(255,255,255,0.35)', background: '#1f2937',
+          transform: 'scaleX(-1)', boxShadow: '0 4px 18px rgba(0,0,0,0.45)',
+          visibility: cameraOn && uiStatus === 'active' ? 'visible' : 'hidden',
+        }}
+      />
 
       {/* ── Overlay: Conectando / Llamando ── */}
       {uiStatus === 'connecting' && (

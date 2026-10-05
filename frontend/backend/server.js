@@ -1,5 +1,6 @@
 /**
- * OldFace Backend — Tokens ZEGOCLOUD + Autenticación OTP por SMS
+ * OldFace Backend — Autenticación OTP, chats, estados, directos, encuestas y karaoke
+ * (llamadas y tiempo real: servidor RTC propio en rtc-server/, sin servicios de terceros)
  * Persistencia en disco: users, chats, mensajes y directos sobreviven reinicios
  */
 
@@ -141,46 +142,6 @@ setInterval(() => {
     if (data.expiry < now) otpStore.delete(phone);
   }
 }, 60_000);
-
-// ════════════════════════════════════════════════════════════════
-//  ZEGOCLOUD Token04 — Formato exacto del SDK oficial (generateKitTokenForTest)
-// ════════════════════════════════════════════════════════════════
-function generateToken04(appId, userId, serverSecret, effectiveSeconds = 86400) {
-  const now      = Math.floor(Date.now() / 1000);
-  const expireAt = now + effectiveSeconds;
-  const nonce    = Math.floor(Math.random() * 2_147_483_647);
-
-  const tokenData = {
-    app_id: appId, user_id: userId, nonce, ctime: now, expire: expireAt,
-  };
-
-  // IV: 16 dígitos de Math.random() (igual que generateKitTokenForTest)
-  let iv = Math.random().toString().substring(2, 18);
-  if (iv.length < 16) iv += iv.substring(0, 16 - iv.length);
-  const ivBuf = Buffer.from(iv, 'utf8'); // 16 bytes ASCII
-
-  // AES-256-CBC con serverSecret COMPLETO (32 bytes = 256-bit)
-  const key    = Buffer.from(serverSecret, 'utf8'); // 32 bytes
-  const cipher = crypto.createCipheriv('aes-256-cbc', key, ivBuf);
-  cipher.setAutoPadding(true);
-  const cipherText = Buffer.concat([
-    cipher.update(Buffer.from(JSON.stringify(tokenData), 'utf8')),
-    cipher.final(),
-  ]);
-
-  // Buffer con length-prefixes (formato oficial):
-  // [0:4] zeros | [4:8] expire int32BE | [8:10] IV_len | [10:26] IV | [26:28] cipher_len | [28:...] cipher
-  const buf = Buffer.alloc(28 + cipherText.length);
-  buf.writeInt32BE(expireAt, 4);
-  buf[8] = ivBuf.length >> 8;
-  buf[9] = ivBuf.length & 0xFF;
-  ivBuf.copy(buf, 10);
-  buf[26] = cipherText.length >> 8;
-  buf[27] = cipherText.length & 0xFF;
-  cipherText.copy(buf, 28);
-
-  return '04' + buf.toString('base64');
-}
 
 // ════════════════════════════════════════════════════════════════
 //  FCM Push Notifications — Firebase Admin SDK (API v1)
@@ -410,17 +371,6 @@ router.post('/verify-otp', async (req, res) => {
   return res.json({ success: true, verified: true, userId, user: userData, rtcToken: signRtcToken(userId) });
 });
 
-/**
- * GET /config?userId= — configuración en tiempo de ejecución para la app.
- * rtcSignaling: 'oldface' (servidor RTC propio, por defecto) | 'zim' (ZEGOCLOUD, solo si RTC_SIGNALING=zim).
- * OldFace ya no depende de ZEGOCLOUD: el servidor propio es el sistema por defecto.
- */
-router.get('/config', (_req, res) => {
-  const rtcEnabled = !!process.env.RTC_SECRET;
-  const signaling = rtcEnabled && process.env.RTC_SIGNALING !== 'zim' ? 'oldface' : 'zim';
-  res.json({ rtcSignaling: signaling });
-});
-
 /** Avisa a usuarios conectados al servidor RTC (no bloquea; si falla, la app recurre al polling) */
 function rtcEmit(to, event, data) {
   const url = process.env.RTC_INTERNAL_URL, secret = process.env.RTC_SECRET;
@@ -495,44 +445,6 @@ router.get('/find-user-by-id', (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════
-//  ZEGOCLOUD Tokens
-// ════════════════════════════════════════════════════════════════
-
-/** POST /generate-token */
-router.post('/generate-token', (req, res) => {
-  const { userId, roomId = '' } = req.body || {};
-  if (!userId) return res.status(400).json({ error: 'userId es requerido' });
-
-  const appId        = parseInt(process.env.ZEGOCLOUD_APP_ID);
-  const serverSecret = process.env.ZEGOCLOUD_SERVER_SECRET;
-  if (!appId || !serverSecret) return res.status(500).json({ error: 'Credenciales ZEGOCLOUD no configuradas' });
-
-  try {
-    const token    = generateToken04(appId, userId.trim(), serverSecret, 86400);
-    const expireAt = Math.floor(Date.now() / 1000) + 86400;
-    return res.json({ token, userId, appId, expireTime: expireAt });
-  } catch (err) {
-    return res.status(500).json({ error: 'Error generando token' });
-  }
-});
-
-/** POST /generate-room-token */
-router.post('/generate-room-token', (req, res) => {
-  const { userId, roomId } = req.body || {};
-  if (!userId || !roomId) return res.status(400).json({ error: 'userId y roomId son requeridos' });
-
-  const appId        = parseInt(process.env.ZEGOCLOUD_APP_ID);
-  const serverSecret = process.env.ZEGOCLOUD_SERVER_SECRET;
-  try {
-    const token    = generateToken04(appId, userId, serverSecret, 86400);
-    const expireAt = Math.floor(Date.now() / 1000) + 86400;
-    return res.json({ token, userId, roomId, appId, expireTime: expireAt });
-  } catch (err) {
-    return res.status(500).json({ error: 'Error generando token' });
-  }
-});
-
-// ════════════════════════════════════════════════════════════════
 //  FCM Token Registration
 // ════════════════════════════════════════════════════════════════
 
@@ -549,12 +461,11 @@ router.post('/register-fcm-token', (req, res) => {
 router.post('/call-notification', async (req, res) => {
   const { calleeId, callerId, callerName, callType, roomId } = req.body || {};
   if (!calleeId || !callerId) return res.status(400).json({ error: 'calleeId y callerId son requeridos' });
-  const media = req.body?.media === 'zego' ? 'zego' : 'oldface'; // motor de audio/vídeo (por defecto el propio)
 
   // Si el destinatario tiene la app abierta con el servidor RTC, recibe la invitación al instante
   rtcEmit(calleeId, 'signal', {
     from: callerId, fromName: callerName || callerId, type: 'call_invite', ts: Date.now(),
-    payload: { callType: callType || 'voice', callerName: callerName || callerId, roomId: roomId || null, media },
+    payload: { callType: callType || 'voice', callerName: callerName || callerId, roomId: roomId || null },
   });
 
   const fcmToken = fcmStore.get(calleeId);
@@ -572,7 +483,6 @@ router.post('/call-notification', async (req, res) => {
       callerName: callerName || callerId,
       roomId:     roomId    || '',
       ts:         Date.now(), // la app descarta notificaciones de llamadas ya caducadas
-      media,
     }, 'oldface_calls');
     return res.json({ success: true });
   } catch (e) {
@@ -738,7 +648,7 @@ router.post('/messages', async (req, res) => {
     saveChats();
   }
 
-  // ── Entrega en tiempo real por el servidor RTC propio (sustituye a ZIM) ──
+  // ── Entrega en tiempo real por el servidor RTC propio ──────────────────
   const senderUser = [...userStore.values()].find(u => u.userId === senderId);
   const rtcRecipients = chatStore2.get(chatId)?.participants
     || chatId.replace(/^chat_/, '').split(/_(?=user_)/);
@@ -1584,10 +1494,17 @@ const isKaraokeBanned = (userId) => karaokeBanStore.has(userId);
 const recSummary = (r) => {
   const song = karaokeSongStore.get(r.songId);
   const u = [...userStore.values()].find(x => x.userId === r.userId);
+  // Dúos: la parte A abre el dúo; quien se une (parte B) apunta a ella con duetOf
+  const first = r.duetOf ? karaokeRecStore.get(r.duetOf) : null;
+  const partner = first ? [...userStore.values()].find(x => x.userId === first.userId) : null;
   return {
     id: r.id, userId: r.userId, userName: u?.name || 'Usuario', userAvatar: u?.avatar || null,
     songId: r.songId, songTitle: song?.title || 'Canción', songArtist: song?.artist || '',
     coverUrl: song?.coverUrl || null, audioUrl: r.audioUrl, video: !!r.video, duration: r.duration || 0, createdAt: r.createdAt,
+    score: Number.isFinite(r.score) ? r.score : null,
+    duetPart: r.duetPart || null, duetOf: r.duetOf || null,
+    partnerName: first ? (partner?.name || 'Usuario') : null,
+    duetJoins: r.duetPart && !r.duetOf ? [...karaokeRecStore.values()].filter(x => x.duetOf === r.id).length : 0,
   };
 };
 
@@ -1617,15 +1534,30 @@ router.post('/karaoke/upload', express.raw({ type: () => true, limit: '120mb' })
   }
 });
 
-/** POST /karaoke/recordings — { userId, songId, audioUrl (de /karaoke/upload), video, duration } */
+/**
+ * POST /karaoke/recordings — { userId, songId, audioUrl (de /karaoke/upload), video, duration, score,
+ *                              duetPart ('A' abre un dúo), duetOf (id del dúo al que se une → parte B) }
+ */
 router.post('/karaoke/recordings', (req, res) => {
-  const { userId, songId, audioUrl, duration, video } = req.body || {};
+  const { userId, songId, audioUrl, duration, video, score, duetPart, duetOf } = req.body || {};
   if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
   if (isKaraokeBanned(userId)) return res.status(403).json({ error: 'Tu cuenta no puede usar el karaoke' });
   if (!karaokeSongStore.has(songId)) return res.status(404).json({ error: 'Canción no encontrada' });
   if (!audioUrl || !/^\/files\/[\w.-]+$/.test(audioUrl)) return res.status(400).json({ error: 'Grabación no válida' });
+  let duet = {};
+  if (duetOf) {
+    const first = karaokeRecStore.get(duetOf);
+    if (!first || !first.duetPart || first.duetOf) return res.status(404).json({ error: 'Ese dúo ya no existe' });
+    if (first.songId !== songId) return res.status(400).json({ error: 'El dúo es de otra canción' });
+    duet = { duetOf, duetPart: first.duetPart === 'A' ? 'B' : 'A' };
+  } else if (duetPart) {
+    if (!['A', 'B'].includes(duetPart)) return res.status(400).json({ error: 'Parte del dúo no válida' });
+    duet = { duetPart };
+  }
+  const n = Number(score);
   const rec = { id: `rec_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`, userId, songId, audioUrl, video: !!video,
-                duration: Math.max(0, Number(duration) || 0), createdAt: Date.now() };
+                duration: Math.max(0, Number(duration) || 0), createdAt: Date.now(),
+                ...(Number.isFinite(n) ? { score: Math.max(0, Math.min(100, Math.round(n))) } : {}), ...duet };
   karaokeRecStore.set(rec.id, rec);
   saveKaraokeRecs();
   res.status(201).json({ recording: recSummary(rec) });
@@ -1638,6 +1570,14 @@ router.get('/karaoke/recordings', (req, res) => {
     .filter(r => !userId || r.userId === userId)
     .sort((a, b) => b.createdAt - a.createdAt).slice(0, 100).map(recSummary);
   res.json({ recordings: list });
+});
+
+/** GET /karaoke/duets — dúos abiertos (parte A grabada) a los que cualquiera puede unirse */
+router.get('/karaoke/duets', (req, res) => {
+  const list = [...karaokeRecStore.values()]
+    .filter(r => r.duetPart && !r.duetOf && karaokeSongStore.get(r.songId)?.published !== false)
+    .sort((a, b) => b.createdAt - a.createdAt).slice(0, 100).map(recSummary);
+  res.json({ duets: list });
 });
 
 /** GET /karaoke/recordings/:id — una grabación (enlace para compartir) */
@@ -1926,7 +1866,7 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 OldFace Backend en http://0.0.0.0:${PORT}`);
-  console.log(`🔑 ZEGOCLOUD APP_ID: ${process.env.ZEGOCLOUD_APP_ID || '⚠️  NO configurado'}`);
+  console.log(`📞 Servidor RTC propio: ${process.env.RTC_SECRET ? '✅' : '⚠️  RTC_SECRET no configurado'}`);
   console.log(`📱 Twilio: ${process.env.TWILIO_ACCOUNT_SID ? '✅' : '⚠️  modo desarrollo (OTP en logs)'}`);
   console.log(`💾 Datos en: ${DATA_DIR}`);
   console.log(`📡 Health: http://localhost:${PORT}/health\n`);

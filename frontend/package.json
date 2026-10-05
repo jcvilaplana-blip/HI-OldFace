@@ -23,14 +23,11 @@
     "@capacitor/push-notifications": "^7.0.6",
     "@capacitor/share": "^8.0.1",
     "@capgo/capacitor-autofill-save-password": "^8.0.20",
-    "@zegocloud/zego-uikit-prebuilt": "^1.0.0",
     "mediasoup-client": "^3.24.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.21.0",
     "socket.io-client": "^4.8.4",
-    "zego-express-engine-webrtc": "^3.3.0",
-    "zego-zim-web": "^2.0.0",
     "zustand": "^4.4.7"
   },
   "devDependencies": {

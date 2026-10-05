@@ -1,8 +1,9 @@
 /**
  * KaraokePage — portada del karaoke (sistema propio, sin servicios externos)
  *   · Cantar:          buscador + catálogo ("Para ti", "Todas") con botón Canta
+ *   · Dúos:            dúos abiertos (alguien grabó su parte) para unirse y cantar la otra
  *   · Salas:           crear sala + salas en directo (cola de canciones, público, chat)
- *   · Mis grabaciones: escuchar, compartir y borrar lo grabado
+ *   · Mis grabaciones: escuchar, compartir y borrar lo grabado (con su nota)
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -48,6 +49,12 @@ export default function KaraokePage() {
     .then(r => r.json()).then(d => setRecs(d.recordings || [])).catch(() => setRecs([]));
   useEffect(() => { if (tab === 'grabaciones') loadRecs(); }, [tab]); // eslint-disable-line
 
+  const [duets, setDuets] = useState(null);
+  useEffect(() => {
+    if (tab !== 'duos') return;
+    fetch(`${BACKEND}/karaoke/duets`).then(r => r.json()).then(d => setDuets(d.duets || [])).catch(() => setDuets([]));
+  }, [tab]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!songs) return [];
@@ -84,10 +91,10 @@ export default function KaraokePage() {
           </div>
         )}
         <div style={{ display: 'flex' }}>
-          {[['cantar', 'Cantar'], ['salas', 'Salas'], ['grabaciones', 'Mis grabaciones']].map(([id, label]) => (
+          {[['cantar', 'Cantar'], ['duos', 'Dúos'], ['salas', 'Salas'], ['grabaciones', 'Grabaciones']].map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)} style={{
               flex: 1, background: 'none', border: 'none', color: 'white', padding: '10px 0 11px', cursor: 'pointer',
-              fontSize: 14, fontWeight: tab === id ? 900 : 600, opacity: tab === id ? 1 : 0.7,
+              fontSize: 13, fontWeight: tab === id ? 900 : 600, opacity: tab === id ? 1 : 0.7,
               borderBottom: `3px solid ${tab === id ? 'white' : 'transparent'}`,
             }}>{label}</button>
           ))}
@@ -142,6 +149,24 @@ export default function KaraokePage() {
                 {query && filtered.length === 0 && <Empty icon="🔍" title="Sin resultados" text={`No hay canciones que coincidan con "${query}"`} />}
               </>
             )}
+          </>
+        )}
+
+        {/* ── DÚOS ── */}
+        {tab === 'duos' && (
+          <>
+            <div style={{ margin: '14px 14px 4px', padding: 14, borderRadius: 18, color: 'white', background: `linear-gradient(120deg, ${BRAND}, #be185d)` }}>
+              <p style={{ margin: 0, fontSize: 15, fontWeight: 900 }}>👥 Canta a dúo</p>
+              <p style={{ margin: '4px 0 0', fontSize: 12, opacity: 0.9, lineHeight: 1.45 }}>
+                Únete a un dúo y canta la otra parte sobre su grabación, o abre el tuyo: en Cantar elige una canción → Dúo.
+              </p>
+            </div>
+            {duets === null && <Spinner />}
+            {duets?.length === 0 && <Empty icon="👥" title="No hay dúos abiertos" text="¡Abre el primero! Elige una canción, pulsa Canta y escoge Dúo." />}
+            {duets?.map(d => (
+              <DuetRow key={d.id} duet={d} mine={d.userId === user?.id}
+                onJoin={() => navigate(`/karaoke/cantar/${d.songId}?unirse=${d.id}`)} />
+            ))}
           </>
         )}
 
@@ -270,8 +295,13 @@ function RecordingRow({ rec, userId, onDeleted }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <SongCover song={{ coverUrl: rec.coverUrl }} size={48} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p className="text-gray-800" style={{ margin: 0, fontWeight: 800, fontSize: 14 }}>{rec.songTitle}</p>
+          <p className="text-gray-800" style={{ margin: 0, fontWeight: 800, fontSize: 14 }}>
+            {rec.songTitle}
+            {rec.score !== null && rec.score !== undefined && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 900, color: '#b45309', background: '#fef3c7', borderRadius: 8, padding: '1px 6px' }}>⭐ {rec.score}</span>}
+          </p>
           <p className="text-gray-500" style={{ margin: 0, fontSize: 12 }}>{new Date(rec.createdAt).toLocaleDateString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}{rec.duration ? ` · ${fmtTime(rec.duration)}` : ''}</p>
+          {rec.duetOf && <p style={{ margin: '2px 0 0', fontSize: 11, fontWeight: 800, color: '#be185d' }}>👥 Dúo con {rec.partnerName}</p>}
+          {rec.duetPart && !rec.duetOf && <p style={{ margin: '2px 0 0', fontSize: 11, fontWeight: 800, color: '#be185d' }}>👥 Dúo abierto (parte {rec.duetPart}) · {rec.duetJoins} se {rec.duetJoins === 1 ? 'ha' : 'han'} unido</p>}
         </div>
         <button onClick={share} aria-label="Compartir" style={{ background: '#e0e7ff', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer' }}>↗</button>
         <button onClick={remove} aria-label="Borrar" style={{ background: '#fee2e2', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer' }}>🗑</button>
@@ -279,6 +309,31 @@ function RecordingRow({ rec, userId, onDeleted }) {
       {rec.video
         ? <video controls playsInline preload="metadata" src={`${absUrl(rec.audioUrl)}#t=0.5`} style={{ width: '100%', maxHeight: 420, marginTop: 10, borderRadius: 12, background: '#000' }} />
         : <audio controls preload="none" src={absUrl(rec.audioUrl)} style={{ width: '100%', marginTop: 10, height: 36 }} />}
+    </div>
+  );
+}
+
+function DuetRow({ duet, mine, onJoin }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="bg-white" style={{ margin: '10px 14px', borderRadius: 16, padding: 12, boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <SongCover song={{ coverUrl: duet.coverUrl }} size={52} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p className="text-gray-800" style={{ margin: 0, fontWeight: 800, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{duet.songTitle}</p>
+          <p className="text-gray-500" style={{ margin: 0, fontSize: 12 }}>{mine ? 'Tú' : duet.userName} · parte {duet.duetPart}{duet.duetJoins ? ` · ${duet.duetJoins} dúo${duet.duetJoins === 1 ? '' : 's'}` : ''}</p>
+          <button onClick={() => setOpen(o => !o)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 2, color: BRAND, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+            {open ? 'Ocultar' : duet.video ? '▶ Ver su parte' : '▶ Escuchar su parte'}
+          </button>
+        </div>
+        <button onClick={onJoin} disabled={mine} style={{
+          background: mine ? '#e2e8f0' : `linear-gradient(135deg, ${BRAND}, #be185d)`, color: mine ? '#64748b' : 'white',
+          border: 'none', borderRadius: 18, padding: '9px 16px', fontWeight: 900, fontSize: 13, cursor: mine ? 'default' : 'pointer', flexShrink: 0,
+        }}>{mine ? 'Tuyo' : 'Unirme'}</button>
+      </div>
+      {open && (duet.video
+        ? <video controls playsInline autoPlay src={absUrl(duet.audioUrl)} style={{ width: '100%', maxHeight: 360, marginTop: 10, borderRadius: 12, background: '#000' }} />
+        : <audio controls autoPlay src={absUrl(duet.audioUrl)} style={{ width: '100%', marginTop: 10, height: 36 }} />)}
     </div>
   );
 }

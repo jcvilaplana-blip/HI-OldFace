@@ -1,86 +1,13 @@
-╔══════════════════════════════════════════════════════════════╗
-║           OldFace — INSTRUCCIONES DE INSTALACIÓN             ║
-║                    LEER ANTES DE NADA                        ║
-╚══════════════════════════════════════════════════════════════╝
+OldFace — LEER PRIMERO
+======================
 
-ESTRUCTURA CORRECTA DE ESTE ZIP:
-─────────────────────────────────
-oldface-app/
-  ├── frontend/      ← Aquí se compila la web
-  ├── backend/       ← Servidor de tokens ZEGOCLOUD
-  └── LEER_PRIMERO.txt  ← Este archivo
+Toda la documentación actual (estructura, arquitectura, variables de entorno, despliegue y APK)
+está en README.md.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PASO 1 — COMPILAR EN WINDOWS (PowerShell)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Resumen:
+  - Producción: https://oldface.app
+  - Llamadas, directos y karaoke: servidor RTC propio (rtc-server/), sin servicios de terceros.
+  - Desplegar: python deploy-vps.py (desde la carpeta superior, fuera del repo).
+  - APK: cd frontend → npm run build → npx cap sync android → npx cap open android.
 
-Abre PowerShell y navega a la carpeta frontend:
-(ajusta la ruta a donde hayas descomprimido el ZIP)
-
-  cd "RUTA_DONDE_DESCOMPRIMISTE\oldface-app\frontend"
-
-Verifica que estás en el lugar correcto:
-  dir package.json
-  (debe mostrar el archivo)
-
-Luego ejecuta en orden:
-  npm install
-  npm install @zegocloud/zego-uikit-prebuilt zego-express-engine-webrtc
-  npm run build
-
-Al terminar aparecerá la carpeta "dist\" dentro de frontend\
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PASO 2 — SUBIR AL SERVIDOR
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Sube estos dos elementos al servidor via Plesk File Manager:
-  - frontend/dist/   → a /oldface.fullstark.es/frontend/dist/
-  - backend/         → a /oldface.fullstark.es/backend/
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PASO 3 — CONFIGURAR PLESK
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-En Node.js settings de Plesk:
-  - Application Startup File: backend/server.js
-  - Document Root:            frontend/dist
-
-En Custom environment variables añadir:
-  ZEGOCLOUD_APP_ID           = 377576855
-  ZEGOCLOUD_SERVER_SECRET    = 86c4874a72ff45007da20a0b913ac0b2
-  NODE_ENV                   = production
-  PORT                       = 3001
-  FRONTEND_URL               = https://oldface.fullstark.es
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PASO 4 — NGINX (Apache & Nginx Settings en Plesk)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-En "Additional nginx directives" pegar:
-
-  location / {
-      try_files $uri $uri/ /index.html;
-  }
-  location /api/ {
-      proxy_pass http://127.0.0.1:3001/;
-      proxy_http_version 1.1;
-      proxy_set_header Host $host;
-      proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-Proto $scheme;
-  }
-  location ~* \.(js|css|png|jpg|svg|woff2?)$ {
-      expires 1y;
-      add_header Cache-Control "public, immutable";
-  }
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-VERIFICAR QUE FUNCIONA
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Abre en el navegador:
-  https://oldface.fullstark.es/api/health
-  → debe responder: {"status":"ok","service":"OldFace API"}
-
-  https://oldface.fullstark.es
-  → debe cargar la app OldFace
+Las contraseñas y secretos van SOLO en los archivos .env del servidor (nunca en el repositorio).

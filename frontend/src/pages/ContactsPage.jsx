@@ -7,7 +7,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useContacts } from '../hooks/useContacts';
-import { useZegoStore } from '../store/zegoStore';
+import { useCallStore } from '../store/callStore';
 import Avatar from '../components/Avatar.jsx';
 
 const BRAND       = '#000080';
@@ -50,7 +50,7 @@ export default function ContactsPage() {
   const [searchParams] = useSearchParams();
   const action = searchParams.get('action'); // call | video | null
   const { contacts, loading, error, permDenied, loadContacts, openSettings } = useContacts();
-  const { sendVoiceCall, sendVideoCall } = useZegoStore();
+  const { sendVoiceCall, sendVideoCall } = useCallStore();
 
   useEffect(() => { loadContacts(); }, []);
 

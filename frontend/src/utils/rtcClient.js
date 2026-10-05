@@ -1,8 +1,7 @@
 /**
- * rtcClient — conexión con el servidor RTC propio de OldFace (rtc-server, Socket.IO)
- * Sustituye a ZIM para la señalización de llamadas y la entrega de mensajes en tiempo real.
+ * rtcClient — conexión con el servidor RTC propio de OldFace (rtc-server, Socket.IO):
+ * señalización de llamadas, mensajes en tiempo real, directos y karaoke.
  *
- *   getRtcConfig(userId)   → { rtcSignaling: 'zim' | 'oldface' }  (interruptor del backend)
  *   connectRtc(user, { onSignal, onChatMessage, onConnectionChange })
  *   sendSignal(to, type, payload) → Promise<boolean>  (true si el destinatario estaba conectado)
  *   isRtcConnected(), disconnectRtc()
@@ -17,14 +16,6 @@ export const RTC_HTTP = `${RTC_ORIGIN}/rtc`;
 
 let socket = null;
 let currentUserId = null;
-
-export async function getRtcConfig(userId) {
-  try {
-    const res = await fetch(`${BACKEND}/config?userId=${encodeURIComponent(userId || '')}`);
-    if (res.ok) return await res.json();
-  } catch { /* sin red: se reintenta la conexión con el servidor propio */ }
-  return { rtcSignaling: 'oldface' };
-}
 
 function tokenExpired(token) {
   const exp = Number(String(token || '').split('.')[1]);
@@ -92,7 +83,7 @@ export function sendSignal(to, type, payload = {}) {
 
 export const isRtcConnected = () => !!socket?.connected;
 
-/** Garantiza la conexión con el servidor RTC (p. ej. al aceptar una llamada con motor propio). */
+/** Garantiza la conexión con el servidor RTC (p. ej. al aceptar una llamada). */
 export async function ensureRtcConnected(user, timeoutMs = 8000) {
   if (!socket || currentUserId !== user.id) await connectRtc(user);
   if (socket.connected) return;

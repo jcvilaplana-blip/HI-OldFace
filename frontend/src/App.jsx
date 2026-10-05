@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore }  from './store/authStore';
-import { useZegoStore }  from './store/zegoStore';
+import { useCallStore }  from './store/callStore';
 // Importar themeStore activa el tema al cargar (aplica clase 'dark' en html)
 import './store/themeStore';
 
@@ -401,14 +401,13 @@ export default function AppRoot() {
               }
               if (data.type === 'call' && data.callerId) {
                 // Llamada entrante via FCM (incluyendo invitaciones a videollamada en curso)
-                import('./store/zegoStore').then(({ useZegoStore }) => {
-                  useZegoStore.getState().setPendingFCMCall({
+                import('./store/callStore').then(({ useCallStore }) => {
+                  useCallStore.getState().setPendingFCMCall({
                     callType:   data.callType || 'video',
                     callerId:   data.callerId,
                     callerName: data.callerName || data.callerId,
                     roomId:     data.roomId    || null,
                     ts:         Number(data.ts) || null,
-                    media:      data.media || 'oldface',
                   });
                 }).catch(() => {});
                 return;
@@ -452,11 +451,11 @@ export default function AppRoot() {
 function AppShell() {
   const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuthStore();
-  const { init: initZego, incomingCall, acceptCall, rejectCall, callError,
+  const { init: initCalls, incomingCall, acceptCall, rejectCall, callError,
           pendingCallOut, clearPendingCall, callAccepted, clearCallAccepted,
-          pendingFCMCall, clearPendingFCMCall, showIncomingCall } = useZegoStore();
+          pendingFCMCall, clearPendingFCMCall, showIncomingCall } = useCallStore();
 
-  // Inicializar ZIM + UIKit cuando el usuario se autentica
+  // Conectar con el servidor RTC propio (llamadas y mensajes en tiempo real) al autenticarse
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
     if (!/^[a-zA-Z0-9_-]+$/.test(user.id)) {
@@ -464,7 +463,7 @@ function AppShell() {
       logout();
       return;
     }
-    initZego(user);
+    initCalls(user);
 
     // Re-enviar token FCM al backend si el usuario acaba de autenticarse
     (async () => {
@@ -480,29 +479,29 @@ function AppShell() {
   // ── Navegar a call room cuando el usuario inicia una llamada ─────────────
   useEffect(() => {
     if (!pendingCallOut) return;
-    const { calleeId, calleeName, callType, roomId, media } = pendingCallOut;
+    const { calleeId, calleeName, callType, roomId } = pendingCallOut;
     clearPendingCall();
     const path = callType === 'video' ? 'video-call' : 'call';
-    navigate(`/${path}/${calleeId}`, { state: { chat: { name: calleeName }, isIncoming: false, roomId, media } });
+    navigate(`/${path}/${calleeId}`, { state: { chat: { name: calleeName }, isIncoming: false, roomId } });
   }, [pendingCallOut]);
 
   // ── Navegar a call room cuando el usuario acepta una llamada ─────────────
   useEffect(() => {
     if (!callAccepted) return;
-    const { callerId, callerName, callType, roomId, media } = callAccepted;
+    const { callerId, callerName, callType, roomId } = callAccepted;
     clearCallAccepted();
     const path = callType === 'video' ? 'video-call' : 'call';
-    navigate(`/${path}/${callerId}`, { state: { chat: { name: callerName }, isIncoming: true, roomId, media } });
+    navigate(`/${path}/${callerId}`, { state: { chat: { name: callerName }, isIncoming: true, roomId } });
   }, [callAccepted]);
 
   // ── Notificación FCM de llamada pulsada → modal Aceptar/Rechazar ──────────
   // (antes entraba directamente en la llamada y el receptor no podía aceptar ni rechazar)
   useEffect(() => {
     if (!pendingFCMCall) return;
-    const { callerId, callerName, callType, roomId, ts, media } = pendingFCMCall;
+    const { callerId, callerName, callType, roomId, ts } = pendingFCMCall;
     clearPendingFCMCall();
     if (ts && Date.now() - ts > 60000) { console.log('[FCM] Llamada caducada, no se muestra'); return; }
-    showIncomingCall({ callerId, callerName: callerName || callerId, callType, roomId, media });
+    showIncomingCall({ callerId, callerName: callerName || callerId, callType, roomId });
   }, [pendingFCMCall]);
 
   // ── Deep links: https://oldface.app/directo/<id>/live (WhatsApp, etc.) abre la app ──
@@ -593,7 +592,7 @@ function AppShell() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
-      {/* ── Modal llamada entrante (ZIM signaling) ─────────────────────── */}
+      {/* ── Modal llamada entrante ─────────────────────────────────────── */}
       {incomingCall && (
         <IncomingCallModal
           call={incomingCall}
@@ -691,7 +690,7 @@ function IncomingCallModal({ call, onAccept, onReject }) {
   const [countdown, setCountdown] = React.useState(60);
   const isVideo = call.isVideo !== false;
 
-  // Countdown — se cierra solo cuando llega a 0 (el zimStore ya limpia incomingCall por timeout)
+  // Countdown — se cierra solo cuando llega a 0 (callStore ya limpia incomingCall por timeout)
   React.useEffect(() => {
     const t = setInterval(() => {
       setCountdown(c => Math.max(0, c - 1));
@@ -722,12 +721,12 @@ function IncomingCallModal({ call, onAccept, onReject }) {
           <div style={{
             position: 'absolute', inset: -18, borderRadius: '50%',
             background: 'rgba(255,255,255,0.05)',
-            animation: 'zimPulse 2s ease-out infinite',
+            animation: 'callPulse 2s ease-out infinite',
           }}/>
           <div style={{
             position: 'absolute', inset: -9, borderRadius: '50%',
             background: 'rgba(255,255,255,0.08)',
-            animation: 'zimPulse 2s ease-out infinite 0.5s',
+            animation: 'callPulse 2s ease-out infinite 0.5s',
           }}/>
           <div style={{
             width: 100, height: 100, borderRadius: '50%',
@@ -789,7 +788,7 @@ function IncomingCallModal({ call, onAccept, onReject }) {
               background: acceptBg, border: 'none', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               boxShadow: '0 6px 24px rgba(34,197,94,0.5)',
-              animation: 'zimBounce 0.8s ease-in-out infinite',
+              animation: 'callBounce 0.8s ease-in-out infinite',
             }}>
               {isVideo ? (
                 <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -809,8 +808,8 @@ function IncomingCallModal({ call, onAccept, onReject }) {
       </div>
 
       <style>{`
-        @keyframes zimPulse  { 0%{transform:scale(1);opacity:0.6} 100%{transform:scale(1.6);opacity:0} }
-        @keyframes zimBounce { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
+        @keyframes callPulse  { 0%{transform:scale(1);opacity:0.6} 100%{transform:scale(1.6);opacity:0} }
+        @keyframes callBounce { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
       `}</style>
     </div>
   );

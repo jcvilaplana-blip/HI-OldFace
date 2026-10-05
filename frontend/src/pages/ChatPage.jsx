@@ -1,11 +1,12 @@
 /**
- * ChatPage - Chat 1 a 1 con ZEGOCLOUD ZIM
+ * ChatPage - Chat 1 a 1 (servidor propio: el backend guarda el mensaje y lo entrega
+ * al instante por el servidor RTC; si el destinatario no está conectado, llega por push)
  *
  * DISEÑO DE IDs:
  *  - routeChatId (URL param) puede ser:
  *      a) 'user_XXX'               → viene de ContactsPage / tab Contactos
  *      b) 'chat_user_A_user_B'     → viene del tab CHATS (ChatList)
- *  - participantId: el ID ZIM del destinatario ('user_XXX')
+ *  - participantId: el ID del destinatario ('user_XXX')
  *  - msgChatId: clave compuesta usada en backend y store ('chat_user_A_user_B')
  *    Ambos usuarios calculan la misma clave porque [A,B].sort() es determinista.
  */
@@ -13,7 +14,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore }  from '../store/authStore';
 import { useChatStore }  from '../store/chatStore';
-import { useZegoStore }  from '../store/zegoStore';
+import { useCallStore }  from '../store/callStore';
 import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 import { useGeolocation } from '../hooks/useGeolocation';
 import Avatar from '../components/Avatar.jsx';
@@ -49,7 +50,7 @@ export default function ChatPage() {
   const { messages, addMessage, loadMessages, persistMessage, createOrGetChat, markAsRead, updateMessageStatus, deleteMessage } = useChatStore();
   const { getCurrentPosition, formatLocationMessage } = useGeolocation();
 
-  const { zimEngine, zimConnected: connected, sendChatMessage, sendVideoCall, sendVoiceCall } = useZegoStore();
+  const { sendVideoCall, sendVoiceCall } = useCallStore();
   const { isDark } = useThemeStore();
   const T = isDark ? DARK : LIGHT;
 
@@ -210,15 +211,12 @@ export default function ChatPage() {
     setSending(true);
     try {
       await persistMessage(msgChatId, user.id, sentText, 'text', null, currentReply);
-      if (connected && !isGroup && participantId) {
-        await sendChatMessage(participantId, sentText);
-      }
     } catch (err) {
-      console.log('Enviado vía backend:', err.message);
+      console.log('Error al enviar:', err.message);
     } finally {
       setSending(false);
     }
-  }, [text, sending, replyTo, msgChatId, participantId, isGroup, user, connected, sendChatMessage, addMessage, persistMessage]);
+  }, [text, sending, replyTo, msgChatId, user, addMessage, persistMessage]);
 
   // ── Enviar ubicación ──────────────────────────────────────────────────────
   const sendLocation = async () => {
@@ -323,9 +321,6 @@ export default function ChatPage() {
     setReplyTo(null);
     try {
       await persistMessage(msgChatId, user.id, msg.text, msg.type, dataUrl, currentReply);
-      if (connected && !isGroup && participantId) {
-        await sendChatMessage(participantId, msg.text);
-      }
     } catch { /* ya está en store local */ }
   };
 
@@ -410,9 +405,6 @@ export default function ChatPage() {
       addMessage(msgChatId, msg);
       try {
         await persistMessage(msgChatId, user.id, '[Nota de voz]', 'audio', dataUrl);
-        if (connected && !isGroup && participantId) {
-          await sendChatMessage(participantId, '[Nota de voz]');
-        }
       } catch { }
     };
     reader.readAsDataURL(blob);
@@ -697,12 +689,12 @@ export default function ChatPage() {
               reader.onload = async () => {
                 const dataUrl    = reader.result;
                 const currentReply = replyTo;
-                const zimText    = `[Archivo: ${file.name}]`;
+                const docText    = `[Archivo: ${file.name}]`;
                 const localId    = `doc_${Date.now()}`;
                 const msg = {
                   id:       localId,
                   type:     'document',
-                  text:     zimText,
+                  text:     docText,
                   url:      dataUrl,   // base64 local para mostrar inmediatamente
                   fileName: file.name,
                   sender:   user.id,
@@ -733,11 +725,10 @@ export default function ChatPage() {
                     console.warn('[Doc] upload error:', upErr?.message);
                   }
                   // 2. Persistir en backend con URL HTTP (no base64)
-                  await persistMessage(msgChatId, user.id, zimText, 'document', fileUrl, currentReply, file.name);
+                  // (el backend lo entrega al destinatario en tiempo real)
+                  await persistMessage(msgChatId, user.id, docText, 'document', fileUrl, currentReply, file.name);
                   // 3. Marcar como enviado
                   updateMessageStatus(msgChatId, localId, 'sent');
-                  // 4. Notificar al destinatario por ZIM
-                  if (participantId) sendChatMessage(participantId, zimText);
                 } catch (err) {
                   console.warn('[Doc] send error:', err?.message);
                   updateMessageStatus(msgChatId, localId, 'error');

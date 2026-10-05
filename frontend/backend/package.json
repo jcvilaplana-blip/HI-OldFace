@@ -1,7 +1,7 @@
 {
   "name": "oldface-backend",
   "version": "1.0.0",
-  "description": "OldFace token server for ZEGOCLOUD — production ready",
+  "description": "OldFace API — autenticación, chats, directos, encuestas y karaoke",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
