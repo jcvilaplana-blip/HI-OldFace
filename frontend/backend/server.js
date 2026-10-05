@@ -55,6 +55,10 @@ const _polls         = loadJSON('poll_polls.json', {});
 const _pollVotes     = loadJSON('poll_votes.json', {});
 const _pollCats      = loadJSON('poll_categories.json', {});
 const _pollProfiles  = loadJSON('poll_profiles.json', {});
+const _karaokeSongs  = loadJSON('karaoke_songs.json', {});
+const _karaokeRecs   = loadJSON('karaoke_recordings.json', {});
+const _karaokeGenres = loadJSON('karaoke_genres.json', {});
+const _karaokeBans   = loadJSON('karaoke_bans.json', {});
 
 // Convertir a Map (operaciones en memoria, persistimos después de cada escritura)
 const userStore    = new Map(Object.entries(_users));
@@ -70,6 +74,10 @@ const pollStore        = new Map(Object.entries(_polls));        // pollId → p
 const pollVoteStore    = new Map(Object.entries(_pollVotes));    // pollId → { userId: optionId }
 const pollCatStore     = new Map(Object.entries(_pollCats));     // categoryId → category
 const pollProfileStore = new Map(Object.entries(_pollProfiles)); // userId → { age, sex, postalCode, nationality }
+const karaokeSongStore = new Map(Object.entries(_karaokeSongs)); // songId → { title, artist, audioUrl, coverUrl, lyrics, duration }
+const karaokeRecStore  = new Map(Object.entries(_karaokeRecs));  // recId → { userId, songId, audioUrl, duration, createdAt }
+const karaokeGenreStore = new Map(Object.entries(_karaokeGenres)); // genreId → { name, icon, createdAt }
+const karaokeBanStore   = new Map(Object.entries(_karaokeBans));   // userId → { reason, at }
 
 const saveUsers    = () => saveJSON('users.json',    Object.fromEntries(userStore));
 const saveChats    = () => saveJSON('chats.json',    Object.fromEntries(chatStore2));
@@ -84,6 +92,10 @@ const savePolls        = () => saveJSON('poll_polls.json',      Object.fromEntri
 const savePollVotes    = () => saveJSON('poll_votes.json',      Object.fromEntries(pollVoteStore));
 const savePollCats     = () => saveJSON('poll_categories.json', Object.fromEntries(pollCatStore));
 const savePollProfiles = () => saveJSON('poll_profiles.json',   Object.fromEntries(pollProfileStore));
+const saveKaraokeSongs = () => saveJSON('karaoke_songs.json',   Object.fromEntries(karaokeSongStore));
+const saveKaraokeRecs  = () => saveJSON('karaoke_recordings.json', Object.fromEntries(karaokeRecStore));
+const saveKaraokeGenres = () => saveJSON('karaoke_genres.json', Object.fromEntries(karaokeGenreStore));
+const saveKaraokeBans   = () => saveJSON('karaoke_bans.json',   Object.fromEntries(karaokeBanStore));
 
 console.log(`[DB] Usuarios: ${userStore.size} | Chats: ${chatStore2.size} | Directos: ${directoStore.size} | CallLog: ${callLogStore.size}`);
 
@@ -1541,6 +1553,309 @@ router.delete('/admin/poll/categories/:id', adminAuth, (req, res) => {
   savePollCats();
   if (changed) savePolls();
   res.json({ success: true });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  KARAOKE — catálogo de canciones (pista instrumental + letra LRC)
+// ════════════════════════════════════════════════════════════════
+const songRecCount = (songId) => [...karaokeRecStore.values()].filter(r => r.songId === songId).length;
+const songSummary = (s) => {
+  const g = s.genreId ? karaokeGenreStore.get(s.genreId) : null;
+  return {
+    id: s.id, title: s.title, artist: s.artist, audioUrl: s.audioUrl, coverUrl: s.coverUrl || null,
+    duration: s.duration || 0, lyricsUrl: `/karaoke/songs/${s.id}/lyrics`, createdAt: s.createdAt, updatedAt: s.updatedAt || s.createdAt,
+    genre: g ? { id: g.id, name: g.name, icon: g.icon || null } : null,
+    published: s.published !== false, featured: !!s.featured,
+    recordings: songRecCount(s.id),
+  };
+};
+const isKaraokeBanned = (userId) => karaokeBanStore.has(userId);
+
+const recSummary = (r) => {
+  const song = karaokeSongStore.get(r.songId);
+  const u = [...userStore.values()].find(x => x.userId === r.userId);
+  return {
+    id: r.id, userId: r.userId, userName: u?.name || 'Usuario', userAvatar: u?.avatar || null,
+    songId: r.songId, songTitle: song?.title || 'Canción', songArtist: song?.artist || '',
+    coverUrl: song?.coverUrl || null, audioUrl: r.audioUrl, duration: r.duration || 0, createdAt: r.createdAt,
+  };
+};
+
+/** POST /karaoke/recordings — { userId, songId, audioUrl (de /upload-file), duration } */
+router.post('/karaoke/recordings', (req, res) => {
+  const { userId, songId, audioUrl, duration } = req.body || {};
+  if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  if (isKaraokeBanned(userId)) return res.status(403).json({ error: 'Tu cuenta no puede usar el karaoke' });
+  if (!karaokeSongStore.has(songId)) return res.status(404).json({ error: 'Canción no encontrada' });
+  if (!audioUrl || !/^\/files\/[\w.-]+$/.test(audioUrl)) return res.status(400).json({ error: 'Grabación no válida' });
+  const rec = { id: `rec_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`, userId, songId, audioUrl,
+                duration: Math.max(0, Number(duration) || 0), createdAt: Date.now() };
+  karaokeRecStore.set(rec.id, rec);
+  saveKaraokeRecs();
+  res.status(201).json({ recording: recSummary(rec) });
+});
+
+/** GET /karaoke/recordings?userId= — grabaciones de un usuario (o las últimas públicas sin userId) */
+router.get('/karaoke/recordings', (req, res) => {
+  const { userId } = req.query;
+  const list = [...karaokeRecStore.values()]
+    .filter(r => !userId || r.userId === userId)
+    .sort((a, b) => b.createdAt - a.createdAt).slice(0, 100).map(recSummary);
+  res.json({ recordings: list });
+});
+
+/** GET /karaoke/recordings/:id — una grabación (enlace para compartir) */
+router.get('/karaoke/recordings/:id', (req, res) => {
+  const r = karaokeRecStore.get(req.params.id);
+  if (!r) return res.status(404).json({ error: 'Grabación no encontrada' });
+  res.json({ recording: recSummary(r) });
+});
+
+router.delete('/karaoke/recordings/:id', (req, res) => {
+  const r = karaokeRecStore.get(req.params.id);
+  if (!r) return res.status(404).json({ error: 'Grabación no encontrada' });
+  if (r.userId !== req.query.userId) return res.status(403).json({ error: 'Solo puedes borrar tus grabaciones' });
+  karaokeRecStore.delete(r.id);
+  saveKaraokeRecs();
+  try { fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(r.audioUrl))); } catch { /* ya no estaba */ }
+  res.json({ success: true });
+});
+
+/** GET /karaoke/songs — catálogo para la app */
+router.get('/karaoke/songs', (_req, res) => {
+  const list = [...karaokeSongStore.values()].filter(s => s.published !== false).map(songSummary)
+    .sort((a, b) => a.title.localeCompare(b.title, 'es'));
+  res.json({ songs: list });
+});
+
+/** GET /karaoke/genres — géneros para filtrar el catálogo en la app */
+router.get('/karaoke/genres', (_req, res) => {
+  res.json({ genres: [...karaokeGenreStore.values()].sort((a, b) => a.name.localeCompare(b.name, 'es')) });
+});
+
+/** GET /karaoke/songs/:id/lyrics — letra sincronizada (formato LRC) */
+router.get('/karaoke/songs/:id/lyrics', (req, res) => {
+  const s = karaokeSongStore.get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Canción no encontrada' });
+  res.type('text/plain; charset=utf-8').send(s.lyrics || '');
+});
+
+router.get('/admin/karaoke/songs', adminAuth, (_req, res) => {
+  res.json({ songs: [...karaokeSongStore.values()].map(s => ({ ...songSummary(s), lines: (s.lyrics || '').split('\n').filter(l => /^\[\d/.test(l)).length })) });
+});
+
+/** POST /admin/karaoke/songs — { title, artist, audioUrl (de /upload-file), lyrics (LRC), duration } */
+router.post('/admin/karaoke/songs', adminAuth, (req, res) => {
+  const { title, artist, audioUrl, coverUrl, lyrics, duration, genreId, published, featured } = req.body || {};
+  if (genreId && !karaokeGenreStore.has(genreId)) return res.status(400).json({ error: 'Género no válido' });
+  if (!title || !String(title).trim()) return res.status(400).json({ error: 'El título es obligatorio' });
+  if (!audioUrl || !/^\/files\/[\w.-]+$/.test(audioUrl)) return res.status(400).json({ error: 'Sube la pista de audio' });
+  if (coverUrl && !/^\/files\/[\w.-]+$/.test(coverUrl)) return res.status(400).json({ error: 'Portada no válida' });
+  const lrc = String(lyrics || '').replace(/\r/g, '');
+  if (!/\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/.test(lrc)) return res.status(400).json({ error: 'La letra debe estar en formato LRC: [mm:ss.xx] texto' });
+  const song = {
+    id: `song_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
+    title: String(title).trim().slice(0, 80), artist: String(artist || '').trim().slice(0, 60),
+    audioUrl, coverUrl: coverUrl || null, lyrics: lrc.slice(0, 50000), duration: Math.max(0, Number(duration) || 0), createdAt: Date.now(),
+    genreId: genreId || null, published: published !== false, featured: !!featured,
+  };
+  karaokeSongStore.set(song.id, song);
+  saveKaraokeSongs();
+  res.status(201).json({ song: songSummary(song) });
+});
+
+router.delete('/admin/karaoke/songs/:id', adminAuth, (req, res) => {
+  const s = karaokeSongStore.get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Canción no encontrada' });
+  karaokeSongStore.delete(s.id);
+  saveKaraokeSongs();
+  // Borrar el archivo de audio si ninguna otra canción lo usa
+  if (![...karaokeSongStore.values()].some(o => o.audioUrl === s.audioUrl)) {
+    try { fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(s.audioUrl))); } catch { /* ya no estaba */ }
+  }
+  res.json({ success: true });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  KARAOKE — SUPERADMINISTRADOR (CRUD completo, requiere adminAuth)
+// ════════════════════════════════════════════════════════════════
+const FILE_URL_RE = /^\/files\/[\w.-]+$/;
+
+/** Borra un archivo subido si ya no lo usa ninguna canción ni grabación */
+function removeUploadIfUnused(url) {
+  if (!url || !FILE_URL_RE.test(url)) return;
+  const used = [...karaokeSongStore.values()].some(s => s.audioUrl === url || s.coverUrl === url)
+            || [...karaokeRecStore.values()].some(r => r.audioUrl === url);
+  if (!used) { try { fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(url))); } catch { /* no estaba */ } }
+}
+
+/** Llamada al servidor RTC (salas en vivo) con el secreto interno */
+async function rtcAdmin(method, p, body) {
+  const url = process.env.RTC_INTERNAL_URL, secret = process.env.RTC_SECRET;
+  if (!url || !secret) throw new Error('Servidor RTC no configurado');
+  const r = await fetch(`${url}/rtc/internal/karaoke${p}`, {
+    method, headers: { 'Content-Type': 'application/json', 'x-internal-secret': secret },
+    body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(5000),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error del servidor RTC');
+  return d;
+}
+
+const userLabel = (userId) => {
+  const u = findUserById(userId);
+  return { userId, name: u?.name || userId, phone: u?.phone || null };
+};
+
+router.get('/admin/karaoke/stats', adminAuth, async (_req, res) => {
+  const songs = [...karaokeSongStore.values()];
+  const recs = [...karaokeRecStore.values()];
+  let rooms = [];
+  try { rooms = (await rtcAdmin('GET', '/rooms')).rooms || []; } catch { /* RTC caído: sin salas */ }
+  const top = songs.map(s => ({ id: s.id, title: s.title, artist: s.artist, recordings: songRecCount(s.id) }))
+    .sort((a, b) => b.recordings - a.recordings).slice(0, 5);
+  const weekAgo = Date.now() - 7 * 86400000;
+  res.json({
+    songs: songs.length, published: songs.filter(s => s.published !== false).length,
+    featured: songs.filter(s => s.featured).length, genres: karaokeGenreStore.size,
+    recordings: recs.length, recordingsWeek: recs.filter(r => r.createdAt > weekAgo).length,
+    singers: new Set(recs.map(r => r.userId)).size,
+    rooms: rooms.length, listeners: rooms.reduce((n, r) => n + (r.listeners || 0), 0),
+    bans: karaokeBanStore.size, top,
+  });
+});
+
+/** GET /admin/karaoke/songs/:id — canción completa (con letra) para editar */
+router.get('/admin/karaoke/songs/:id', adminAuth, (req, res) => {
+  const s = karaokeSongStore.get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Canción no encontrada' });
+  res.json({ song: { ...songSummary(s), genreId: s.genreId || null, lyrics: s.lyrics || '' } });
+});
+
+/** PUT /admin/karaoke/songs/:id — edición parcial de cualquier campo (incluye reemplazar pista/portada) */
+router.put('/admin/karaoke/songs/:id', adminAuth, (req, res) => {
+  const s = karaokeSongStore.get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Canción no encontrada' });
+  const b = req.body || {};
+  if (b.title !== undefined) {
+    if (!String(b.title).trim()) return res.status(400).json({ error: 'El título es obligatorio' });
+    s.title = String(b.title).trim().slice(0, 80);
+  }
+  if (b.artist !== undefined) s.artist = String(b.artist || '').trim().slice(0, 60);
+  if (b.genreId !== undefined) {
+    if (b.genreId && !karaokeGenreStore.has(b.genreId)) return res.status(400).json({ error: 'Género no válido' });
+    s.genreId = b.genreId || null;
+  }
+  if (b.published !== undefined) s.published = !!b.published;
+  if (b.featured !== undefined) s.featured = !!b.featured;
+  if (b.duration !== undefined) s.duration = Math.max(0, Number(b.duration) || 0);
+  if (b.lyrics !== undefined) {
+    const lrc = String(b.lyrics || '').replace(/\r/g, '');
+    if (!/\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/.test(lrc)) return res.status(400).json({ error: 'La letra debe estar en formato LRC: [mm:ss.xx] texto' });
+    s.lyrics = lrc.slice(0, 50000);
+  }
+  const oldFiles = [];
+  if (b.audioUrl !== undefined && b.audioUrl !== s.audioUrl) {
+    if (!FILE_URL_RE.test(b.audioUrl || '')) return res.status(400).json({ error: 'Pista de audio no válida' });
+    oldFiles.push(s.audioUrl); s.audioUrl = b.audioUrl;
+  }
+  if (b.coverUrl !== undefined && b.coverUrl !== s.coverUrl) {
+    if (b.coverUrl && !FILE_URL_RE.test(b.coverUrl)) return res.status(400).json({ error: 'Portada no válida' });
+    oldFiles.push(s.coverUrl); s.coverUrl = b.coverUrl || null;
+  }
+  s.updatedAt = Date.now();
+  saveKaraokeSongs();
+  oldFiles.forEach(removeUploadIfUnused);
+  res.json({ song: songSummary(s) });
+});
+
+// ── Géneros ──
+router.get('/admin/karaoke/genres', adminAuth, (_req, res) => {
+  const count = {};
+  for (const s of karaokeSongStore.values()) if (s.genreId) count[s.genreId] = (count[s.genreId] || 0) + 1;
+  res.json({ genres: [...karaokeGenreStore.values()].map(g => ({ ...g, songs: count[g.id] || 0 })).sort((a, b) => a.name.localeCompare(b.name, 'es')) });
+});
+router.post('/admin/karaoke/genres', adminAuth, (req, res) => {
+  const { name, icon } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  const g = { id: `gen_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`, name: String(name).trim().slice(0, 40), icon: icon ? String(icon).trim().slice(0, 8) : null, createdAt: Date.now() };
+  karaokeGenreStore.set(g.id, g); saveKaraokeGenres();
+  res.status(201).json({ genre: g });
+});
+router.put('/admin/karaoke/genres/:id', adminAuth, (req, res) => {
+  const g = karaokeGenreStore.get(req.params.id);
+  if (!g) return res.status(404).json({ error: 'Género no encontrado' });
+  const { name, icon } = req.body || {};
+  if (name !== undefined) { if (!String(name).trim()) return res.status(400).json({ error: 'El nombre es obligatorio' }); g.name = String(name).trim().slice(0, 40); }
+  if (icon !== undefined) g.icon = icon ? String(icon).trim().slice(0, 8) : null;
+  saveKaraokeGenres();
+  res.json({ genre: g });
+});
+router.delete('/admin/karaoke/genres/:id', adminAuth, (req, res) => {
+  if (!karaokeGenreStore.delete(req.params.id)) return res.status(404).json({ error: 'Género no encontrado' });
+  let changed = false;
+  for (const s of karaokeSongStore.values()) if (s.genreId === req.params.id) { s.genreId = null; changed = true; }
+  saveKaraokeGenres(); if (changed) saveKaraokeSongs();
+  res.json({ success: true });
+});
+
+// ── Grabaciones (todas) ──
+router.get('/admin/karaoke/recordings', adminAuth, (req, res) => {
+  const { userId, songId } = req.query;
+  const list = [...karaokeRecStore.values()]
+    .filter(r => (!userId || r.userId === userId) && (!songId || r.songId === songId))
+    .sort((a, b) => b.createdAt - a.createdAt).slice(0, 500)
+    .map(r => ({ ...recSummary(r), userPhone: findUserById(r.userId)?.phone || null }));
+  res.json({ recordings: list });
+});
+router.delete('/admin/karaoke/recordings/:id', adminAuth, (req, res) => {
+  const r = karaokeRecStore.get(req.params.id);
+  if (!r) return res.status(404).json({ error: 'Grabación no encontrada' });
+  karaokeRecStore.delete(r.id); saveKaraokeRecs();
+  removeUploadIfUnused(r.audioUrl);
+  res.json({ success: true });
+});
+
+// ── Salas en vivo (control remoto del servidor RTC) ──
+router.get('/admin/karaoke/rooms', adminAuth, async (_req, res) => {
+  try { res.json(await rtcAdmin('GET', '/rooms')); } catch (e) { res.status(502).json({ error: e.message }); }
+});
+router.post('/admin/karaoke/rooms/:id/close', adminAuth, async (req, res) => {
+  try { res.json(await rtcAdmin('POST', `/${encodeURIComponent(req.params.id)}/close`)); } catch (e) { res.status(502).json({ error: e.message }); }
+});
+router.post('/admin/karaoke/rooms/:id/skip', adminAuth, async (req, res) => {
+  try { res.json(await rtcAdmin('POST', `/${encodeURIComponent(req.params.id)}/skip`)); } catch (e) { res.status(502).json({ error: e.message }); }
+});
+router.delete('/admin/karaoke/rooms/:id/queue/:entryId', adminAuth, async (req, res) => {
+  try { res.json(await rtcAdmin('POST', `/${encodeURIComponent(req.params.id)}/unqueue`, { entryId: req.params.entryId })); } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+// ── Bloqueos ──
+router.get('/admin/karaoke/bans', adminAuth, (_req, res) => {
+  res.json({ bans: [...karaokeBanStore.entries()].map(([userId, b]) => ({ ...userLabel(userId), ...b })).sort((a, b) => b.at - a.at) });
+});
+router.post('/admin/karaoke/bans', adminAuth, async (req, res) => {
+  const { userId, reason } = req.body || {};
+  if (!userId || !findUserById(userId)) return res.status(404).json({ error: 'Usuario no encontrado' });
+  karaokeBanStore.set(userId, { reason: String(reason || '').trim().slice(0, 200), at: Date.now() });
+  saveKaraokeBans();
+  rtcAdmin('POST', '/bans', { userIds: [...karaokeBanStore.keys()] }).catch(() => {});
+  res.status(201).json({ ban: { ...userLabel(userId), ...karaokeBanStore.get(userId) } });
+});
+router.delete('/admin/karaoke/bans/:userId', adminAuth, (req, res) => {
+  if (!karaokeBanStore.delete(req.params.userId)) return res.status(404).json({ error: 'Ese usuario no está bloqueado' });
+  saveKaraokeBans();
+  rtcAdmin('POST', '/bans', { userIds: [...karaokeBanStore.keys()] }).catch(() => {});
+  res.json({ success: true });
+});
+
+/** Servidor RTC → backend: lista de bloqueados al arrancar (secreto interno) */
+router.get('/internal/karaoke/bans', (req, res) => {
+  const hdr = req.get('x-internal-secret') || '';
+  const secret = process.env.RTC_SECRET || '';
+  if (!secret || hdr.length !== secret.length || !crypto.timingSafeEqual(Buffer.from(hdr), Buffer.from(secret)))
+    return res.status(401).json({ error: 'unauthorized' });
+  res.json({ userIds: [...karaokeBanStore.keys()] });
 });
 
 // ── Montar router ─────────────────────────────────────────────────

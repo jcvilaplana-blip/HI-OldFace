@@ -203,7 +203,11 @@
     .demo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-top:18px}
     .cat-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04)}
     .cat-row:last-child{border-bottom:none}
-    @media(max-width:768px){.sidebar{display:none}.charts-row{grid-template-columns:1fr}.frow{grid-template-columns:1fr}}
+    .ktabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px}
+    .ktab{background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer}
+    .ktab.active{background:rgba(0,0,128,.45);border-color:rgba(96,165,250,.5);color:#fff}
+    .lrc-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media(max-width:768px){.lrc-grid{grid-template-columns:1fr}.sidebar{display:none}.charts-row{grid-template-columns:1fr}.frow{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -256,6 +260,9 @@
         </div>
         <div class="nav-item" data-sec="polls" onclick="showSection('polls')">
           <span class="ico">🗳️</span> Encuestas
+        </div>
+        <div class="nav-item" data-sec="karaoke" onclick="showSection('karaoke')">
+          <span class="ico">🎤</span> Karaoke
         </div>
       </nav>
       <div class="sb-footer">
@@ -399,12 +406,177 @@
           </div>
         </div>
 
+        <!-- ── KARAOKE (superadministrador) ── -->
+        <div class="section" id="s-karaoke">
+          <div class="ktabs">
+            <button class="ktab active" data-ktab="resumen" onclick="kTab('resumen')">📊 Resumen</button>
+            <button class="ktab" data-ktab="canciones" onclick="kTab('canciones')">🎵 Canciones</button>
+            <button class="ktab" data-ktab="generos" onclick="kTab('generos')">🏷️ Géneros</button>
+            <button class="ktab" data-ktab="grabaciones" onclick="kTab('grabaciones')">🎧 Grabaciones</button>
+            <button class="ktab" data-ktab="salas" onclick="kTab('salas')">🔴 Salas en vivo</button>
+            <button class="ktab" data-ktab="bloqueos" onclick="kTab('bloqueos')">🚫 Bloqueos</button>
+          </div>
+
+          <!-- Resumen -->
+          <div class="kpanel" id="k-resumen">
+            <div class="stats-grid">
+              <div class="stat-card"><div class="stat-label">Canciones</div><div class="stat-value" id="kst-songs">—</div><div class="stat-icon">🎵</div><div class="stat-sub" id="kst-songs-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Grabaciones</div><div class="stat-value" id="kst-recs">—</div><div class="stat-icon">🎧</div><div class="stat-sub" id="kst-recs-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Cantantes</div><div class="stat-value" id="kst-singers">—</div><div class="stat-icon">🎤</div></div>
+              <div class="stat-card"><div class="stat-label">Salas en vivo</div><div class="stat-value" id="kst-rooms">—</div><div class="stat-icon">🔴</div><div class="stat-sub" id="kst-rooms-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Géneros</div><div class="stat-value" id="kst-genres">—</div><div class="stat-icon">🏷️</div></div>
+              <div class="stat-card"><div class="stat-label">Bloqueados</div><div class="stat-value" id="kst-bans">—</div><div class="stat-icon">🚫</div></div>
+            </div>
+            <div class="table-card">
+              <div class="table-hdr"><h3>Canciones más cantadas</h3></div>
+              <table><thead><tr><th>#</th><th>Canción</th><th>Grabaciones</th></tr></thead><tbody id="kst-top"></tbody></table>
+            </div>
+          </div>
+
+          <!-- Canciones -->
+          <div class="kpanel" id="k-canciones" style="display:none">
+            <div class="table-card">
+              <div class="table-hdr">
+                <h3>Catálogo <span class="stat-sub" id="ks-count"></span></h3>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <input class="search-input" id="ks-search" placeholder="🔍 Buscar título o artista" oninput="renderKSongs()" />
+                  <select class="plan-sel" id="ks-filter" onchange="renderKSongs()">
+                    <option value="">Todas</option><option value="pub">Publicadas</option><option value="hidden">Ocultas</option><option value="feat">Destacadas</option>
+                  </select>
+                  <button class="btn-pri" onclick="openSongEditor()">+ Nueva canción</button>
+                </div>
+              </div>
+              <div style="overflow-x:auto">
+                <table>
+                  <thead><tr><th>Canción</th><th>Género</th><th>Estado</th><th>Duración</th><th>Grabaciones</th><th>Actualizada</th><th>Acciones</th></tr></thead>
+                  <tbody id="ks-tbody"><tr><td colspan="7" class="empty"><div class="spinner"></div></td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Géneros -->
+          <div class="kpanel" id="k-generos" style="display:none">
+            <div class="table-card">
+              <div class="table-hdr">
+                <h3>Géneros</h3>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <input class="search-input" id="kg-name" placeholder="Nombre (ej: Pop)" style="width:170px" />
+                  <input class="search-input" id="kg-icon" placeholder="Emoji" style="width:70px" />
+                  <button class="btn-pri" onclick="createGenre()">Añadir</button>
+                </div>
+              </div>
+              <div id="kg-list"><div class="empty"><div class="spinner"></div></div></div>
+            </div>
+          </div>
+
+          <!-- Grabaciones -->
+          <div class="kpanel" id="k-grabaciones" style="display:none">
+            <div class="table-card">
+              <div class="table-hdr">
+                <h3>Todas las grabaciones <span class="stat-sub" id="kr-count"></span></h3>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <select class="plan-sel" id="kr-song" onchange="loadKRecs()"><option value="">Todas las canciones</option></select>
+                  <select class="plan-sel" id="kr-user" onchange="loadKRecs()"><option value="">Todos los usuarios</option></select>
+                </div>
+              </div>
+              <div style="overflow-x:auto">
+                <table>
+                  <thead><tr><th>Usuario</th><th>Canción</th><th>Fecha</th><th>Duración</th><th>Escuchar</th><th></th></tr></thead>
+                  <tbody id="kr-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Salas en vivo -->
+          <div class="kpanel" id="k-salas" style="display:none">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+              <p class="stat-sub">Control en tiempo real de las salas de karaoke abiertas.</p>
+              <button class="btn-sec" onclick="loadKRooms()">↻ Actualizar</button>
+            </div>
+            <div id="kroom-list"><div class="empty"><div class="spinner"></div></div></div>
+          </div>
+
+          <!-- Bloqueos -->
+          <div class="kpanel" id="k-bloqueos" style="display:none">
+            <div class="table-card" style="padding:16px 18px">
+              <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">Bloquear usuario del karaoke</h3>
+              <p class="stat-sub" style="margin-bottom:12px">Un usuario bloqueado no puede crear salas, apuntarse a la cola ni guardar grabaciones. El resto de OldFace sigue funcionando.</p>
+              <div class="frow">
+                <div class="fg"><label>Usuario</label><select id="kb-user"></select></div>
+                <div class="fg"><label>Motivo (opcional)</label><input id="kb-reason" placeholder="Ej: contenido inapropiado" /></div>
+              </div>
+              <div style="display:flex;justify-content:flex-end"><button class="btn-pri" onclick="banUser()">Bloquear</button></div>
+            </div>
+            <div class="table-card">
+              <div class="table-hdr"><h3>Usuarios bloqueados</h3></div>
+              <table><thead><tr><th>Usuario</th><th>Motivo</th><th>Desde</th><th></th></tr></thead><tbody id="kb-tbody"></tbody></table>
+            </div>
+          </div>
+        </div>
+
       </div><!-- /content -->
     </div><!-- /main -->
   </div><!-- /layout -->
 </div><!-- /dashboard -->
 
 <div id="toast"></div>
+
+<!-- ════════ MODAL: editor de canción (karaoke) ════════ -->
+<div class="modal-bg" id="ks-modal" style="display:none" onclick="if(event.target===this)closeSongEditor()">
+  <div class="modal" style="max-width:860px">
+    <h3 id="ks-mtitle">Nueva canción</h3>
+    <div class="frow">
+      <div class="fg"><label>Título *</label><input id="ks-title" placeholder="Ej: Estrellita" /></div>
+      <div class="fg"><label>Artista</label><input id="ks-artist" placeholder="Ej: Tradicional" /></div>
+    </div>
+    <div class="frow">
+      <div class="fg"><label>Género</label><select id="ks-genre"></select></div>
+      <div class="fg" style="display:flex;gap:18px;align-items:flex-end;padding-bottom:6px">
+        <label class="chk" style="margin:0"><input type="checkbox" id="ks-published" checked /> Publicada</label>
+        <label class="chk" style="margin:0"><input type="checkbox" id="ks-featured" /> ★ Destacada ("Para ti")</label>
+      </div>
+    </div>
+    <div class="frow">
+      <div class="fg">
+        <label>Pista instrumental <span id="ks-audio-req">*</span> <span class="stat-sub">(MP3/M4A/WAV, máx. ~10 MB)</span></label>
+        <input id="ks-audio" type="file" accept="audio/*" onchange="previewNewAudio()" />
+      </div>
+      <div class="fg">
+        <label>Portada <span class="stat-sub">(opcional)</span></label>
+        <div style="display:flex;gap:10px;align-items:center">
+          <img id="ks-cover-img" style="width:44px;height:44px;border-radius:8px;object-fit:cover;display:none" />
+          <input id="ks-cover" type="file" accept="image/*" style="flex:1" />
+        </div>
+        <label class="chk" id="ks-cover-rm-wrap" style="display:none;margin:6px 0 0"><input type="checkbox" id="ks-cover-rm" /> Quitar portada actual</label>
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>Letra sincronizada (LRC) * <span class="stat-sub">— formato <code>[mm:ss.xx] texto</code></span></label>
+      <div class="lrc-grid">
+        <div>
+          <textarea id="ks-lyrics" rows="12" style="font-family:monospace;font-size:12px" placeholder="[00:05.00] Primera línea&#10;[00:09.50] Segunda línea" oninput="renderLrcPreview()"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <input id="ks-lrcfile" type="file" accept=".lrc,.txt" style="font-size:12px;color:var(--text2);flex:1" />
+            <button class="btn-sec" type="button" onclick="insertStamp()" title="Pon la pista en play y pulsa al empezar cada verso">⏱ Marcar tiempo</button>
+          </div>
+        </div>
+        <div>
+          <audio id="kp-audio" controls style="width:100%;height:34px" ontimeupdate="renderLrcPreview()"></audio>
+          <div id="kp-lyrics" style="margin-top:8px;height:230px;overflow-y:auto;background:rgba(0,0,0,.25);border-radius:10px;padding:10px;font-size:13px;line-height:1.6"></div>
+          <p class="stat-sub" style="margin-top:6px">Vista previa: reproduce la pista y comprueba que cada verso se ilumina a tiempo. Para crear la letra: coloca el cursor al inicio de un verso y pulsa <b>⏱ Marcar tiempo</b> justo cuando empieza.</p>
+        </div>
+      </div>
+    </div>
+    <div class="m-err" id="ks-err"></div>
+    <div class="m-actions">
+      <button class="btn-sec" onclick="closeSongEditor()">Cancelar</button>
+      <button class="btn-pri" id="ks-save" onclick="saveSongEditor()">Guardar</button>
+    </div>
+  </div>
+</div>
 
 <!-- ════════ MODAL: crear/editar encuesta ════════ -->
 <div class="modal-bg" id="poll-modal" style="display:none" onclick="if(event.target===this)closePollForm()">
@@ -526,7 +698,7 @@ async function loadChats()  { try { const d = await api('/api/admin/chats'); ren
 async function loadCalls()  { try { const d = await api('/api/admin/calls'); renderCalls(d.calls||[]); } catch(e){ renderCalls([]); } }
 
 // ── Navigation ───────────────────────────────────────────────
-const TITLES = { overview:'Resumen', users:'Usuarios', plans:'Planes', chats:'Chats', calls:'Llamadas', polls:'Encuestas' };
+const TITLES = { overview:'Resumen', users:'Usuarios', plans:'Planes', chats:'Chats', calls:'Llamadas', polls:'Encuestas', karaoke:'Karaoke' };
 
 function showSection(id) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -538,6 +710,7 @@ function showSection(id) {
   if (id === 'users')  renderUsersTable(users);
   if (id === 'plans')  { renderPlanCards(); renderPlansTable(); }
   if (id === 'polls')  loadPollSection();
+  if (id === 'karaoke') loadKaraokeSection();
 }
 
 // ── Overview ─────────────────────────────────────────────────
@@ -953,6 +1126,301 @@ async function deleteCategory(id) {
   const c = pollCats.find(x => x.id === id);
   if (!confirm(`¿Eliminar la categoría "${c.name}"?\nLas encuestas asociadas se quedarán sin categoría.`)) return;
   try { await apiP(`/api/admin/poll/categories/${id}`, { method:'DELETE' }); toast('Categoría eliminada', 'ok'); loadPollSection(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+
+// ── Karaoke: superadministrador (CRUD completo) ──────────────
+let kSongs = [], kGenres = [], kEditing = null;
+const fileToDataUrl = (file) => new Promise((resolve, reject) => {
+  const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = reject; r.readAsDataURL(file);
+});
+async function uploadFile(file) {
+  const data = await fileToDataUrl(file);
+  const d = await apiP('/api/upload-file', { method:'POST', body: JSON.stringify({ data, fileName: file.name }) });
+  return d.url;
+}
+const audioDuration = (src) => new Promise(resolve => {
+  const a = new Audio(); a.preload = 'metadata';
+  a.onloadedmetadata = () => resolve(Math.round(a.duration || 0));
+  a.onerror = () => resolve(0);
+  a.src = src;
+});
+const fmtT = (s) => `${String(Math.floor(s / 60)).padStart(2,'0')}:${(s % 60).toFixed(2).padStart(5,'0')}`;
+const userIdOf = (u) => 'user_' + String(u.phone || u.id).replace(/\D/g, '');
+
+function kTab(id) {
+  document.querySelectorAll('.ktab').forEach(b => b.classList.toggle('active', b.dataset.ktab === id));
+  document.querySelectorAll('.kpanel').forEach(p => p.style.display = p.id === 'k-' + id ? 'block' : 'none');
+  ({ resumen: loadKStats, canciones: loadKSongs, generos: loadKGenres, grabaciones: loadKRecsSection, salas: loadKRooms, bloqueos: loadKBans })[id]?.();
+}
+function loadKaraokeSection() { kTab(document.querySelector('.ktab.active')?.dataset.ktab || 'resumen'); }
+
+async function loadKStats() {
+  try {
+    const s = await apiP('/api/admin/karaoke/stats');
+    set('kst-songs', s.songs); set('kst-songs-sub', `${s.published} publicadas · ${s.featured} destacadas`);
+    set('kst-recs', s.recordings); set('kst-recs-sub', `${s.recordingsWeek} esta semana`);
+    set('kst-singers', s.singers); set('kst-rooms', s.rooms); set('kst-rooms-sub', `${s.listeners} oyentes ahora`);
+    set('kst-genres', s.genres); set('kst-bans', s.bans);
+    document.getElementById('kst-top').innerHTML = s.top.length
+      ? s.top.map((t, i) => `<tr><td>${i + 1}</td><td><b>${esc(t.title)}</b> <span class="up">${esc(t.artist || '')}</span></td><td>${t.recordings}</td></tr>`).join('')
+      : '<tr><td colspan="3" class="empty">Aún no hay grabaciones</td></tr>';
+  } catch (e) { toast(e.message, 'er'); }
+}
+
+async function loadKSongs() {
+  try {
+    const [s, g] = await Promise.all([apiP('/api/admin/karaoke/songs'), apiP('/api/admin/karaoke/genres')]);
+    kSongs = s.songs || []; kGenres = g.genres || [];
+    renderKSongs();
+  } catch (e) { toast(e.message, 'er'); }
+}
+function renderKSongs() {
+  const q = document.getElementById('ks-search').value.trim().toLowerCase();
+  const f = document.getElementById('ks-filter').value;
+  const list = kSongs.filter(s => (!q || `${s.title} ${s.artist}`.toLowerCase().includes(q))
+    && (!f || (f === 'pub' && s.published) || (f === 'hidden' && !s.published) || (f === 'feat' && s.featured)));
+  set('ks-count', `(${list.length} de ${kSongs.length})`);
+  const tb = document.getElementById('ks-tbody');
+  if (!list.length) { tb.innerHTML = '<tr><td colspan="7" class="empty"><div class="eico">🎤</div>No hay canciones. Pulsa "+ Nueva canción".</td></tr>'; return; }
+  tb.innerHTML = list.map(s => `<tr>
+    <td><div class="user-cell">
+      ${s.coverUrl ? `<img src="/api${s.coverUrl}" class="av" style="border-radius:8px" />` : '<div class="av" style="border-radius:8px">🎵</div>'}
+      <div><div class="un">${esc(s.title)}</div><div class="up">${esc(s.artist || '—')}</div></div>
+    </div></td>
+    <td>${s.genre ? esc((s.genre.icon || '') + ' ' + s.genre.name) : '—'}</td>
+    <td><span class="badge ${s.published ? 'b-active' : 'b-draft'}">${s.published ? 'Publicada' : 'Oculta'}</span>${s.featured ? ' <span class="badge b-premium">★</span>' : ''}</td>
+    <td>${s.duration ? fmtDur(s.duration) : '—'}</td>
+    <td>${s.recordings}</td>
+    <td style="font-size:11px;color:var(--text3)">${fmtD(s.updatedAt)}</td>
+    <td style="white-space:nowrap">
+      <button class="btn-ic" title="Editar" onclick="openSongEditor('${s.id}')">✏️</button>
+      <button class="btn-ic" title="${s.published ? 'Ocultar' : 'Publicar'}" onclick="toggleSong('${s.id}','published')">${s.published ? '🙈' : '👁️'}</button>
+      <button class="btn-ic" title="${s.featured ? 'Quitar de destacadas' : 'Destacar'}" onclick="toggleSong('${s.id}','featured')">${s.featured ? '★' : '☆'}</button>
+      <button class="btn-ic del" title="Eliminar" onclick="deleteSong('${s.id}')">🗑️</button>
+    </td>
+  </tr>`).join('');
+}
+async function toggleSong(id, field) {
+  const s = kSongs.find(x => x.id === id);
+  try { await apiP(`/api/admin/karaoke/songs/${id}`, { method:'PUT', body: JSON.stringify({ [field]: !s[field] }) }); toast('Actualizada', 'ok'); loadKSongs(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+async function deleteSong(id) {
+  const s = kSongs.find(x => x.id === id);
+  if (!confirm(`¿Eliminar "${s.title}" del catálogo?\nLas grabaciones existentes se conservan.`)) return;
+  try { await apiP(`/api/admin/karaoke/songs/${id}`, { method:'DELETE' }); toast('Canción eliminada', 'ok'); loadKSongs(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+
+document.getElementById('ks-lrcfile').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (f) { document.getElementById('ks-lyrics').value = await f.text(); renderLrcPreview(); }
+});
+async function openSongEditor(id) {
+  kEditing = null;
+  if (!kGenres.length) { try { kGenres = (await apiP('/api/admin/karaoke/genres')).genres || []; } catch {} }
+  let s = null;
+  if (id) { try { s = (await apiP(`/api/admin/karaoke/songs/${id}`)).song; kEditing = s; } catch (e) { toast(e.message, 'er'); return; } }
+  document.getElementById('ks-mtitle').textContent = s ? 'Editar canción' : 'Nueva canción';
+  document.getElementById('ks-title').value = s?.title || '';
+  document.getElementById('ks-artist').value = s?.artist || '';
+  document.getElementById('ks-genre').innerHTML = '<option value="">Sin género</option>' + kGenres.map(g => `<option value="${g.id}" ${s?.genreId === g.id ? 'selected' : ''}>${esc((g.icon || '') + ' ' + g.name)}</option>`).join('');
+  document.getElementById('ks-published').checked = s ? s.published : true;
+  document.getElementById('ks-featured').checked = !!s?.featured;
+  document.getElementById('ks-lyrics').value = s?.lyrics || '';
+  ['ks-audio', 'ks-cover', 'ks-lrcfile'].forEach(i => document.getElementById(i).value = '');
+  document.getElementById('ks-audio-req').style.display = s ? 'none' : 'inline';
+  const img = document.getElementById('ks-cover-img');
+  img.style.display = s?.coverUrl ? 'block' : 'none'; if (s?.coverUrl) img.src = '/api' + s.coverUrl;
+  document.getElementById('ks-cover-rm-wrap').style.display = s?.coverUrl ? 'flex' : 'none';
+  document.getElementById('ks-cover-rm').checked = false;
+  const audio = document.getElementById('kp-audio');
+  if (s) audio.src = '/api' + s.audioUrl; else audio.removeAttribute('src');
+  document.getElementById('ks-err').textContent = '';
+  renderLrcPreview();
+  document.getElementById('ks-modal').style.display = 'flex';
+}
+function closeSongEditor() { document.getElementById('kp-audio').pause(); document.getElementById('ks-modal').style.display = 'none'; }
+function previewNewAudio() {
+  const f = document.getElementById('ks-audio').files[0];
+  if (f) document.getElementById('kp-audio').src = URL.createObjectURL(f);
+}
+function parseLrcText(text) {
+  const out = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const st = [...raw.matchAll(/\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g)];
+    const t = raw.replace(/\[[^\]]*\]/g, '').trim();
+    for (const m of st) out.push({ t: +m[1] * 60 + +m[2] + (m[3] ? +m[3].padEnd(3, '0') / 1000 : 0), text: t });
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+function renderLrcPreview() {
+  const lines = parseLrcText(document.getElementById('ks-lyrics').value);
+  const now = document.getElementById('kp-audio').currentTime || 0;
+  let cur = -1; lines.forEach((l, i) => { if (l.t <= now) cur = i; });
+  const box = document.getElementById('kp-lyrics');
+  box.innerHTML = lines.length ? lines.map((l, i) => `<div style="${i === cur ? 'color:#60a5fa;font-weight:800;font-size:14px' : i < cur ? 'opacity:.4' : 'opacity:.85'}"><span style="font-family:monospace;font-size:10px;opacity:.6;margin-right:6px">${fmtT(l.t)}</span>${esc(l.text || '♪')}</div>`).join('')
+    : '<div class="stat-sub">Escribe o carga la letra LRC para ver la vista previa.</div>';
+  const el = box.children[cur]; if (el) box.scrollTop = el.offsetTop - box.clientHeight / 2;
+}
+function insertStamp() {
+  const ta = document.getElementById('ks-lyrics');
+  const t = document.getElementById('kp-audio').currentTime || 0;
+  const pos = ta.selectionStart, v = ta.value;
+  const lineStart = v.lastIndexOf('\n', pos - 1) + 1;
+  const rest = v.slice(lineStart).replace(/^(\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\])+\s*/, '');
+  ta.value = v.slice(0, lineStart) + `[${fmtT(t)}] ` + rest;
+  const nextLine = ta.value.indexOf('\n', lineStart);
+  ta.selectionStart = ta.selectionEnd = nextLine === -1 ? ta.value.length : nextLine + 1;
+  ta.focus(); renderLrcPreview();
+}
+async function saveSongEditor() {
+  const errEl = document.getElementById('ks-err'); errEl.textContent = '';
+  const title = document.getElementById('ks-title').value.trim();
+  const audio = document.getElementById('ks-audio').files[0];
+  const cover = document.getElementById('ks-cover').files[0];
+  const lyrics = document.getElementById('ks-lyrics').value;
+  if (!title) { errEl.textContent = 'El título es obligatorio'; return; }
+  if (!kEditing && !audio) { errEl.textContent = 'Selecciona la pista instrumental'; return; }
+  if (audio && audio.size > 10.5 * 1024 * 1024) { errEl.textContent = 'La pista supera los 10 MB'; return; }
+  if (!/\[\d{1,2}:\d{2}/.test(lyrics)) { errEl.textContent = 'La letra debe estar en formato LRC: [mm:ss.xx] texto'; return; }
+  const btn = document.getElementById('ks-save'); btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    const body = {
+      title, artist: document.getElementById('ks-artist').value.trim(), lyrics,
+      genreId: document.getElementById('ks-genre').value || null,
+      published: document.getElementById('ks-published').checked,
+      featured: document.getElementById('ks-featured').checked,
+    };
+    if (audio) { body.audioUrl = await uploadFile(audio); body.duration = await audioDuration(URL.createObjectURL(audio)); }
+    if (cover) body.coverUrl = await uploadFile(cover);
+    else if (document.getElementById('ks-cover-rm').checked) body.coverUrl = null;
+    if (kEditing) await apiP(`/api/admin/karaoke/songs/${kEditing.id}`, { method:'PUT', body: JSON.stringify(body) });
+    else await apiP('/api/admin/karaoke/songs', { method:'POST', body: JSON.stringify(body) });
+    toast(kEditing ? 'Canción actualizada' : 'Canción añadida', 'ok');
+    closeSongEditor(); loadKSongs();
+  } catch (e) { errEl.textContent = e.message; }
+  finally { btn.disabled = false; btn.textContent = 'Guardar'; }
+}
+
+async function loadKGenres() {
+  try {
+    kGenres = (await apiP('/api/admin/karaoke/genres')).genres || [];
+    document.getElementById('kg-list').innerHTML = kGenres.length ? kGenres.map(g => `<div class="cat-row">
+      <span style="font-size:20px;width:28px;text-align:center">${esc(g.icon || '🏷️')}</span>
+      <div style="flex:1"><div class="un">${esc(g.name)}</div><div class="up">${g.songs} canción${g.songs === 1 ? '' : 'es'}</div></div>
+      <button class="btn-ic" title="Editar" onclick="editGenre('${g.id}')">✏️</button>
+      <button class="btn-ic del" title="Eliminar" onclick="deleteGenre('${g.id}')">🗑️</button>
+    </div>`).join('') : '<div class="empty"><div class="eico">🏷️</div>Sin géneros. Crea el primero (Pop, Rock, Rancheras…).</div>';
+  } catch (e) { toast(e.message, 'er'); }
+}
+async function createGenre() {
+  const name = document.getElementById('kg-name').value.trim(), icon = document.getElementById('kg-icon').value.trim();
+  if (!name) { toast('Escribe un nombre', 'er'); return; }
+  try { await apiP('/api/admin/karaoke/genres', { method:'POST', body: JSON.stringify({ name, icon }) });
+    document.getElementById('kg-name').value = ''; document.getElementById('kg-icon').value = ''; toast('Género creado', 'ok'); loadKGenres(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+async function editGenre(id) {
+  const g = kGenres.find(x => x.id === id);
+  const name = prompt('Nombre del género:', g.name); if (name === null || !name.trim()) return;
+  const icon = prompt('Emoji (opcional):', g.icon || '');
+  try { await apiP(`/api/admin/karaoke/genres/${id}`, { method:'PUT', body: JSON.stringify({ name, icon: icon || '' }) }); toast('Género actualizado', 'ok'); loadKGenres(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+async function deleteGenre(id) {
+  const g = kGenres.find(x => x.id === id);
+  if (!confirm(`¿Eliminar el género "${g.name}"?\nSus canciones quedarán sin género.`)) return;
+  try { await apiP(`/api/admin/karaoke/genres/${id}`, { method:'DELETE' }); toast('Género eliminado', 'ok'); loadKGenres(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+
+async function loadKRecsSection() {
+  try {
+    if (!kSongs.length) kSongs = (await apiP('/api/admin/karaoke/songs')).songs || [];
+    if (!users.length) await loadUsers();
+    const ss = document.getElementById('kr-song'), su = document.getElementById('kr-user');
+    const sv = ss.value, uv = su.value;
+    ss.innerHTML = '<option value="">Todas las canciones</option>' + kSongs.map(s => `<option value="${s.id}">${esc(s.title)}</option>`).join('');
+    su.innerHTML = '<option value="">Todos los usuarios</option>' + users.map(u => `<option value="${userIdOf(u)}">${esc(u.name)} (${esc(u.phone)})</option>`).join('');
+    ss.value = sv; su.value = uv;
+  } catch {}
+  loadKRecs();
+}
+async function loadKRecs() {
+  const q = new URLSearchParams();
+  const s = document.getElementById('kr-song').value, u = document.getElementById('kr-user').value;
+  if (s) q.set('songId', s); if (u) q.set('userId', u);
+  try {
+    const { recordings } = await apiP('/api/admin/karaoke/recordings?' + q);
+    set('kr-count', `(${recordings.length})`);
+    document.getElementById('kr-tbody').innerHTML = recordings.length ? recordings.map(r => `<tr>
+      <td><div class="un">${esc(r.userName)}</div><div class="up">${esc(r.userPhone || r.userId)}</div></td>
+      <td>${esc(r.songTitle)}</td>
+      <td style="font-size:11px;color:var(--text3)">${fmtD(r.createdAt)}</td>
+      <td>${r.duration ? fmtDur(r.duration) : '—'}</td>
+      <td><audio controls preload="none" src="/api${r.audioUrl}" style="height:30px;max-width:220px"></audio></td>
+      <td><button class="btn-ic del" title="Eliminar" onclick="deleteRec('${r.id}')">🗑️</button></td>
+    </tr>`).join('') : '<tr><td colspan="6" class="empty"><div class="eico">🎧</div>No hay grabaciones</td></tr>';
+  } catch (e) { toast(e.message, 'er'); }
+}
+async function deleteRec(id) {
+  if (!confirm('¿Eliminar esta grabación? Se borrará también el archivo de audio.')) return;
+  try { await apiP(`/api/admin/karaoke/recordings/${id}`, { method:'DELETE' }); toast('Grabación eliminada', 'ok'); loadKRecs(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+
+async function loadKRooms() {
+  const box = document.getElementById('kroom-list');
+  try {
+    const { rooms } = await apiP('/api/admin/karaoke/rooms');
+    box.innerHTML = rooms.length ? rooms.map(k => `<div class="table-card" style="padding:16px 18px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div><div class="un" style="font-size:15px">${esc(k.title)} ${k.hostAway ? '<span class="badge b-scheduled">anfitrión desconectado</span>' : ''}</div>
+          <div class="up">Anfitrión: ${esc(k.hostName)} · 👂 ${k.listeners} oyentes · ❤ ${k.likes} · abierta ${fmtD(k.createdAt)}</div></div>
+        <button class="btn-ic del" style="border:1px solid rgba(239,68,68,.4)" onclick="closeKRoom('${k.roomId}')">Cerrar sala</button>
+      </div>
+      <div style="margin-top:12px;padding:10px 12px;background:rgba(0,0,0,.2);border-radius:10px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <span>${k.current ? `🎤 <b>${esc(k.current.name)}</b> canta "${esc(k.current.song.title)}"` : '<span class="up">Nadie está cantando</span>'}</span>
+        ${k.current ? `<button class="btn-sec" onclick="skipKRoom('${k.roomId}')">⏭ Saltar</button>` : ''}
+      </div>
+      <div style="margin-top:10px">${k.queue.filter(e => e.id !== k.current?.id).map((e, i) => `<div class="cat-row" style="padding:7px 4px">
+        <span style="width:22px;color:var(--text3)">${i + 1}</span><div style="flex:1"><b>${esc(e.song.title)}</b> <span class="up">· ${esc(e.name)}</span></div>
+        <button class="btn-ic del" title="Quitar de la cola" onclick="unqueueKRoom('${k.roomId}','${e.id}')">✕</button></div>`).join('') || '<div class="up">Cola vacía</div>'}</div>
+    </div>`).join('') : '<div class="empty"><div class="eico">🔴</div>No hay salas de karaoke abiertas ahora mismo</div>';
+  } catch (e) { box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+async function skipKRoom(id) { try { await apiP(`/api/admin/karaoke/rooms/${id}/skip`, { method:'POST' }); toast('Canción saltada', 'ok'); loadKRooms(); } catch (e) { toast(e.message, 'er'); } }
+async function unqueueKRoom(id, entryId) { try { await apiP(`/api/admin/karaoke/rooms/${id}/queue/${entryId}`, { method:'DELETE' }); toast('Quitada de la cola', 'ok'); loadKRooms(); } catch (e) { toast(e.message, 'er'); } }
+async function closeKRoom(id) {
+  if (!confirm('¿Cerrar esta sala? Todos los participantes saldrán.')) return;
+  try { await apiP(`/api/admin/karaoke/rooms/${id}/close`, { method:'POST' }); toast('Sala cerrada', 'ok'); loadKRooms(); } catch (e) { toast(e.message, 'er'); }
+}
+
+async function loadKBans() {
+  try {
+    if (!users.length) await loadUsers();
+    const { bans } = await apiP('/api/admin/karaoke/bans');
+    const banned = new Set(bans.map(b => b.userId));
+    document.getElementById('kb-user').innerHTML = users.filter(u => !banned.has(userIdOf(u)))
+      .map(u => `<option value="${userIdOf(u)}">${esc(u.name)} (${esc(u.phone)})</option>`).join('') || '<option value="">No hay usuarios</option>';
+    document.getElementById('kb-tbody').innerHTML = bans.length ? bans.map(b => `<tr>
+      <td><div class="un">${esc(b.name)}</div><div class="up">${esc(b.phone || b.userId)}</div></td>
+      <td>${esc(b.reason || '—')}</td><td style="font-size:11px;color:var(--text3)">${fmtD(b.at)}</td>
+      <td><button class="btn-sec" onclick="unbanUser('${b.userId}')">Desbloquear</button></td></tr>`).join('')
+      : '<tr><td colspan="4" class="empty">No hay usuarios bloqueados</td></tr>';
+  } catch (e) { toast(e.message, 'er'); }
+}
+async function banUser() {
+  const userId = document.getElementById('kb-user').value;
+  if (!userId) return;
+  try { await apiP('/api/admin/karaoke/bans', { method:'POST', body: JSON.stringify({ userId, reason: document.getElementById('kb-reason').value }) });
+    document.getElementById('kb-reason').value = ''; toast('Usuario bloqueado del karaoke', 'ok'); loadKBans(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+async function unbanUser(userId) {
+  try { await apiP(`/api/admin/karaoke/bans/${encodeURIComponent(userId)}`, { method:'DELETE' }); toast('Usuario desbloqueado', 'ok'); loadKBans(); }
   catch (e) { toast(e.message, 'er'); }
 }
 

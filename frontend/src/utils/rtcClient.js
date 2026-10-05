@@ -13,6 +13,7 @@ import { useAuthStore } from '../store/authStore';
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 // El servidor RTC vive en el mismo dominio que el backend, bajo /rtc/ (VITE_RTC_URL solo para desarrollo local)
 const RTC_ORIGIN = import.meta.env.VITE_RTC_URL || new URL(BACKEND).origin;
+export const RTC_HTTP = `${RTC_ORIGIN}/rtc`;
 
 let socket = null;
 let currentUserId = null;
@@ -111,6 +112,11 @@ export function rtcRequest(event, data = {}, timeoutMs = 10000) {
       resolve(res);
     });
   });
+}
+
+/** Envío sin respuesta y descartable si hay congestión (p. ej. posición de la canción del karaoke) */
+export function rtcEmit(event, data = {}) {
+  if (socket?.connected) socket.volatile.emit(event, data);
 }
 
 /** Suscribirse a un evento del servidor RTC. Devuelve la función para darse de baja. */

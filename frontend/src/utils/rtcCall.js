@@ -158,10 +158,13 @@ export class RtcCall {
   setMic(on)    { return this.setProducerPaused('audio', !on); }
   setCamera(on) { return this.setProducerPaused('video', !on); }
 
-  /** Empezar a emitir más tarde (invitado de un directo tras ser aceptado). Devuelve el stream local. */
-  async publish({ video = true } = {}) {
+  /**
+   * Empezar a emitir más tarde (invitado de un directo, cantante de karaoke). Devuelve el stream local.
+   * @param stream  stream ya preparado (p. ej. la mezcla voz + música del karaoke); si no, cámara/micro.
+   */
+  async publish({ video = true, stream = null } = {}) {
     if (this.producers.audio || this.producers.video) return this.localStream;
-    this.localStream = await this.getMedia(video);
+    this.localStream = stream || await this.getMedia(video);
     if (!this.sendTransport) this.sendTransport = await this.createTransport('send', this.iceServers);
     await this.produceLocal();
     return this.localStream;

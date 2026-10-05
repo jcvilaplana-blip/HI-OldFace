@@ -96,7 +96,7 @@ const ITEMS = {
   },
   karaoke: {
     label: 'Karaoke',
-    action: 'soon',
+    route: '/karaoke',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M12 3a3 3 0 00-3 3v5a3 3 0 006 0V6a3 3 0 00-3-3z
          M19 11a7 7 0 01-14 0M12 18v3M8 21h8"/>`

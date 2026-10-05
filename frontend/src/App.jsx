@@ -21,6 +21,9 @@ import TermsPage    from './pages/TermsPage.jsx';
 import PrivacyPage  from './pages/PrivacyPage.jsx';
 import CookiesPage  from './pages/CookiesPage.jsx';
 import PollPage     from './pages/PollPage.jsx';
+import KaraokePage     from './pages/KaraokePage.jsx';
+import KaraokeSingPage from './pages/KaraokeSingPage.jsx';
+import KaraokeRoomPage from './pages/KaraokeRoomPage.jsx';
 
 const BRAND = '#000080';
 
@@ -564,6 +567,9 @@ function AppShell() {
         <Route path="/directo/:directoId/live" element={<ProtectedRoute><DirectoLivePage /></ProtectedRoute>} />
         <Route path="/poll"         element={<ProtectedRoute><PollPage /></ProtectedRoute>} />
         <Route path="/poll/:pollId" element={<ProtectedRoute><PollPage /></ProtectedRoute>} />
+        <Route path="/karaoke"                 element={<ProtectedRoute><KaraokePage /></ProtectedRoute>} />
+        <Route path="/karaoke/cantar/:songId"  element={<ProtectedRoute><KaraokeSingPage /></ProtectedRoute>} />
+        <Route path="/karaoke/sala/:roomId"    element={<ProtectedRoute><KaraokeRoomPage /></ProtectedRoute>} />
         <Route path="/video-call/:userId" element={<ProtectedRoute><VideoCallPage /></ProtectedRoute>} />
         <Route path="/call/:userId"        element={<ProtectedRoute><CallPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />

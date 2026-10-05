@@ -186,6 +186,54 @@ function setLivePeerRole(live, userId, role) {
   }
 }
 
+// ── Karaoke ──────────────────────────────────────────────────────────────────
+// Salas de karaoke: cola de canciones, un cantante cada vez (emite voz + música mezcladas),
+// letra sincronizada con la posición que envía el cantante, chat y likes. Medios: sala `karaoke_<id>`.
+/** roomId → { id, title, hostId, hostName, createdAt, queue[], current, chat[], likes, hostTimer } */
+const karaokes = new Map();
+
+function karaokeListeners(k) {
+  return io.sockets.adapter.rooms.get(`karaoke:${k.id}`)?.size || 0;
+}
+
+function karaokeState(k) {
+  return {
+    roomId: k.id, title: k.title, hostId: k.hostId, hostName: k.hostName,
+    queue: k.queue, current: k.current, likes: k.likes,
+    listeners: karaokeListeners(k), chat: k.chat.slice(-50),
+  };
+}
+
+function setKaraokeSinger(k, userId) {
+  const room = rooms.get(`karaoke_${k.id}`);
+  if (!room) return;
+  for (const peer of room.peers.values()) {
+    const sing = peer.userId === userId;
+    peer.role = sing ? 'speaker' : 'viewer';
+    if (!sing) for (const p of [...peer.producers.values()]) p.close();
+  }
+}
+
+/** Termina la canción actual y avisa al siguiente de la cola */
+function karaokeNext(k, reason = 'finished') {
+  if (k.current) {
+    k.queue = k.queue.filter(e => e.id !== k.current.id);
+    io.to(`karaoke:${k.id}`).emit('karaoke:songEnded', { roomId: k.id, entryId: k.current.id, reason });
+  }
+  k.current = null;
+  setKaraokeSinger(k, null);
+  io.to(`karaoke:${k.id}`).emit('karaoke:state', { roomId: k.id, queue: k.queue, current: null });
+  const next = k.queue[0];
+  if (next) io.to(`user:${next.userId}`).emit('karaoke:yourTurn', { roomId: k.id, entryId: next.id });
+}
+
+function closeKaraoke(k, reason = 'closed') {
+  clearTimeout(k.hostTimer);
+  io.to(`karaoke:${k.id}`).emit('karaoke:closed', { roomId: k.id, reason });
+  karaokes.delete(k.id);
+  console.log(`[RTC] Sala de karaoke cerrada ${k.id} (${reason})`);
+}
+
 // ── HTTP + Socket.IO ─────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json({ limit: '256kb' }));
@@ -194,11 +242,78 @@ app.get('/rtc/health', (_req, res) => {
   res.json({
     ok: true, workers: workers.length, rooms: rooms.size,
     peers: [...rooms.values()].reduce((n, r) => n + r.peers.size, 0),
-    online: onlineUsers.size, lives: lives.size, uptime: Math.round(process.uptime()),
+    online: onlineUsers.size, lives: lives.size, karaokes: karaokes.size, uptime: Math.round(process.uptime()),
   });
 });
 
 app.use('/rtc/test', express.static(path.join(__dirname, 'public')));
+
+/** Salas de karaoke abiertas (lista pública para la app) */
+app.get('/rtc/karaoke/rooms', (_req, res) => {
+  res.json({
+    rooms: [...karaokes.values()].map(k => ({
+      roomId: k.id, title: k.title, hostId: k.hostId, hostName: k.hostName, createdAt: k.createdAt,
+      listeners: karaokeListeners(k), queue: k.queue.length,
+      current: k.current ? { title: k.current.song.title, artist: k.current.song.artist, singer: k.current.name } : null,
+    })).sort((a, b) => b.listeners - a.listeners || b.createdAt - a.createdAt),
+  });
+});
+
+/** Solo el backend (mismo servidor) con el secreto compartido. nginx bloquea /rtc/internal/ desde fuera. */
+function internalAuth(req, res, next) {
+  const hdr = req.get('x-internal-secret') || '';
+  const ok = hdr.length === CFG.secret.length && crypto.timingSafeEqual(Buffer.from(hdr), Buffer.from(CFG.secret));
+  if (!ok) return res.status(401).json({ error: 'unauthorized' });
+  next();
+}
+
+// ── Karaoke: control del superadministrador (vía backend /api/admin/karaoke/rooms…) ──
+let karaokeBanned = new Set();
+async function loadKaraokeBans() {
+  try {
+    const r = await fetch(`${CFG.backendUrl}/internal/karaoke/bans`, { headers: { 'x-internal-secret': CFG.secret }, signal: AbortSignal.timeout(5000) });
+    if (r.ok) karaokeBanned = new Set((await r.json()).userIds || []);
+  } catch { /* se reintenta al recibir cambios */ }
+}
+
+app.post('/rtc/internal/karaoke/bans', internalAuth, (req, res) => {
+  karaokeBanned = new Set(Array.isArray(req.body?.userIds) ? req.body.userIds : []);
+  // Un bloqueado que esté cantando deja de cantar
+  for (const k of karaokes.values()) if (k.current && karaokeBanned.has(k.current.userId)) karaokeNext(k, 'removed');
+  res.json({ ok: true, bans: karaokeBanned.size });
+});
+
+app.get('/rtc/internal/karaoke/rooms', internalAuth, (_req, res) => {
+  res.json({ rooms: [...karaokes.values()].map(k => ({ ...karaokeState(k), chat: undefined, createdAt: k.createdAt, hostAway: !!k.hostTimer }))
+    .sort((a, b) => b.createdAt - a.createdAt) });
+});
+
+app.post('/rtc/internal/karaoke/:id/close', internalAuth, (req, res) => {
+  const k = karaokes.get(req.params.id);
+  if (!k) return res.status(404).json({ error: 'La sala ya no existe' });
+  closeKaraoke(k, 'admin');
+  res.json({ ok: true });
+});
+
+app.post('/rtc/internal/karaoke/:id/skip', internalAuth, (req, res) => {
+  const k = karaokes.get(req.params.id);
+  if (!k) return res.status(404).json({ error: 'La sala ya no existe' });
+  if (!k.current) return res.status(400).json({ error: 'Nadie está cantando' });
+  karaokeNext(k, 'skipped');
+  res.json({ ok: true });
+});
+
+app.post('/rtc/internal/karaoke/:id/unqueue', internalAuth, (req, res) => {
+  const k = karaokes.get(req.params.id);
+  if (!k) return res.status(404).json({ error: 'La sala ya no existe' });
+  const entryId = req.body?.entryId;
+  if (k.current?.id === entryId) { karaokeNext(k, 'removed'); return res.json({ ok: true }); }
+  const wasFirst = k.queue[0]?.id === entryId;
+  k.queue = k.queue.filter(e => e.id !== entryId);
+  io.to(`karaoke:${k.id}`).emit('karaoke:state', { roomId: k.id, queue: k.queue, current: k.current });
+  if (wasFirst && !k.current && k.queue[0]) io.to(`user:${k.queue[0].userId}`).emit('karaoke:yourTurn', { roomId: k.id, entryId: k.queue[0].id });
+  res.json({ ok: true });
+});
 
 /** Backend → RTC: emitir un evento a un usuario. Header x-internal-secret. */
 app.post('/rtc/internal/emit', (req, res) => {
@@ -295,6 +410,12 @@ io.on('connection', (socket) => {
       if (!live) throw new Error('El directo no está en emisión');
       const canSpeak = live.hostId === userId || live.guests.has(userId);
       effectiveRole = canSpeak && role !== 'viewer' ? 'speaker' : 'viewer';
+    }
+    // Karaoke: solo emite quien está cantando
+    if (roomId.startsWith('karaoke_')) {
+      const k = karaokes.get(roomId.slice(8));
+      if (!k) throw new Error('La sala de karaoke no existe');
+      effectiveRole = k.current?.userId === userId && role !== 'viewer' ? 'speaker' : 'viewer';
     }
     const room = await getOrCreateRoom(roomId);
     if (!room.peers.has(socket.id)) {
@@ -537,7 +658,151 @@ io.on('connection', (socket) => {
     endLive(live, 'ended');
   });
 
+  // ── Karaoke ─────────────────────────────────────────────────────────────
+  const myKaraokes = new Set();
+  const getK = (roomId) => {
+    const k = karaokes.get(roomId);
+    if (!k) throw new Error('La sala de karaoke ya no existe');
+    return k;
+  };
+  const enterK = (k) => {
+    socket.join(`karaoke:${k.id}`);
+    myKaraokes.add(k.id);
+    io.to(`karaoke:${k.id}`).emit('karaoke:listeners', { roomId: k.id, listeners: karaokeListeners(k) });
+  };
+  let kLikeWindow = { start: 0, count: 0 };
+
+  handle(socket, 'karaoke:create', ({ title }) => {
+    if (karaokeBanned.has(userId)) throw new Error('Tu cuenta no puede usar el karaoke');
+    const mine = [...karaokes.values()].find(k => k.hostId === userId);
+    if (mine) { enterK(mine); clearTimeout(mine.hostTimer); return { room: karaokeState(mine) }; }
+    const k = {
+      id: `k${Date.now().toString(36)}${crypto.randomBytes(3).toString('hex')}`,
+      title: String(title || '').trim().slice(0, 60) || `Karaoke de ${socket.data.name}`,
+      hostId: userId, hostName: socket.data.name, createdAt: Date.now(),
+      queue: [], current: null, chat: [], likes: 0, hostTimer: null,
+    };
+    karaokes.set(k.id, k);
+    enterK(k);
+    console.log(`[RTC] Sala de karaoke creada ${k.id} por ${userId}`);
+    return { room: karaokeState(k) };
+  });
+
+  handle(socket, 'karaoke:join', ({ roomId }) => {
+    const k = getK(roomId);
+    if (k.hostId === userId) { clearTimeout(k.hostTimer); io.to(`karaoke:${k.id}`).emit('karaoke:hostBack', { roomId }); }
+    enterK(k);
+    return { room: karaokeState(k) };
+  });
+
+  handle(socket, 'karaoke:leave', ({ roomId }) => {
+    socket.leave(`karaoke:${roomId}`);
+    myKaraokes.delete(roomId);
+    const k = karaokes.get(roomId);
+    if (!k) return;
+    if (k.current?.userId === userId) karaokeNext(k, 'singer_left');
+    io.to(`karaoke:${roomId}`).emit('karaoke:listeners', { roomId, listeners: karaokeListeners(k) });
+  });
+
+  /** Apuntarse a la cola con una canción del catálogo (máx. 2 canciones por persona) */
+  handle(socket, 'karaoke:queue', ({ roomId, song }) => {
+    const k = getK(roomId);
+    if (karaokeBanned.has(userId)) throw new Error('Tu cuenta no puede usar el karaoke');
+    if (!song?.id || !song?.audioUrl) throw new Error('Canción no válida');
+    if (k.queue.filter(e => e.userId === userId).length >= 2) throw new Error('Ya tienes 2 canciones en la cola');
+    if (k.queue.length >= 30) throw new Error('La cola está llena');
+    const entry = {
+      id: `q${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, userId, name: socket.data.name,
+      song: { id: song.id, title: String(song.title || '').slice(0, 80), artist: String(song.artist || '').slice(0, 60),
+              audioUrl: String(song.audioUrl).slice(0, 300), lyricsUrl: song.lyricsUrl ? String(song.lyricsUrl).slice(0, 300) : null,
+              duration: Number(song.duration) || 0 },
+    };
+    k.queue.push(entry);
+    io.to(`karaoke:${roomId}`).emit('karaoke:state', { roomId, queue: k.queue, current: k.current });
+    if (!k.current && k.queue[0] === entry) io.to(`user:${userId}`).emit('karaoke:yourTurn', { roomId, entryId: entry.id });
+    return { entry };
+  });
+
+  /** Quitar de la cola (uno mismo o el anfitrión) */
+  handle(socket, 'karaoke:unqueue', ({ roomId, entryId }) => {
+    const k = getK(roomId);
+    const entry = k.queue.find(e => e.id === entryId);
+    if (!entry) return;
+    if (entry.userId !== userId && k.hostId !== userId) throw new Error('No puedes quitar esta canción');
+    if (k.current?.id === entryId) return karaokeNext(k, 'removed');
+    const wasFirst = k.queue[0]?.id === entryId;
+    k.queue = k.queue.filter(e => e.id !== entryId);
+    io.to(`karaoke:${roomId}`).emit('karaoke:state', { roomId, queue: k.queue, current: k.current });
+    if (wasFirst && !k.current && k.queue[0]) io.to(`user:${k.queue[0].userId}`).emit('karaoke:yourTurn', { roomId, entryId: k.queue[0].id });
+  });
+
+  /** Empezar a cantar: solo el primero de la cola y si nadie está cantando */
+  handle(socket, 'karaoke:start', ({ roomId, entryId }) => {
+    const k = getK(roomId);
+    if (k.current) throw new Error('Alguien está cantando');
+    const entry = k.queue[0];
+    if (!entry || entry.id !== entryId || entry.userId !== userId) throw new Error('Todavía no es tu turno');
+    k.current = { ...entry, startedAt: Date.now(), position: 0, positionAt: Date.now() };
+    setKaraokeSinger(k, userId);
+    io.to(`karaoke:${roomId}`).emit('karaoke:state', { roomId, queue: k.queue, current: k.current });
+    return { current: k.current };
+  });
+
+  /** El cantante informa de la posición de la canción (para sincronizar la letra del público) */
+  socket.on('karaoke:progress', ({ roomId, position } = {}) => {
+    const k = karaokes.get(roomId);
+    if (!k?.current || k.current.userId !== userId) return;
+    k.current.position = Math.max(0, Number(position) || 0);
+    k.current.positionAt = Date.now();
+    socket.to(`karaoke:${roomId}`).volatile.emit('karaoke:progress', { roomId, entryId: k.current.id, position: k.current.position, at: k.current.positionAt });
+  });
+
+  /** Fin de canción: el propio cantante (terminó / se rindió) o el anfitrión (saltar) */
+  handle(socket, 'karaoke:finish', ({ roomId }) => {
+    const k = getK(roomId);
+    if (!k.current) return;
+    if (k.current.userId !== userId && k.hostId !== userId) throw new Error('Solo el cantante o el anfitrión pueden terminar la canción');
+    karaokeNext(k, k.current.userId === userId ? 'finished' : 'skipped');
+  });
+
+  handle(socket, 'karaoke:chat', ({ roomId, text }) => {
+    const k = getK(roomId);
+    const clean = String(text || '').trim().slice(0, 200);
+    if (!clean) throw new Error('Mensaje vacío');
+    const msg = { id: `kc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, userId, name: socket.data.name, text: clean, ts: Date.now() };
+    k.chat.push(msg);
+    if (k.chat.length > 200) k.chat.splice(0, k.chat.length - 200);
+    io.to(`karaoke:${roomId}`).emit('karaoke:chat', { roomId, msg });
+  });
+
+  handle(socket, 'karaoke:like', ({ roomId }) => {
+    const k = getK(roomId);
+    const now = Date.now();
+    if (now - kLikeWindow.start > 1000) kLikeWindow = { start: now, count: 0 };
+    if (++kLikeWindow.count > 15) return { likes: k.likes };
+    k.likes += 1;
+    io.to(`karaoke:${roomId}`).emit('karaoke:like', { roomId, likes: k.likes, from: userId });
+    return { likes: k.likes };
+  });
+
+  handle(socket, 'karaoke:close', ({ roomId }) => {
+    const k = getK(roomId);
+    if (k.hostId !== userId) throw new Error('Solo el anfitrión puede cerrar la sala');
+    closeKaraoke(k, 'closed');
+  });
+
   socket.on('disconnect', () => {
+    for (const roomId of myKaraokes) {
+      const k = karaokes.get(roomId);
+      if (!k) continue;
+      if (k.current?.userId === userId) karaokeNext(k, 'singer_left');
+      if (k.hostId === userId) {
+        io.to(`karaoke:${roomId}`).emit('karaoke:hostAway', { roomId });
+        clearTimeout(k.hostTimer);
+        k.hostTimer = setTimeout(() => { if (karaokes.get(roomId) === k) closeKaraoke(k, 'host_left'); }, 120000);
+      }
+      setTimeout(() => io.to(`karaoke:${roomId}`).emit('karaoke:listeners', { roomId, listeners: karaokeListeners(k) }), 0);
+    }
     for (const liveId of myLives) {
       const live = lives.get(liveId);
       if (!live) continue;
@@ -561,6 +826,7 @@ io.on('connection', (socket) => {
 // ── Arranque ─────────────────────────────────────────────────────────────────
 (async () => {
   await startWorkers();
+  loadKaraokeBans();
   server.listen(CFG.port, CFG.host, () => {
     console.log(`[RTC] OldFace RTC escuchando en ${CFG.host}:${CFG.port} (IP pública ${CFG.publicIp}, ${workers.length} workers)`);
   });
