@@ -1156,8 +1156,14 @@ router.delete('/directos/:id', (req, res) => {
 // ════════════════════════════════════════════════════════════════
 //  ADMIN PANEL
 // ════════════════════════════════════════════════════════════════
-const ADMIN_EMAIL    = 'williamduarte0412@gmail.com';
-const ADMIN_PASSWORD = 'DeqntvOF2001*';
+// Credenciales en .env (ADMIN_EMAIL / ADMIN_PASSWORD); sin ellas el login queda desactivado
+const ADMIN_EMAIL    = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const sameSecret = (a, b) => {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+};
 const adminSessions  = new Map(); // token → expiry (24h)
 
 setInterval(() => {
@@ -1179,7 +1185,11 @@ app.get('/admin', (_req, res) => res.sendFile(path.join(__dirname, 'admin.html')
 // Todos los endpoints admin bajo /api/admin/ para que Plesk/Nginx los proxee correctamente
 router.post('/admin/login', (req, res) => {
   const { email, password } = req.body || {};
-  if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD)
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD)
+    return res.status(503).json({ error: 'Acceso de administrador no configurado' });
+  const okEmail = sameSecret(String(email || '').trim().toLowerCase(), ADMIN_EMAIL);
+  const okPass  = sameSecret(password || '', ADMIN_PASSWORD);
+  if (!okEmail || !okPass)
     return res.status(401).json({ error: 'Credenciales incorrectas' });
   const token = crypto.randomBytes(32).toString('hex');
   adminSessions.set(token, Date.now() + 24 * 60 * 60 * 1000);
