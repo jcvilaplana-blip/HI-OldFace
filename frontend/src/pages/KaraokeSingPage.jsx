@@ -20,6 +20,9 @@ export default function KaraokeSingPage() {
 
   const engineRef = useRef(null);
   const rafRef    = useRef(null);
+  const videoRef  = useRef(null);   // cámara en directo de fondo
+  const [hasVideo, setHasVideo] = useState(false);
+  const [camOn,    setCamOn]    = useState(true);
   const [song,   setSong]   = useState(null);
   const [lines,  setLines]  = useState([]);
   const [stage,  setStage]  = useState('loading'); // loading | setup | preparing | ready | singing | review | error
@@ -68,11 +71,18 @@ export default function KaraokeSingPage() {
       await engine.init();
       engineRef.current = engine;
       if (!withHeadphones) window.OldFaceAudio?.enableSpeaker(); // sin auriculares, la música por el altavoz
+      setMix(m => ({ ...m, monitor: engine.monitor }));          // con auriculares te oyes desde el principio
+      setHasVideo(engine.hasVideo);
+      setCamOn(true);
+      if (engine.preview && videoRef.current) {
+        videoRef.current.srcObject = engine.preview;
+        videoRef.current.play().catch(() => {});
+      }
       engine.onEnded(() => finish());
       setDur(engine.duration || song.duration || 0);
       setStage('ready');
     } catch (e) {
-      setError(e?.name === 'NotAllowedError' ? 'Necesitamos permiso para usar el micrófono' : (e.message || 'No se pudo preparar el audio'));
+      setError(e?.name === 'NotAllowedError' ? 'Necesitamos permiso para usar el micrófono y la cámara' : (e.message || 'No se pudo preparar el audio'));
       setStage('error');
     }
   };
@@ -119,7 +129,7 @@ export default function KaraokeSingPage() {
     e.pause();
     const blob = await e.stopRecording();
     if (!blob || blob.size < 2000) { setStage('ready'); return; }
-    setRec({ blob, url: URL.createObjectURL(blob), duration });
+    setRec({ blob, url: URL.createObjectURL(blob), duration, video: e.recIsVideo });
     setStage('review');
   };
 
@@ -132,21 +142,27 @@ export default function KaraokeSingPage() {
     if (k === 'monitor') e.setMonitor(v);
   };
 
+  const toggleCamera = () => {
+    const e = engineRef.current;
+    if (!e?.hasVideo) return;
+    e.setCamera(!camOn);
+    setCamOn(!camOn);
+  };
+
   // ── Guardar y compartir ───────────────────────────────────────────────────
   const save = async () => {
     if (!rec || saving) return;
     setSaving(true);
     try {
-      const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(rec.blob); });
-      const up = await fetch(`${BACKEND}/upload-file`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data, fileName: `karaoke.${engineRef.current?.recExtension || 'webm'}` }),
+      // Subida en binario (las grabaciones con vídeo pesan decenas de MB)
+      const up = await fetch(`${BACKEND}/karaoke/upload?userId=${encodeURIComponent(user?.id || '')}`, {
+        method: 'POST', headers: { 'Content-Type': (rec.blob.type || 'video/webm').split(';')[0] }, body: rec.blob,
       });
-      const { url, error: upErr } = await up.json();
+      const { url, video, error: upErr } = await up.json().catch(() => ({}));
       if (!url) throw new Error(upErr || 'No se pudo subir la grabación');
       const res = await fetch(`${BACKEND}/karaoke/recordings`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user?.id, songId, audioUrl: url, duration: rec.duration }),
+        body: JSON.stringify({ userId: user?.id, songId, audioUrl: url, video, duration: rec.duration }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'No se pudo guardar');
@@ -157,7 +173,7 @@ export default function KaraokeSingPage() {
 
   const share = async () => {
     if (!saved) return;
-    const text = `🎤 Escucha cómo canto "${song.title}" en OldFace`;
+    const text = `🎤 ${saved.video ? 'Mira' : 'Escucha'} cómo canto "${song.title}" en OldFace`;
     const url = absUrl(saved.audioUrl);
     try {
       const { Capacitor } = await import('@capacitor/core');
@@ -176,8 +192,17 @@ export default function KaraokeSingPage() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: BG, color: 'white', display: 'flex', flexDirection: 'column' }}>
+      {/* Cámara en directo de fondo (espejo, como un selfie) + degradado para leer la letra */}
+      <video ref={videoRef} autoPlay playsInline muted
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)', zIndex: 0,
+                 display: hasVideo && camOn ? 'block' : 'none' }} />
+      {hasVideo && camOn && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
+                      background: 'linear-gradient(180deg, rgba(0,0,40,0.55) 0%, rgba(0,0,0,0.15) 25%, rgba(0,0,0,0.25) 60%, rgba(0,0,40,0.75) 100%)' }} />
+      )}
+
       {/* Cabecera */}
-      <div style={{ paddingTop: 'max(env(safe-area-inset-top, 12px), 12px)', flexShrink: 0 }}>
+      <div style={{ paddingTop: 'max(env(safe-area-inset-top, 12px), 12px)', flexShrink: 0, position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 14px' }}>
           <button onClick={close} aria-label="Cerrar" style={{ background: 'none', border: 'none', color: 'white', fontSize: 22, cursor: 'pointer', width: 32 }}>✕</button>
           <p style={{ flex: 1, margin: 0, textAlign: 'center', fontSize: 14, fontWeight: 700, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -194,9 +219,9 @@ export default function KaraokeSingPage() {
       </div>
 
       {/* Letra + medidor de micro */}
-      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+      <div style={{ flex: 1, position: 'relative', minHeight: 0, zIndex: 1 }}>
         {(stage === 'singing' || stage === 'ready' || stage === 'setup' || stage === 'preparing') && (
-          <LyricsView lines={lines} position={stage === 'singing' ? pos : -1} />
+          <LyricsView lines={lines} position={stage === 'singing' ? pos : -1} overVideo={hasVideo && camOn} />
         )}
         {stage === 'singing' && (
           <div style={{ position: 'absolute', left: 10, top: '30%', height: '35%', width: 6, background: 'rgba(255,255,255,0.12)', borderRadius: 3, display: 'flex', alignItems: 'flex-end' }}>
@@ -207,16 +232,21 @@ export default function KaraokeSingPage() {
       </div>
 
       {/* Controles */}
-      <div style={{ flexShrink: 0, padding: '10px 18px calc(env(safe-area-inset-bottom, 0px) + 18px)' }}>
+      <div style={{ flexShrink: 0, padding: '10px 18px calc(env(safe-area-inset-bottom, 0px) + 18px)', position: 'relative', zIndex: 1 }}>
         {stage === 'ready' && (
           <button onClick={start} style={bigBtn}>Pulsa para empezar</button>
         )}
-        {stage === 'preparing' && <p style={{ textAlign: 'center', opacity: 0.8 }}>Preparando micrófono y canción…</p>}
+        {stage === 'preparing' && <p style={{ textAlign: 'center', opacity: 0.8 }}>Preparando cámara, micrófono y canción…</p>}
         {stage === 'singing' && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around' }}>
             <CtrlBtn label="Mezclador" onPress={() => setShowMixer(true)}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
             </CtrlBtn>
+            {hasVideo && (
+              <CtrlBtn label={camOn ? 'Cámara' : 'Sin cámara'} onPress={toggleCamera}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: camOn ? 1 : 0.5 }}><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>{!camOn && <line x1="2" y1="2" x2="22" y2="22"/>}</svg>
+              </CtrlBtn>
+            )}
             <button onClick={togglePause} aria-label={paused ? 'Continuar' : 'Pausa'} style={{ width: 70, height: 70, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.18)', color: 'white', fontSize: 26, cursor: 'pointer' }}>
               {paused ? '▶' : '❚❚'}
             </button>
@@ -235,7 +265,7 @@ export default function KaraokeSingPage() {
         <Modal>
           <div style={{ fontSize: 46, marginBottom: 6 }}>🎧</div>
           <p style={{ margin: '0 0 6px', fontSize: 18, fontWeight: 900 }}>Se recomienda usar auriculares</p>
-          <p style={{ margin: '0 0 18px', fontSize: 13, opacity: 0.85, lineHeight: 1.5 }}>Con auriculares tu voz se graba limpia, sin eco y sin que la música se cuele por el micrófono.</p>
+          <p style={{ margin: '0 0 18px', fontSize: 13, opacity: 0.85, lineHeight: 1.5 }}>Con auriculares te oirás cantando sobre la música y tu voz se grabará limpia, sin eco. Se activará la cámara para grabarte en vídeo.</p>
           <button onClick={() => prepare(true)} style={{ ...bigBtn, marginBottom: 10 }}>Tengo auriculares</button>
           <button onClick={() => prepare(false)} style={{ ...bigBtn, background: 'rgba(255,255,255,0.15)' }}>Cantar sin auriculares</button>
         </Modal>
@@ -246,8 +276,10 @@ export default function KaraokeSingPage() {
         <Modal>
           <div style={{ fontSize: 46, marginBottom: 6 }}>🎉</div>
           <p style={{ margin: '0 0 4px', fontSize: 19, fontWeight: 900 }}>¡Bravo!</p>
-          <p style={{ margin: '0 0 14px', fontSize: 13, opacity: 0.85 }}>Escucha tu grabación de "{song?.title}" ({fmtTime(rec.duration)})</p>
-          <audio controls src={rec.url} style={{ width: '100%', marginBottom: 14 }} />
+          <p style={{ margin: '0 0 14px', fontSize: 13, opacity: 0.85 }}>{rec.video ? 'Mira' : 'Escucha'} tu grabación de "{song?.title}" ({fmtTime(rec.duration)})</p>
+          {rec.video
+            ? <video controls playsInline src={rec.url} style={{ width: '100%', maxHeight: '40vh', borderRadius: 14, background: '#000', marginBottom: 14 }} />
+            : <audio controls src={rec.url} style={{ width: '100%', marginBottom: 14 }} />}
           {!saved ? (
             <button onClick={save} disabled={saving} style={{ ...bigBtn, marginBottom: 10, opacity: saving ? 0.6 : 1 }}>{saving ? 'Guardando…' : 'Guardar en mis grabaciones'}</button>
           ) : (
@@ -270,7 +302,7 @@ export default function KaraokeSingPage() {
             <Slider label="Música" value={mix.music} onChange={v => changeMix('music', v)} />
             <Slider label="Voz (en la grabación)" value={mix.voice} onChange={v => changeMix('voice', v)} />
             {headphones
-              ? <Slider label="Retorno de voz en auriculares" value={mix.monitor} onChange={v => changeMix('monitor', v)} />
+              ? <Slider label="Oír mi voz en los auriculares" value={mix.monitor} onChange={v => changeMix('monitor', v)} />
               : <p style={{ fontSize: 12, opacity: 0.6, margin: 0 }}>El retorno de voz solo está disponible con auriculares.</p>}
           </div>
         </div>

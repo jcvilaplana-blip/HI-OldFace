@@ -248,7 +248,7 @@ function RoomCard({ room, onOpen }) {
 
 function RecordingRow({ rec, userId, onDeleted }) {
   const share = async () => {
-    const text = `🎤 Escucha cómo canto "${rec.songTitle}" en OldFace`;
+    const text = `🎤 ${rec.video ? 'Mira' : 'Escucha'} cómo canto "${rec.songTitle}" en OldFace`;
     const url = absUrl(rec.audioUrl);
     try {
       const { Capacitor } = await import('@capacitor/core');
@@ -276,7 +276,9 @@ function RecordingRow({ rec, userId, onDeleted }) {
         <button onClick={share} aria-label="Compartir" style={{ background: '#e0e7ff', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer' }}>↗</button>
         <button onClick={remove} aria-label="Borrar" style={{ background: '#fee2e2', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer' }}>🗑</button>
       </div>
-      <audio controls preload="none" src={absUrl(rec.audioUrl)} style={{ width: '100%', marginTop: 10, height: 36 }} />
+      {rec.video
+        ? <video controls playsInline preload="metadata" src={`${absUrl(rec.audioUrl)}#t=0.5`} style={{ width: '100%', maxHeight: 420, marginTop: 10, borderRadius: 12, background: '#000' }} />
+        : <audio controls preload="none" src={absUrl(rec.audioUrl)} style={{ width: '100%', marginTop: 10, height: 36 }} />}
     </div>
   );
 }

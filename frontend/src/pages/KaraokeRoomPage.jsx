@@ -46,6 +46,10 @@ export default function KaraokeRoomPage() {
   const [toast,  setToast]  = useState('');
   const [needsTap, setNeedsTap] = useState(false);
   const [hearts, setHearts] = useState([]);
+  const [videos, setVideos] = useState({});           // userId → stream de vídeo recibido (cámara del cantante)
+  const [localPreview, setLocalPreview] = useState(null); // mi cámara mientras canto
+  const [camOn,  setCamOn]  = useState(true);
+  const [monitorOn, setMonitorOn] = useState(false);  // oírme en los auriculares
 
   const callRef     = useRef(null);
   const engineRef   = useRef(null);
@@ -99,8 +103,8 @@ export default function KaraokeRoomPage() {
 
       const call = new RtcCall({
         roomId: `karaoke_${id}`, video: false, publish: false,
-        onPeerStream: (peerId, stream) => attachAudio(peerId, stream),
-        onPeerLeft: (peerId) => audioBoxRef.current?.querySelector(`audio[data-peer="${peerId}"]`)?.remove(),
+        onPeerStream: (peerId, stream) => { attachAudio(peerId, stream); setPeerVideo(peerId, stream); },
+        onPeerLeft: (peerId) => { audioBoxRef.current?.querySelector(`audio[data-peer="${peerId}"]`)?.remove(); setPeerVideo(peerId, null); },
       });
       callRef.current = call;
       await call.join();
@@ -178,16 +182,29 @@ export default function KaraokeRoomPage() {
     el.play().catch(() => setNeedsTap(true));
   };
 
+  // Vídeo del cantante (el audio va por el <audio>; el <video> de fondo va silenciado)
+  const setPeerVideo = (peerId, stream) => {
+    const track = stream?.getVideoTracks().find(t => t.readyState === 'live');
+    setVideos(v => {
+      const next = { ...v };
+      if (track) next[peerId] = new MediaStream([track]); else delete next[peerId];
+      return next;
+    });
+  };
+
   // ── Cantar ────────────────────────────────────────────────────────────────
   const startSinging = async (headphones) => {
     setAskHeadphones(false);
     const entry = queue[0];
     if (!entry || entry.userId !== user?.id) return;
     try {
-      const engine = new KaraokeEngine({ audioUrl: absUrl(entry.song.audioUrl), headphones });
+      const engine = new KaraokeEngine({ audioUrl: absUrl(entry.song.audioUrl), headphones, camera: true });
       await engine.init();
       engineRef.current = engine;
       if (!headphones) window.OldFaceAudio?.enableSpeaker();
+      setLocalPreview(engine.preview);
+      setCamOn(true);
+      setMonitorOn(engine.monitor > 0);
       await rtcRequest('karaoke:start', { roomId, entryId: entry.id });
       await callRef.current.publish({ stream: engine.stream });
       engine.onEnded(() => stopSinging(true));
@@ -202,7 +219,8 @@ export default function KaraokeRoomPage() {
     } catch (e) {
       engineRef.current?.destroy();
       engineRef.current = null;
-      showToast(e?.name === 'NotAllowedError' ? 'Necesitamos permiso para el micrófono' : (e.message || 'No se pudo empezar'));
+      setLocalPreview(null);
+      showToast(e?.name === 'NotAllowedError' ? 'Necesitamos permiso para el micrófono y la cámara' : (e.message || 'No se pudo empezar'));
     }
   };
 
@@ -212,8 +230,23 @@ export default function KaraokeRoomPage() {
     try { await callRef.current?.unpublish(); } catch {}
     engineRef.current?.destroy();
     engineRef.current = null;
+    setLocalPreview(null);
     setSinging(false);
     window.OldFaceAudio?.enableSpeaker();
+  };
+
+  const toggleCamera = () => {
+    const e = engineRef.current;
+    if (!e?.hasVideo) return;
+    e.setCamera(!camOn);   // apagada, el público ve negro
+    setCamOn(!camOn);
+  };
+  const toggleMonitor = () => {
+    const e = engineRef.current;
+    if (!e) return;
+    if (!e.headphones && !monitorOn) { showToast('🎧 Oír tu voz solo funciona con auriculares'); return; }
+    e.setMonitor(monitorOn ? 0 : 70);
+    setMonitorOn(!monitorOn);
   };
 
   // ── Acciones ──────────────────────────────────────────────────────────────
@@ -263,12 +296,23 @@ export default function KaraokeRoomPage() {
   }
 
   const singerIsMe = current?.userId === user?.id;
+  // Fondo: mi cámara si canto yo; si no, la cámara del cantante actual
+  const bgStream = current ? (singerIsMe ? (camOn ? localPreview : null) : videos[current.userId]) : null;
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: BG, color: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div ref={audioBoxRef} style={{ display: 'none' }} />
 
+      {/* Cámara en directo del cantante de fondo + degradado para leer la letra */}
+      {bgStream && (
+        <>
+          <BgVideo stream={bgStream} mirror={singerIsMe} />
+          <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
+                        background: 'linear-gradient(180deg, rgba(0,0,40,0.6) 0%, rgba(0,0,0,0.15) 28%, rgba(0,0,0,0.25) 60%, rgba(0,0,40,0.8) 100%)' }} />
+        </>
+      )}
+
       {/* Cabecera */}
-      <div style={{ paddingTop: 'max(env(safe-area-inset-top, 12px), 12px)', flexShrink: 0 }}>
+      <div style={{ paddingTop: 'max(env(safe-area-inset-top, 12px), 12px)', flexShrink: 0, position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px' }}>
           <div style={{ width: 38, height: 38, borderRadius: '50%', background: RED, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, flexShrink: 0 }}>{room?.hostName?.[0]?.toUpperCase()}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -281,28 +325,38 @@ export default function KaraokeRoomPage() {
       </div>
 
       {/* Escenario: cantante + letra */}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', zIndex: 1, textShadow: bgStream ? '0 1px 4px rgba(0,0,0,0.9)' : 'none' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 0 4px', flexShrink: 0 }}>
-          <div style={{ position: 'relative', width: 92, height: 92 }}>
+          {!bgStream && <div style={{ position: 'relative', width: 92, height: 92 }}>
             {current && <div style={{ position: 'absolute', inset: -10, borderRadius: '50%', border: `3px solid ${KARAOKE_ACCENT}`, animation: 'kPulse 1.6s ease-out infinite' }} />}
             <div style={{ width: 92, height: 92, borderRadius: '50%', background: current ? `linear-gradient(135deg, #4f46e5, ${KARAOKE_ACCENT})` : 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 38, fontWeight: 900 }}>
               {current ? current.name?.[0]?.toUpperCase() : '🎤'}
             </div>
-          </div>
-          <p style={{ margin: '10px 0 0', fontSize: 15, fontWeight: 900 }}>
+          </div>}
+          <p style={{ margin: bgStream ? '2px 0 0' : '10px 0 0', fontSize: 15, fontWeight: 900 }}>
             {current ? (singerIsMe ? 'Estás cantando' : `${current.name} está cantando`) : 'Nadie está cantando'}
           </p>
           <p style={{ margin: '2px 0 0', fontSize: 12, opacity: 0.75 }}>
             {current ? `♫ ${current.song.title}${current.song.artist ? ' - ' + current.song.artist : ''}` : queue.length ? `Siguiente: ${queue[0].name}` : '¡Elige una canción y canta!'}
           </p>
           {current && (isHost || singerIsMe) && (
-            <button onClick={singerIsMe ? () => stopSinging(true) : skip} style={{ ...pillBtn('rgba(255,255,255,0.15)'), marginTop: 8 }}>
-              {singerIsMe ? 'Terminar' : 'Saltar canción'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              {singerIsMe && singing && (
+                <>
+                  <button onClick={toggleMonitor} style={pillBtn(monitorOn ? KARAOKE_ACCENT : 'rgba(0,0,0,0.35)')}>🎧 Mi voz {monitorOn ? 'ON' : 'OFF'}</button>
+                  {engineRef.current?.hasVideo && (
+                    <button onClick={toggleCamera} style={pillBtn(camOn ? 'rgba(0,0,0,0.35)' : 'rgba(239,68,68,0.85)')}>📷 {camOn ? 'Cámara' : 'Sin cámara'}</button>
+                  )}
+                </>
+              )}
+              <button onClick={singerIsMe ? () => stopSinging(true) : skip} style={pillBtn('rgba(0,0,0,0.35)')}>
+                {singerIsMe ? 'Terminar' : 'Saltar canción'}
+              </button>
+            </div>
           )}
         </div>
         <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-          {current ? <LyricsView lines={lines} position={pos} compact /> : (
+          {current ? <LyricsView lines={lines} position={pos} compact overVideo={!!bgStream} /> : (
             <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.5, fontSize: 40 }}>♪ ♫ ♪</div>
           )}
         </div>
@@ -385,7 +439,7 @@ export default function KaraokeRoomPage() {
           <div style={{ width: '100%', maxWidth: 360, background: 'linear-gradient(160deg, #000080, #2d3bb8)', borderRadius: 22, padding: '24px 20px', textAlign: 'center' }}>
             <div style={{ fontSize: 44 }}>🎧</div>
             <p style={{ margin: '6px 0', fontSize: 18, fontWeight: 900 }}>Se recomienda usar auriculares</p>
-            <p style={{ margin: '0 0 16px', fontSize: 13, opacity: 0.85, lineHeight: 1.5 }}>Así el público te oirá con la música limpia y sin eco.</p>
+            <p style={{ margin: '0 0 16px', fontSize: 13, opacity: 0.85, lineHeight: 1.5 }}>Así te oirás cantando y el público te oirá con la música limpia y sin eco. Se activará tu cámara para que te vean en directo.</p>
             <button onClick={() => startSinging(true)} style={{ ...bigBtn, marginBottom: 10 }}>Tengo auriculares</button>
             <button onClick={() => startSinging(false)} style={{ ...bigBtn, background: 'rgba(255,255,255,0.15)' }}>Cantar sin auriculares</button>
           </div>
@@ -406,6 +460,20 @@ export default function KaraokeRoomPage() {
         @keyframes kHeart { 0% { transform: translateY(0) scale(0.6); opacity: 0 } 10% { opacity: 1 } 100% { transform: translateY(-240px) scale(1); opacity: 0 } }
       `}</style>
     </div>
+  );
+}
+
+function BgVideo({ stream, mirror }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (el.srcObject !== stream) el.srcObject = stream;
+    el.play().catch(() => {});
+  }, [stream]);
+  return (
+    <video ref={ref} autoPlay playsInline muted
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0, transform: mirror ? 'scaleX(-1)' : 'none' }} />
   );
 }
 

@@ -1587,18 +1587,44 @@ const recSummary = (r) => {
   return {
     id: r.id, userId: r.userId, userName: u?.name || 'Usuario', userAvatar: u?.avatar || null,
     songId: r.songId, songTitle: song?.title || 'Canción', songArtist: song?.artist || '',
-    coverUrl: song?.coverUrl || null, audioUrl: r.audioUrl, duration: r.duration || 0, createdAt: r.createdAt,
+    coverUrl: song?.coverUrl || null, audioUrl: r.audioUrl, video: !!r.video, duration: r.duration || 0, createdAt: r.createdAt,
   };
 };
 
-/** POST /karaoke/recordings — { userId, songId, audioUrl (de /upload-file), duration } */
+/**
+ * POST /karaoke/upload?userId= — sube la grabación en binario (cuerpo = archivo, Content-Type = su tipo).
+ * Las grabaciones con vídeo superan el límite de /upload-file (base64 en JSON, ~10 MB).
+ */
+const KARAOKE_UPLOAD_EXT = {
+  'video/webm': '.webm', 'video/mp4': '.mp4', 'audio/webm': '.webm', 'audio/mp4': '.m4a', 'audio/ogg': '.ogg',
+};
+router.post('/karaoke/upload', express.raw({ type: () => true, limit: '120mb' }), (req, res) => {
+  const userId = req.query.userId;
+  if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  if (isKaraokeBanned(userId)) return res.status(403).json({ error: 'Tu cuenta no puede usar el karaoke' });
+  const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+  const ext = KARAOKE_UPLOAD_EXT[type];
+  if (!ext) return res.status(415).json({ error: 'Formato de grabación no admitido' });
+  if (!Buffer.isBuffer(req.body) || req.body.length < 1000) return res.status(400).json({ error: 'Grabación vacía' });
+  const safeName = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`;
+  try {
+    fs.writeFileSync(path.join(UPLOADS_DIR, safeName), req.body);
+    console.log(`[karaoke/upload] ${safeName} (${req.body.length} bytes)`);
+    res.json({ url: `/files/${safeName}`, video: type.startsWith('video/') });
+  } catch (err) {
+    console.error('[karaoke/upload] Error:', err.message);
+    res.status(500).json({ error: 'Error al guardar la grabación' });
+  }
+});
+
+/** POST /karaoke/recordings — { userId, songId, audioUrl (de /karaoke/upload), video, duration } */
 router.post('/karaoke/recordings', (req, res) => {
-  const { userId, songId, audioUrl, duration } = req.body || {};
+  const { userId, songId, audioUrl, duration, video } = req.body || {};
   if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
   if (isKaraokeBanned(userId)) return res.status(403).json({ error: 'Tu cuenta no puede usar el karaoke' });
   if (!karaokeSongStore.has(songId)) return res.status(404).json({ error: 'Canción no encontrada' });
   if (!audioUrl || !/^\/files\/[\w.-]+$/.test(audioUrl)) return res.status(400).json({ error: 'Grabación no válida' });
-  const rec = { id: `rec_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`, userId, songId, audioUrl,
+  const rec = { id: `rec_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`, userId, songId, audioUrl, video: !!video,
                 duration: Math.max(0, Number(duration) || 0), createdAt: Date.now() };
   karaokeRecStore.set(rec.id, rec);
   saveKaraokeRecs();
