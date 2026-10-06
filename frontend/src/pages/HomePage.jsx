@@ -199,24 +199,27 @@ export default function HomePage() {
         {activeTab === 'contactos' && <ContactosTab T={T} isDark={isDark} />}
       </div>
 
-      {/* ══ FAB ══════════════════════════════════════════════════════════════ */}
+      {/* ══ FAB "+" centrado: abre el menú emergente hacia arriba ══════════════ */}
       <button
         onClick={() => setShowMenu(true)}
+        aria-label="Abrir menú"
         style={{
           position: 'fixed',
           bottom: 'calc(var(--sab) + 76px)',
-          right: 18,
-          width: 54, height: 54,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: 58, height: 58,
           borderRadius: '50%',
-          backgroundColor: BRAND,
-          border: 'none', cursor: 'pointer',
+          background: 'linear-gradient(135deg, #fed7aa 0%, #fdba74 45%, #fb923c 100%)',
+          border: '3px solid white',
+          cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 6px 22px rgba(37,99,235,0.35)',
+          boxShadow: '0 6px 20px rgba(251,146,60,0.45)',
           zIndex: 30,
         }}
       >
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round">
+          <path d="M12 5v14M5 12h14" />
         </svg>
       </button>
 

@@ -13,6 +13,7 @@
     "cap:build": "npm run build && npx cap sync"
   },
   "dependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.26",
     "@capacitor-community/contacts": "^7.1.0",
     "@capacitor/app": "^7.1.2",
     "@capacitor/browser": "^7.0.5",
@@ -23,7 +24,10 @@
     "@capacitor/push-notifications": "^7.0.6",
     "@capacitor/share": "^8.0.1",
     "@capgo/capacitor-autofill-save-password": "^8.0.20",
+    "@protomaps/basemaps": "^5.7.2",
+    "maplibre-gl": "^5.24.0",
     "mediasoup-client": "^3.24.4",
+    "pmtiles": "^4.5.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.21.0",

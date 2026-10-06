@@ -32,7 +32,10 @@ const config: CapacitorConfig = {
   // Android
   android: {
     backgroundColor: '#ffffff',
-    allowMixedContent: false
+    allowMixedContent: false,
+    // Necesario para la ubicación del conductor en segundo plano (taxi): sin esto Android corta
+    // las posiciones a los 5 minutos con la app en segundo plano (@capacitor-community/background-geolocation)
+    useLegacyBridge: true
   }
 };
 

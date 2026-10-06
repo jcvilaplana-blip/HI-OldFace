@@ -22,7 +22,8 @@ function tokenExpired(token) {
   return !exp || exp * 1000 < Date.now() + 24 * 3600 * 1000; // renovar con 1 día de margen
 }
 
-async function getRtcToken(userId, { force = false } = {}) {
+/** Token de sesión firmado de OldFace (lo usan también el taxi y otros servicios propios) */
+export async function getRtcToken(userId, { force = false } = {}) {
   const { rtcToken, setRtcToken } = useAuthStore.getState();
   if (!force && rtcToken && rtcToken.startsWith(`${userId}.`) && !tokenExpired(rtcToken)) return rtcToken;
   const res = await fetch(`${BACKEND}/rtc-token`, {

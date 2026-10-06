@@ -1834,6 +1834,20 @@ router.get('/internal/karaoke/bans', (req, res) => {
   res.json({ userIds: [...karaokeBanStore.keys()] });
 });
 
+/** Servicios propios (taxi) → backend: enviar un aviso push a un usuario de OldFace (secreto interno) */
+router.post('/internal/push', async (req, res) => {
+  const hdr = req.get('x-internal-secret') || '';
+  const secret = process.env.RTC_SECRET || '';
+  if (!secret || hdr.length !== secret.length || !crypto.timingSafeEqual(Buffer.from(hdr), Buffer.from(secret)))
+    return res.status(401).json({ error: 'unauthorized' });
+  const { userId, title, body, data } = req.body || {};
+  const token = fcmStore.get(String(userId || ''));
+  if (!token) return res.json({ success: false, reason: 'sin token FCM' });
+  await sendFCMPush(token, String(title || 'OldFace').slice(0, 120), String(body || '').slice(0, 300),
+                    data && typeof data === 'object' ? data : {});
+  res.json({ success: true });
+});
+
 // ── Android App Links: los enlaces https://oldface.app/directo/... abren la app instalada ──
 // Huellas SHA-256 de los certificados con que se firma el APK. La primera es la clave de
 // depuración con la que se compilan ahora los APK de prueba; para la versión de Play Store

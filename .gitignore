@@ -41,6 +41,9 @@ install-vps.sh
 
 # Datos de usuarios (privados)
 frontend/backend/data/
+taxi-server/data/
+# Panel del taxi compilado (se genera en el despliegue desde taxi-admin/)
+taxi-server/public/admin/
 
 # Skills y herramientas internas de Claude
 frontend/.claude/

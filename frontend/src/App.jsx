@@ -25,6 +25,8 @@ import KaraokePage     from './pages/KaraokePage.jsx';
 import KaraokeSingPage from './pages/KaraokeSingPage.jsx';
 import KaraokeRoomPage from './pages/KaraokeRoomPage.jsx';
 import { listenDeepLinks, savePendingLink, takePendingLink } from './utils/deepLinks';
+// El taxi (mapa MapLibre) se carga solo al abrirlo
+const TaxiPage = React.lazy(() => import('./pages/taxi/TaxiPage.jsx'));
 
 const BRAND = '#000080';
 
@@ -394,6 +396,11 @@ export default function AppRoot() {
             // Usuario pulsa la notificación → navegar al chat o a la llamada
             PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
               const data = action.notification?.data || {};
+              if (String(data.type || '').startsWith('taxi_')) {
+                // Oferta de viaje (conductor) o cambio del viaje (cliente) → abrir el taxi (si ya está abierto, se actualiza solo)
+                if (window.location.pathname !== '/taxi') window.location.href = '/taxi';
+                return;
+              }
               if (data.type === 'live' && data.directoId) {
                 // "X está en directo" → abrir el directo
                 window.location.href = `/directo/${encodeURIComponent(data.directoId)}/live`;
@@ -587,6 +594,7 @@ function AppShell() {
         <Route path="/karaoke"                 element={<ProtectedRoute><KaraokePage /></ProtectedRoute>} />
         <Route path="/karaoke/cantar/:songId"  element={<ProtectedRoute><KaraokeSingPage /></ProtectedRoute>} />
         <Route path="/karaoke/sala/:roomId"    element={<ProtectedRoute><KaraokeRoomPage /></ProtectedRoute>} />
+        <Route path="/taxi" element={<ProtectedRoute><React.Suspense fallback={<div style={{ position: 'fixed', inset: 0, background: '#f1f5f9' }} />}><TaxiPage /></React.Suspense></ProtectedRoute>} />
         <Route path="/video-call/:userId" element={<ProtectedRoute><VideoCallPage /></ProtectedRoute>} />
         <Route path="/call/:userId"        element={<ProtectedRoute><CallPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
