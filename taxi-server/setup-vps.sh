@@ -101,6 +101,12 @@ location ^~ /maps/assets/ {
 }
 EOF
 fi
+# /taxi (sin barra) es la página del taxi de la web (React): sin esto nginx la redirige a /taxi/ (el servidor del taxi)
+if ! grep -q "location = /taxi " "$VHOST_NGINX"; then
+cat >> "$VHOST_NGINX" <<'EOF'
+location = /taxi { try_files /index.html =404; }
+EOF
+fi
 /usr/local/psa/admin/sbin/httpdmng --reconfigure-domain "$DOMAIN" >/dev/null
 grep -q vhost_nginx.conf "$CONF_DIR/nginx.conf" && echo "  incluido en nginx.conf" || echo "  AVISO: vhost_nginx.conf NO incluido"
 nginx -t 2>&1 | tail -1
