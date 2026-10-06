@@ -35,6 +35,14 @@ const err = (status, message) => Object.assign(new Error(message), { status });
 const a = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const pt = (p) => ({ lat: Number(p?.lat), lng: Number(p?.lng), address: String(p?.address || '').slice(0, 300) });
 const newCode = (prefix) => `${prefix}${new Date().toISOString().slice(2, 10).replace(/-/g, '')}${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
+/** Foto de perfil: la de OldFace (data:image en base64, ≤ 100 KB) o una ruta/URL de imagen; cualquier otra cosa se descarta */
+const photoValue = (p) => {
+  if (p === undefined) return undefined;
+  const s = String(p || '');
+  if (!s) return null;
+  if (/^data:image\/(jpeg|png|webp|gif);base64,/.test(s)) return s.length <= 100_000 ? s : undefined;
+  return s.length <= 500 && /^(https?:\/\/|\/)/.test(s) ? s : undefined;
+};
 const referralCode = (name) => `${String(name || 'OF').normalize('NFD').replace(/[^A-Za-z]/g, '').slice(0, 4).toUpperCase() || 'OF'}${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
 
 router.use(appAuth);
@@ -88,7 +96,7 @@ router.post('/role', (req, res) => {
   tx(() => {
     run('INSERT INTO taxi_accounts (user_id, role, created_at) VALUES (?, ?, ?)', req.userId, role, now());
     run(`INSERT INTO ${table} (user_id, name, phone, email, photo, country_id, language, referral_code, referred_by, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        req.userId, name, req.body?.phone || null, req.body?.email || null, req.body?.photo || null, country?.id || null,
+        req.userId, name, req.body?.phone || null, req.body?.email || null, photoValue(req.body?.photo) || null, country?.id || null,
         req.body?.language || country?.default_language || 'es', referralCode(name), refBy, role === 'driver' ? 'pending' : 'active', now());
     const me = get(`SELECT id FROM ${table} WHERE user_id = ?`, req.userId);
     wallet.ensureWallet(role, me.id, get('SELECT currency_code c FROM countries WHERE id = ?', country?.id)?.c || 'EUR');
@@ -250,11 +258,13 @@ customer.post('/wallet/topup/:intentId', a(async (req, res) => {
 
 customer.put('/profile', (req, res) => {
   const b = req.body || {};
-  const fields = { name: b.name, email: b.email, phone: b.phone, photo: b.photo, language: b.language,
+  const fields = { name: b.name, email: b.email, phone: b.phone, language: b.language,
                    emergency_contact: b.emergencyContact ? JSON.stringify(b.emergencyContact) : undefined,
                    country_id: b.countryId ? Number(b.countryId) : undefined };
+  for (const k of Object.keys(fields)) if (typeof fields[k] === 'string') fields[k] = fields[k].slice(0, 300);
+  fields.photo = photoValue(b.photo);   // la foto (base64) no se recorta: o entera o nada
   const keys = Object.keys(fields).filter(k => fields[k] !== undefined);
-  if (keys.length) run(`UPDATE customers SET ${keys.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, ...keys.map(k => typeof fields[k] === 'string' ? fields[k].slice(0, 300) : fields[k]), req.me.id);
+  if (keys.length) run(`UPDATE customers SET ${keys.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, ...keys.map(k => fields[k]), req.me.id);
   res.json({ profile: get('SELECT * FROM customers WHERE id = ?', req.me.id) });
 });
 
@@ -304,7 +314,7 @@ driver.get('/dashboard', (req, res) => {
 
 driver.put('/profile', (req, res) => {
   const b = req.body || {};
-  const fields = { name: b.name, email: b.email, phone: b.phone, photo: b.photo, language: b.language, city_id: b.cityId ? Number(b.cityId) : undefined };
+  const fields = { name: b.name, email: b.email, phone: b.phone, photo: photoValue(b.photo), language: b.language, city_id: b.cityId ? Number(b.cityId) : undefined };
   const keys = Object.keys(fields).filter(k => fields[k] !== undefined);
   if (keys.length) run(`UPDATE drivers SET ${keys.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, ...keys.map(k => fields[k]), req.me.id);
   res.json({ profile: get('SELECT * FROM drivers WHERE id = ?', req.me.id) });

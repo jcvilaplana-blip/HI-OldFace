@@ -182,7 +182,7 @@ export function AccountTab({ boot, dash, loadDash, notify, reload, onExit, sub, 
 
 function DriverProfile({ boot, dash, notify, reload, onBack }) {
   const d = dash.driver;
-  const [f, setF] = useState({ name: d.name || '', email: d.email || '', phone: d.phone || '', language: d.language || 'es', photo: d.photo || '' });
+  const [f, setF] = useState({ name: d.name || '', email: d.email || '', phone: d.phone || '', language: d.language || 'es' });
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF(v => ({ ...v, [k]: e.target.value }));
   const save = async () => {
@@ -194,7 +194,7 @@ function DriverProfile({ boot, dash, notify, reload, onBack }) {
   return (
     <Page title={tx('Mis datos')} onBack={onBack}>
       <Card>
-        <Field label={tx('Foto')}><FilePick accept="image/*" value={f.photo} onUploaded={(url) => setF(v => ({ ...v, photo: url }))} notify={notify} /></Field>
+        <p style={{ fontSize: 12, color: C.muted, margin: '0 0 12px' }}>{tx('La foto es la de tu perfil de OldFace (cámbiala en Ajustes).')}</p>
         <Field label={tx('Nombre')}><input style={inputStyle} value={f.name} onChange={set('name')} maxLength={80} /></Field>
         <Field label={tx('Email')}><input style={inputStyle} value={f.email} onChange={set('email')} type="email" maxLength={120} /></Field>
         <Field label={tx('Teléfono')}><input style={inputStyle} value={f.phone} onChange={set('phone')} inputMode="tel" maxLength={30} /></Field>

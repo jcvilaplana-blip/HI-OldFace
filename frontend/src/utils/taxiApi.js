@@ -16,7 +16,8 @@ const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 export const TAXI_ORIGIN = import.meta.env.VITE_TAXI_URL || new URL(BACKEND).origin;
 const API = `${TAXI_ORIGIN}/taxi/api/app`;
 
-export const taxiUrl = (p) => (!p ? p : /^https?:/.test(p) ? p : `${TAXI_ORIGIN}${p}`);
+// Rutas relativas del servidor del taxi → URL completa; http(s), data: (foto de OldFace) y blob: se dejan tal cual
+export const taxiUrl = (p) => (!p ? p : /^(https?|data|blob):/.test(p) ? p : `${TAXI_ORIGIN}${p}`);
 
 async function token(force = false) {
   const user = useAuthStore.getState().user;

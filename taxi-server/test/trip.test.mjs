@@ -54,6 +54,12 @@ try {
   ok('un cliente NO puede hacerse conductor (409)', again.s === 409 && /no puede/.test(again.d.error), again);
   ok('el cliente no puede usar la parte de conductor (403)', (await req('GET', '/api/app/driver/dashboard', null, C)).s === 403);
   const c1 = (await req('GET', '/api/app/bootstrap', null, C)).d.profile;
+  // Foto de OldFace (base64): se guarda entera; lo que no es imagen se descarta
+  const avatar = 'data:image/jpeg;base64,' + 'A'.repeat(20000);
+  const ph = await req('PUT', '/api/app/customer/profile', { photo: avatar }, C);
+  ok('la foto de OldFace (base64) se guarda entera en el perfil del cliente', ph.s === 200 && ph.d.profile.photo === avatar, ph.d.profile?.photo?.length);
+  const bad = await req('PUT', '/api/app/customer/profile', { photo: 'javascript:alert(1)' }, C);
+  ok('una "foto" que no es imagen no sustituye a la buena', bad.d.profile.photo === avatar);
   ok('conductor 1 con código de invitación del cliente', (await req('POST', '/api/app/role', { role: 'driver', name: 'Pedro Conductor', referralCode: c1.referral_code }, D1)).s === 201);
   ok('un conductor NO puede hacerse cliente (409)', (await req('POST', '/api/app/role', { role: 'customer' }, D1)).s === 409);
   ok('el conductor no puede pedir viajes (403)', (await req('POST', '/api/app/customer/quote', { pickup: MADRID, dropoff: ATOCHA }, D1)).s === 403);

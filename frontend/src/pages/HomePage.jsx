@@ -210,11 +210,11 @@ export default function HomePage() {
           transform: 'translateX(-50%)',
           width: 58, height: 58,
           borderRadius: '50%',
-          background: 'linear-gradient(135deg, #FF844B 0%, #EE6C4D 100%)',
+          background: 'linear-gradient(135deg, #4E7D96 0%, #3D5A80 100%)',
           border: '3px solid white',
           cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 6px 20px rgba(238,108,77,0.45)',
+          boxShadow: '0 6px 20px rgba(61,90,128,0.45)',
           zIndex: 30,
         }}
       >

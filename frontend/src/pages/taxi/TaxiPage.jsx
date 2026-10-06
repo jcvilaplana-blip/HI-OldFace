@@ -21,6 +21,14 @@ export default function TaxiPage() {
     setError('');
     try {
       const b = await taxiApi('/bootstrap');
+      // La foto del taxi es siempre la del perfil de OldFace: si ha cambiado, se actualiza
+      const avatar = useAuthStore.getState().user?.avatar || null;
+      if (b.role && b.profile && avatar && b.profile.photo !== avatar) {
+        try {
+          await taxiApi(`/${b.role}/profile`, { method: 'PUT', body: { photo: avatar } });
+          b.profile = { ...b.profile, photo: avatar };
+        } catch { /* sin foto nueva no se bloquea el taxi */ }
+      }
       setTaxiLanguage(b.language);
       setBoot(b);
     } catch (e) { setError(e.message); }
