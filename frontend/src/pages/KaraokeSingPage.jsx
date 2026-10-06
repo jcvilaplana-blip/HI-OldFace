@@ -17,7 +17,7 @@ import LyricsView, { KARAOKE_ACCENT, DUET_PARTNER } from '../components/LyricsVi
 import { absUrl } from './KaraokePage';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-const BG = 'linear-gradient(180deg, #0b1033 0%, #111827 55%, #000080 140%)';
+const BG = 'linear-gradient(180deg, #141A2A 0%, #111827 55%, #3D5A80 140%)';
 const SPEEDS = [0.85, 1, 1.15];
 
 /** Auriculares conectados según Android (APK); 'unknown' en la web o en APK antiguos */
@@ -159,7 +159,7 @@ export default function KaraokeSingPage() {
         ctx.restore();
       } else {
         const g = ctx.createLinearGradient(0, y, W, y + H);
-        g.addColorStop(0, '#000080'); g.addColorStop(1, mirror ? '#4f46e5' : '#be185d');
+        g.addColorStop(0, '#3D5A80'); g.addColorStop(1, mirror ? '#4E7D96' : '#be185d');
         ctx.fillStyle = g; ctx.fillRect(0, y, W, H);
         ctx.fillStyle = 'white'; ctx.font = 'bold 120px sans-serif'; ctx.textAlign = 'center';
         ctx.fillText((label || '?')[0].toUpperCase(), W / 2, y + H / 2 + 40);
@@ -323,7 +323,7 @@ export default function KaraokeSingPage() {
                  transform: 'scaleX(-1)', zIndex: 0, display: showCam ? 'block' : 'none' }} />
       {mode === 'join' && partner && !partner.video && (
         <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: '50%', zIndex: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      background: `linear-gradient(135deg, #000080, #be185d)`, fontSize: 70, fontWeight: 900 }}>{partner.userName?.[0]?.toUpperCase()}</div>
+                      background: `linear-gradient(135deg, #3D5A80, #be185d)`, fontSize: 70, fontWeight: 900 }}>{partner.userName?.[0]?.toUpperCase()}</div>
       )}
       {(showCam || joinVideo) && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
@@ -575,7 +575,7 @@ function hpText(kind) {
 function Modal({ children }) {
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 10, background: 'rgba(5,8,25,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div style={{ width: '100%', maxWidth: 360, maxHeight: '92vh', overflowY: 'auto', background: 'linear-gradient(160deg, #000080, #2d3bb8)', borderRadius: 22, padding: '22px 20px', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+      <div style={{ width: '100%', maxWidth: 360, maxHeight: '92vh', overflowY: 'auto', background: 'linear-gradient(160deg, #3D5A80, #4E7D96)', borderRadius: 22, padding: '22px 20px', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
         {children}
       </div>
     </div>
@@ -623,5 +623,5 @@ const stepBtn = {
 
 const bigBtn = {
   width: '100%', padding: '15px', border: 'none', borderRadius: 26, cursor: 'pointer', color: 'white',
-  background: `linear-gradient(135deg, #4f46e5, ${KARAOKE_ACCENT})`, fontSize: 16, fontWeight: 900,
+  background: `linear-gradient(135deg, #4E7D96, ${KARAOKE_ACCENT})`, fontSize: 16, fontWeight: 900,
 };

@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { taxiApi, taxiSocket, tx, money, decodePolyline, currentPosition, taxiUrl } from '../../utils/taxiApi';
 import { BRAND, C, Btn, Sheet, Spinner, Toast, Stars, Tabs, inputStyle } from './ui.jsx';
 import TaxiMap from './TaxiMap.jsx';
+import CardPay from './CardPay.jsx';
 import { TripsTab, WalletTab, ProfileTab } from './CustomerTabs.jsx';
 
 const ACTIVE = ['searching', 'accepted', 'arrived', 'started'];
@@ -144,13 +145,24 @@ function RideHome({ boot, notify, onExit }) {
     setBusy(false);
   }, [notify]);
 
+  const [cardPay, setCardPay] = useState(null);      // { booking, card } mientras se confirma la tarjeta de crédito
   const order = async () => {
     setBusy(true);
     try {
-      const { booking: b } = await taxiApi('/customer/bookings', { method: 'POST', body: { pickup, dropoff, rideTypeId, paymentMethod: payment, promoCode: promo || undefined } });
-      setBooking(b); setDriverPos(null); setStep('trip');
+      const { booking: b, card } = await taxiApi('/customer/bookings', { method: 'POST', body: { pickup, dropoff, rideTypeId, paymentMethod: payment, promoCode: promo || undefined } });
+      if (card) setCardPay({ booking: b, card });   // tarjeta de crédito: primero se confirma la tarjeta (se reserva el importe)
+      else { setBooking(b); setDriverPos(null); setStep('trip'); }
     } catch (e) { notify(e.message, true); }
     setBusy(false);
+  };
+  const cardConfirmed = async () => {
+    const { booking: b } = await taxiApi(`/customer/bookings/${cardPay.booking.code}/card`, { method: 'POST' });
+    setCardPay(null); setBooking(b); setDriverPos(null); setStep('trip');
+  };
+  const cardCancelled = async () => {
+    const code = cardPay.booking.code;
+    setCardPay(null);
+    try { await taxiApi(`/customer/bookings/${code}/cancel`, { method: 'POST', body: { reason: 'Pago con tarjeta no completado' } }); } catch { /* ya anulado */ }
   };
 
   const resetRide = () => { setBooking(null); setDriverPos(null); setQuote(null); setDropoff(null); setPromo(''); setStep('idle'); if (pickup) setCenter({ lat: pickup.lat, lng: pickup.lng }); };
@@ -249,6 +261,13 @@ function RideHome({ boot, notify, onExit }) {
             setPickup(p); setDropoff(d); setBooking(null); getQuote(p, d, promo);
           }} />
       )}
+
+      {cardPay && (
+        <CardPay card={cardPay.card} lang={lang} title={tx('Pagar con tarjeta de crédito')}
+          note={tx('Se reserva {amount} en tu tarjeta y se cobra al terminar el viaje. Si se cancela sin gastos, la reserva se libera.', { amount: money(cardPay.booking.estimated_fare, cardPay.booking.currency) })}
+          payLabel={`${tx('Confirmar y pedir')} · ${money(cardPay.booking.estimated_fare, cardPay.booking.currency)}`}
+          onPaid={cardConfirmed} onCancel={cardCancelled} />
+      )}
     </div>
   );
 }
@@ -345,7 +364,7 @@ function QuotePanel({ quote, settings, rideTypeId, setRideTypeId, payment, setPa
   const methods = [
     settings.payments.cash && { key: 'cash', label: tx('Efectivo'), icon: '💶' },
     settings.payments.wallet && { key: 'wallet', label: tx('Monedero'), icon: '👛' },
-    settings.payments.stripe && { key: 'stripe', label: tx('Tarjeta'), icon: '💳' },
+    settings.payments.stripe && { key: 'stripe', label: tx('Tarjeta de crédito'), icon: '💳' },
   ].filter(Boolean);
   useEffect(() => { if (methods.length && !methods.some(m => m.key === payment)) setPayment(methods[0].key); }, [methods.length]); // eslint-disable-line
   const [showPromo, setShowPromo] = useState(!!promo);
@@ -368,7 +387,7 @@ function QuotePanel({ quote, settings, rideTypeId, setRideTypeId, payment, setPa
             const on = o.rideType.id === rideTypeId;
             return (
               <button key={o.rideType.id} onClick={() => setRideTypeId(o.rideType.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 12px', borderRadius: 14,
-                border: `2px solid ${on ? BRAND : C.line}`, background: on ? '#eef2ff' : 'white', cursor: 'pointer', textAlign: 'left' }}>
+                border: `2px solid ${on ? BRAND : C.line}`, background: on ? '#E3EDF2' : 'white', cursor: 'pointer', textAlign: 'left' }}>
                 {o.rideType.icon ? <img src={taxiUrl(o.rideType.icon)} alt="" style={{ width: 44, height: 30, objectFit: 'contain' }} /> : <span style={{ fontSize: 26, width: 44, textAlign: 'center' }}>{rideEmoji(o.rideType.code)}</span>}
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontWeight: 900, fontSize: 16, color: C.text }}>{o.rideType.name} <span style={{ fontWeight: 600, fontSize: 12, color: C.muted }}>👤{o.rideType.seats}</span></span>
@@ -386,14 +405,14 @@ function QuotePanel({ quote, settings, rideTypeId, setRideTypeId, payment, setPa
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
         {methods.map(m => (
           <button key={m.key} onClick={() => setPayment(m.key)} style={{ padding: '8px 12px', borderRadius: 20, border: `1.5px solid ${payment === m.key ? BRAND : C.line}`,
-            background: payment === m.key ? '#eef2ff' : 'white', color: payment === m.key ? BRAND : C.text, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>{m.icon} {m.label}</button>
+            background: payment === m.key ? '#E3EDF2' : 'white', color: payment === m.key ? BRAND : C.text, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>{m.icon} {m.label}</button>
         ))}
         <button onClick={() => setShowPromo(v => !v)} style={{ padding: '8px 12px', borderRadius: 20, border: `1.5px dashed ${C.line}`, background: 'white', color: C.muted, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>🏷️ {tx('Código promocional')}</button>
       </div>
       {showPromo && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <input value={promo} onChange={e => setPromo(e.target.value.toUpperCase())} placeholder={tx('Código')} style={{ ...inputStyle, padding: '10px 12px' }} maxLength={30} />
-          <button onClick={applyPromo} disabled={!promo.trim() || busy} style={{ padding: '0 16px', borderRadius: 12, border: 'none', background: '#e0e7ff', color: BRAND, fontWeight: 800, cursor: 'pointer' }}>{tx('Aplicar')}</button>
+          <button onClick={applyPromo} disabled={!promo.trim() || busy} style={{ padding: '0 16px', borderRadius: 12, border: 'none', background: '#D5E6F0', color: BRAND, fontWeight: 800, cursor: 'pointer' }}>{tx('Aplicar')}</button>
         </div>
       )}
       {quote.promoError && promo && <p style={{ color: C.danger, fontSize: 13, fontWeight: 700, margin: '0 0 10px' }}>{tx(quote.promoError)}</p>}
@@ -416,7 +435,7 @@ function AddrLine({ dot, square, text, onClick }) {
 }
 
 // ── Viaje en curso ───────────────────────────────────────────────────────────
-const PAY_LABEL = { cash: 'Efectivo', wallet: 'Monedero', stripe: 'Tarjeta' };
+const PAY_LABEL = { cash: 'Efectivo', wallet: 'Monedero', stripe: 'Tarjeta de crédito' };
 
 function TripPanel({ booking: b, settings, driverPos, notify, reload, onCall, onDone, onRetry }) {
   const cur = b.currency || 'EUR';
@@ -472,7 +491,7 @@ function TripPanel({ booking: b, settings, driverPos, notify, reload, onCall, on
       </p>
       <DriverCard b={b} />
       {settings.otpRequired && b.start_otp && b.status !== 'started' && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#eef2ff', borderRadius: 14, padding: '10px 14px', margin: '12px 0 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#E3EDF2', borderRadius: 14, padding: '10px 14px', margin: '12px 0 0' }}>
           <span style={{ fontSize: 13, fontWeight: 800, color: BRAND }}>{tx('Código para empezar el viaje')}<br /><span style={{ fontWeight: 600, color: C.muted, fontSize: 12 }}>{tx('Díselo al conductor al subir')}</span></span>
           <span style={{ fontSize: 28, fontWeight: 900, letterSpacing: 6, color: BRAND }}>{b.start_otp}</span>
         </div>
@@ -491,7 +510,7 @@ function TripPanel({ booking: b, settings, driverPos, notify, reload, onCall, on
     <Sheet>
       <p style={{ fontWeight: 900, fontSize: 20, margin: '0 0 4px', textAlign: 'center' }}>{tx('Has llegado a tu destino')}</p>
       <p style={{ fontWeight: 900, fontSize: 30, margin: '6px 0', textAlign: 'center', color: BRAND }}>{money(b.total_amount, cur)}</p>
-      <p style={{ color: C.muted, textAlign: 'center', margin: '0 0 14px', fontSize: 13 }}>{payLabel}{b.payment_method === 'cash' ? ` · ${tx('Paga al conductor')}` : ''}</p>
+      <p style={{ color: C.muted, textAlign: 'center', margin: '0 0 14px', fontSize: 13 }}>{payLabel}{b.payment_method === 'cash' ? ` · ${tx('Paga al conductor')}` : b.payment_method === 'stripe' ? ` · ${tx('Se cobra en tu tarjeta')}` : ''}</p>
       {!rated ? (
         <>
           <p style={{ textAlign: 'center', fontWeight: 800, margin: '0 0 8px' }}>{tx('¿Qué tal con {name}?', { name: b.driver?.name || tx('tu conductor') })}</p>
@@ -537,7 +556,7 @@ function DriverCard({ b }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       {d.photo ? <img src={taxiUrl(d.photo)} alt="" style={{ width: 54, height: 54, borderRadius: '50%', objectFit: 'cover' }} />
-               : <span style={{ width: 54, height: 54, borderRadius: '50%', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>🧑‍✈️</span>}
+               : <span style={{ width: 54, height: 54, borderRadius: '50%', background: '#D5E6F0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>🧑‍✈️</span>}
       <div style={{ flex: 1, minWidth: 0 }}>
         <p style={{ margin: 0, fontWeight: 900, fontSize: 16 }}>{d.name}</p>
         <p style={{ margin: 0, fontSize: 13, color: C.muted }}>★ {Number(d.rating || 5).toFixed(1)} · {[v.brand, v.model, v.color].filter(Boolean).join(' ')}</p>

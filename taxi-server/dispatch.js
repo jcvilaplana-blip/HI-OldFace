@@ -60,6 +60,7 @@ function next(bookingId) {
     run("UPDATE booking_offers SET status = 'expired', responded_at = ? WHERE booking_id = ? AND status = 'offered'", now(), b.id);
     logEvent(b.id, 'expired');
     rt.toCustomer(b.customer_id, 'booking:update', { code: b.code, status: 'expired', message: 'No hay conductores disponibles ahora mismo' });
+    if (b.payment_method === 'stripe') require('./cardpay').settleCancelled(b.id, 0);   // se libera la reserva de la tarjeta
     rt.toAdmins('booking:update', { code: b.code, status: 'expired' });
     return clear(b.id);
   }

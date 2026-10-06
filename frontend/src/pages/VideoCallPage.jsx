@@ -286,7 +286,7 @@ export default function VideoCallPage() {
       {uiStatus === 'connecting' && (
         <div style={{
           position: 'absolute', inset: 0, zIndex: 10,
-          background: 'linear-gradient(160deg, #000080 0%, #111827 100%)',
+          background: 'linear-gradient(160deg, #3D5A80 0%, #111827 100%)',
           display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'flex-start',
           paddingTop: 'max(env(safe-area-inset-top, 48px), 48px)',
@@ -488,7 +488,7 @@ export default function VideoCallPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <div style={{
                           width: 42, height: 42, borderRadius: '50%',
-                          background: '#000080',
+                          background: '#3D5A80',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: 18, fontWeight: 900, color: 'white',
                           flexShrink: 0,
@@ -512,7 +512,7 @@ export default function VideoCallPage() {
                             ? 'rgba(34,197,94,0.25)'
                             : sentState === 'sending'
                             ? 'rgba(255,255,255,0.1)'
-                            : '#000080',
+                            : '#3D5A80',
                           color: sentState === 'sent'
                             ? '#4ade80'
                             : sentState === 'error'
@@ -546,7 +546,7 @@ export default function VideoCallPage() {
             No se pudo conectar
           </p>
           <button onClick={handleRetry} style={{
-            background: '#000080', color: 'white',
+            background: '#3D5A80', color: 'white',
             border: 'none', borderRadius: 18,
             padding: '12px 28px', fontWeight: 800, fontSize: 15, cursor: 'pointer',
           }}>

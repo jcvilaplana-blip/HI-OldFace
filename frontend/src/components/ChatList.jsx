@@ -113,7 +113,7 @@ export default function ChatList({ chats }) {
                   {chat.lastMessage}
                 </p>
                 {chat.unread > 0 && (
-                  <span style={{ flexShrink: 0, background: '#000080', color: 'white', fontSize: 11, fontWeight: 800, width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ flexShrink: 0, background: '#3D5A80', color: 'white', fontSize: 11, fontWeight: 800, width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {chat.unread > 9 ? '9+' : chat.unread}
                   </span>
                 )}
@@ -150,7 +150,7 @@ export default function ChatList({ chats }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
               <Avatar name={selectedChat.name} src={selectedChat.avatar || null} size="lg" />
               <div>
-                <p style={{ fontWeight: 800, fontSize: 16, color: isDark ? '#dce8ff' : '#111827', margin: 0 }}>
+                <p style={{ fontWeight: 800, fontSize: 16, color: isDark ? '#E0FBFC' : '#111827', margin: 0 }}>
                   {selectedChat.name}
                 </p>
                 <p style={{ fontSize: 12, color: isDark ? '#6b8ab0' : '#6b7280', margin: '2px 0 0' }}>

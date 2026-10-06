@@ -777,7 +777,7 @@ router.post('/stories', (req, res) => {
     userId, userName: userName || userId,
     mediaType: mediaType || 'text',
     content,
-    bgColor:   bgColor || '#000080',
+    bgColor:   bgColor || '#3D5A80',
     createdAt: Date.now(),
     expiresAt: Date.now() + 24 * 60 * 60 * 1000,
     viewers:   [],

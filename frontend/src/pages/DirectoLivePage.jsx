@@ -378,7 +378,7 @@ export default function DirectoLivePage() {
       }}>
         {chat.map(m => (
           <div key={m.id} style={{ margin: '0 0 6px', fontSize: 13, lineHeight: 1.35, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-            <span style={{ fontWeight: 800, color: m.userId === hostId ? '#fca5a5' : '#e0e7ff', marginRight: 6 }}>
+            <span style={{ fontWeight: 800, color: m.userId === hostId ? '#fca5a5' : '#D5E6F0', marginRight: 6 }}>
               {m.userId === user?.id ? 'Tú' : m.name}
             </span>
             <span>{m.text}</span>
@@ -462,7 +462,7 @@ export default function DirectoLivePage() {
             {requests.length === 0 && <p style={{ opacity: 0.6, fontSize: 13 }}>Nadie ha pedido unirse todavía. Los espectadores pueden pulsar 🙋.</p>}
             {requests.map(r => (
               <div key={r.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#000080', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900 }}>{r.name?.[0]?.toUpperCase()}</div>
+                <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#3D5A80', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900 }}>{r.name?.[0]?.toUpperCase()}</div>
                 <p style={{ flex: 1, margin: 0, fontWeight: 700 }}>{r.name}</p>
                 <button onClick={() => reject(r)} style={pill('rgba(255,255,255,0.12)')}>Rechazar</button>
                 <button onClick={() => approve(r)} style={pill('#22c55e')}>Aceptar</button>
@@ -559,7 +559,7 @@ function FullMessage({ status, errMsg, isHost, directo, onRetry, onBack }) {
     error:      { title: 'No se pudo conectar al directo', sub: errMsg },
   }[status] || { title: '', sub: '' };
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'linear-gradient(to bottom, #1e1035, #0f172a)', color: 'white', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32, textAlign: 'center' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'linear-gradient(to bottom, #1e1035, #293241)', color: 'white', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32, textAlign: 'center' }}>
       <div style={{ position: 'relative', width: 80, height: 80 }}>
         {status === 'loading' && <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'rgba(239,68,68,0.3)', animation: 'liveRipple 1.5s ease-in-out infinite' }} />}
         <div style={{ position: 'relative', width: 80, height: 80, borderRadius: '50%', background: status === 'error' ? '#7f1d1d' : RED, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

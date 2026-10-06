@@ -6,8 +6,8 @@
 import React, { useEffect, useRef } from 'react';
 import { lineIndexAt } from '../utils/lrc';
 
-// Azul OldFace luminoso (el navy de marca #000080 no se lee sobre fondo oscuro)
-export const KARAOKE_ACCENT = '#4f9bff';
+// Azul cielo OldFace (el azul de marca #3D5A80 no se lee sobre fondo oscuro)
+export const KARAOKE_ACCENT = '#98C1D9';
 
 // Dúos: las frases de la pareja en rosa, las de los dos en morado
 export const DUET_PARTNER = '#f472b6';

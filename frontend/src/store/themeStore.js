@@ -7,33 +7,33 @@ import { create } from 'zustand';
 
 // ── Paleta de colores ────────────────────────────────────────────────
 export const DARK = {
-  bgMain:     '#080f1e',   // fondo principal (muy oscuro)
-  bgSurface:  '#0c1526',   // tarjetas, cabeceras, nav
-  bgHover:    '#111d32',   // hover / press
-  bgInput:    '#0f1b2e',   // inputs
-  bgSection:  '#060c18',   // secciones de separación
+  bgMain:     '#141A2A',   // fondo principal (muy oscuro)
+  bgSurface:  '#222A38',   // tarjetas, cabeceras, nav
+  bgHover:    '#2F3A4D',   // hover / press
+  bgInput:    '#1D2433',   // inputs
+  bgSection:  '#0F1420',   // secciones de separación
   border:     'rgba(255,255,255,0.06)',
   borderStrong: 'rgba(255,255,255,0.10)',
-  textPrimary:   '#dce8ff',
-  textSecondary: '#6a8db5',
-  textMuted:     '#35527a',
-  accent:     '#000080',   // verde marca (solo acentos puntuales)
-  accentDim:  'rgba(37,99,235,0.12)',
+  textPrimary:   '#E0FBFC',
+  textSecondary: '#98C1D9',
+  textMuted:     '#5F84A0',
+  accent:     '#3D5A80',   // azul de marca (solo acentos puntuales)
+  accentDim:  'rgba(61,90,128,0.12)',
 };
 
 export const LIGHT = {
-  bgMain:     '#f8fafc',
+  bgMain:     '#E3EDF2',
   bgSurface:  '#ffffff',
   bgHover:    '#f1f5f9',
   bgInput:    '#ffffff',
   bgSection:  '#f8fafc',
   border:     '#f1f5f9',
   borderStrong: '#e2e8f0',
-  textPrimary:   '#1e293b',
+  textPrimary:   '#293241',
   textSecondary: '#64748b',
   textMuted:     '#94a3b8',
-  accent:     '#000080',
-  accentDim:  '#eff6ff',
+  accent:     '#3D5A80',
+  accentDim:  '#E3EDF2',
 };
 
 function applyTheme(theme) {

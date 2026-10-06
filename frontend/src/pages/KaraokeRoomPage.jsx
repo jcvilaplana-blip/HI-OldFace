@@ -17,7 +17,7 @@ import { absUrl, SongRow } from './KaraokePage';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const RED = '#ef4444';
-const BG  = 'linear-gradient(180deg, #0b1033 0%, #1b1450 50%, #000080 130%)';
+const BG  = 'linear-gradient(180deg, #141A2A 0%, #293241 50%, #3D5A80 130%)';
 const LISTENER_LATENCY = 0.35; // s de retraso aproximado del audio respecto a la posición enviada
 
 export default function KaraokeRoomPage() {
@@ -333,7 +333,7 @@ export default function KaraokeRoomPage() {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 0 4px', flexShrink: 0 }}>
           {!bgStream && <div style={{ position: 'relative', width: 92, height: 92 }}>
             {current && <div style={{ position: 'absolute', inset: -10, borderRadius: '50%', border: `3px solid ${KARAOKE_ACCENT}`, animation: 'kPulse 1.6s ease-out infinite' }} />}
-            <div style={{ width: 92, height: 92, borderRadius: '50%', background: current ? `linear-gradient(135deg, #4f46e5, ${KARAOKE_ACCENT})` : 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 38, fontWeight: 900 }}>
+            <div style={{ width: 92, height: 92, borderRadius: '50%', background: current ? `linear-gradient(135deg, #4E7D96, ${KARAOKE_ACCENT})` : 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 38, fontWeight: 900 }}>
               {current ? current.name?.[0]?.toUpperCase() : '🎤'}
             </div>
           </div>}
@@ -382,7 +382,7 @@ export default function KaraokeRoomPage() {
 
       {/* Mi turno */}
       {myTurn && !singing && (
-        <div style={{ position: 'absolute', left: 14, right: 14, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 74px)', zIndex: 6, background: `linear-gradient(135deg, #4f46e5, ${KARAOKE_ACCENT})`, borderRadius: 18, padding: 14, display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.4)' }}>
+        <div style={{ position: 'absolute', left: 14, right: 14, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 74px)', zIndex: 6, background: `linear-gradient(135deg, #4E7D96, ${KARAOKE_ACCENT})`, borderRadius: 18, padding: 14, display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.4)' }}>
           <span style={{ fontSize: 30 }}>🎤</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: 0, fontWeight: 900 }}>¡Te toca!</p>
@@ -403,7 +403,7 @@ export default function KaraokeRoomPage() {
               <button type="button" onClick={like} aria-label="Me gusta" style={{ ...pillBtn('rgba(255,255,255,0.13)'), fontSize: 18, padding: '7px 12px', color: KARAOKE_ACCENT }}>❤</button>
               <button type="button" onClick={() => setSheet('queue')} style={pillBtn('rgba(255,255,255,0.13)')}>Cola ({queue.length})</button>
               <button type="button" onClick={() => setSheet('songs')} disabled={myCount >= 2}
-                style={{ ...pillBtn(`linear-gradient(135deg, #4f46e5, ${KARAOKE_ACCENT})`), opacity: myCount >= 2 ? 0.5 : 1 }}>🎵 Elegir</button>
+                style={{ ...pillBtn(`linear-gradient(135deg, #4E7D96, ${KARAOKE_ACCENT})`), opacity: myCount >= 2 ? 0.5 : 1 }}>🎵 Elegir</button>
             </>}
       </form>
 
@@ -440,7 +440,7 @@ export default function KaraokeRoomPage() {
       {/* ¿Auriculares? */}
       {askHeadphones && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(5,8,25,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ width: '100%', maxWidth: 360, background: 'linear-gradient(160deg, #000080, #2d3bb8)', borderRadius: 22, padding: '24px 20px', textAlign: 'center' }}>
+          <div style={{ width: '100%', maxWidth: 360, background: 'linear-gradient(160deg, #3D5A80, #4E7D96)', borderRadius: 22, padding: '24px 20px', textAlign: 'center' }}>
             <div style={{ fontSize: 44 }}>🎧</div>
             <p style={{ margin: '6px 0', fontSize: 18, fontWeight: 900 }}>Se recomienda usar auriculares</p>
             <p style={{ margin: '0 0 16px', fontSize: 13, opacity: 0.85, lineHeight: 1.5 }}>Así te oirás cantando y el público te oirá con la música limpia y sin eco. Se activará tu cámara para que te vean en directo.</p>
@@ -510,5 +510,5 @@ function pillBtn(bg, color = 'white') {
 
 const bigBtn = {
   width: '100%', padding: '14px', border: 'none', borderRadius: 24, cursor: 'pointer', color: 'white',
-  background: `linear-gradient(135deg, #4f46e5, ${KARAOKE_ACCENT})`, fontSize: 15, fontWeight: 900,
+  background: `linear-gradient(135deg, #4E7D96, ${KARAOKE_ACCENT})`, fontSize: 15, fontWeight: 900,
 };

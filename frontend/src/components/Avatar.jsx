@@ -5,7 +5,7 @@ import React from 'react';
 
 const COLORS = [
   '#3b82f6', '#8b5cf6', '#f59e0b',
-  '#ec4899', '#14b8a6', '#6366f1', '#000080'
+  '#ec4899', '#14b8a6', '#6366f1', '#3D5A80'
 ];
 
 const FONT_SIZES = { sm: 13, md: 15, lg: 15, xl: 22 };

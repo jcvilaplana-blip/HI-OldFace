@@ -16,6 +16,7 @@ const { all, get, run, tx, now, getSetting, setSetting, hashPassword } = require
 const { adminLogin, adminAuth, requirePerm } = require('../auth');
 const { RESOURCES, byKey } = require('../resources');
 const wallet = require('../wallet');
+const stripe = require('../stripe');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -370,6 +371,35 @@ router.post('/tickets/:id/messages', requirePerm('support_ticket.edit'), (req, r
 });
 
 // ── Mapa en vivo: conductores conectados y viajes activos ───────────────────
+// ── Tarjeta de crédito (pasarela Stripe): estado, comprobar claves y crear el webhook automáticamente ──
+router.get('/payments/card', requirePerm('system_configuration.view'), (req, res) => {
+  const s = stripe.status();
+  res.json({ ...s, publishableKey: undefined, webhookUrl: webhookUrl(req) });
+});
+router.post('/payments/card/check', requirePerm('system_configuration.edit'), async (req, res) => {
+  const s = stripe.status();
+  if (!s.configured) return res.status(400).json({ error: s.problem });
+  try {
+    const { livemode } = await stripe.check();
+    if (livemode === s.testMode) return res.status(400).json({ error: livemode ? 'Las claves son de modo REAL pero el ajuste está en pruebas' : 'Las claves son de PRUEBAS pero el ajuste está en modo real' });
+    res.json({ ok: true, testMode: !livemode });
+  } catch (e) { res.status(e.status === 503 ? 400 : 502).json({ error: e.message }); }
+});
+router.post('/payments/card/webhook', requirePerm('system_configuration.edit'), async (req, res) => {
+  const s = stripe.status();
+  if (!s.configured) return res.status(400).json({ error: s.problem });
+  try {
+    const w = await stripe.setupWebhook(webhookUrl(req));
+    const pay = getSetting('payments', {});
+    setSetting('payments', { ...pay, stripe: { ...(pay.stripe || {}), webhookSecret: w.secret } });
+    res.json({ ok: true, url: webhookUrl(req) });
+  } catch (e) { res.status(e.status === 503 ? 400 : 502).json({ error: e.message }); }
+});
+function webhookUrl(req) {
+  const base = process.env.TAXI_PUBLIC_URL || `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`;
+  return `${base.replace(/\/+$/, '')}/taxi/api/payments/stripe/webhook`;
+}
+
 router.get('/live', requirePerm('live_map.view'), (_req, res) => {
   res.json({
     drivers: all(`SELECT d.id, d.name, d.photo, d.lat, d.lng, d.heading, d.location_at, d.available, d.rating, v.plate, r.name AS ride_type

@@ -4,7 +4,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const BRAND = '#000080';
+const BRAND = '#3D5A80';
 
 export default function PrivacyPage() {
   const navigate = useNavigate();
@@ -32,7 +32,7 @@ export default function PrivacyPage() {
           </svg>
         </button>
         <div>
-          <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#1e293b' }}>Política de privacidad</h1>
+          <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#293241' }}>Política de privacidad</h1>
           <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>Última actualización: enero 2025</p>
         </div>
       </div>

@@ -3,8 +3,8 @@
  */
 import React from 'react';
 
-export const BRAND = '#000080';
-export const C = { bg: '#f1f5f9', card: '#ffffff', text: '#0f172a', muted: '#64748b', line: '#e2e8f0', ok: '#16a34a', danger: '#dc2626' };
+export const BRAND = '#3D5A80';
+export const C = { bg: '#f1f5f9', card: '#ffffff', text: '#293241', muted: '#64748b', line: '#e2e8f0', ok: '#16a34a', danger: '#dc2626' };
 
 export function Header({ title, subtitle, onBack, right }) {
   return (
@@ -30,7 +30,7 @@ export function Btn({ children, onClick, disabled, variant = 'primary', style, t
     primary: { background: BRAND, color: 'white', border: 'none' },
     ghost:   { background: 'white', color: BRAND, border: `1.5px solid ${BRAND}` },
     danger:  { background: 'white', color: C.danger, border: `1.5px solid ${C.danger}` },
-    soft:    { background: '#e0e7ff', color: BRAND, border: 'none' },
+    soft:    { background: '#D5E6F0', color: BRAND, border: 'none' },
   }[variant];
   return (
     <button type={type} onClick={onClick} disabled={disabled} style={{

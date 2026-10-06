@@ -10,8 +10,8 @@ import { BRAND, C, Btn, Card, Field, inputStyle } from './ui.jsx';
 import { Page, useLoad, Loading, Line, Support, Faqs, About, shareText } from './CustomerTabs.jsx';
 
 const STATUS = {
-  completed: ['Completado', '#16a34a'], cancelled: ['Cancelado', '#dc2626'], accepted: ['En curso', '#2563eb'],
-  arrived: ['En curso', '#2563eb'], started: ['En curso', '#2563eb'], expired: ['Sin conductor', '#64748b'], searching: ['Buscando', '#2563eb'],
+  completed: ['Completado', '#16a34a'], cancelled: ['Cancelado', '#dc2626'], accepted: ['En curso', '#3D5A80'],
+  arrived: ['En curso', '#3D5A80'], started: ['En curso', '#3D5A80'], expired: ['Sin conductor', '#64748b'], searching: ['Buscando', '#3D5A80'],
 };
 const REVIEW = { pending: ['En revisión', '#f59e0b'], approved: ['Aprobado', '#16a34a'], active: ['Aprobado', '#16a34a'], rejected: ['Rechazado', '#dc2626'],
                  blocked: ['Bloqueado', '#dc2626'], paid: ['Pagado', '#16a34a'] };
@@ -52,7 +52,7 @@ export function EarningsTab({ dash, loadDash, notify, openAccount }) {
       </div>
       {rate !== null && <Card style={{ marginBottom: 12 }}><Line label={tx('Tasa de aceptación (30 días)')} value={`${rate}%`} bold /></Card>}
 
-      <div style={{ background: `linear-gradient(135deg, ${BRAND}, #1e3a8a)`, color: 'white', borderRadius: 20, padding: 18, marginBottom: 12 }}>
+      <div style={{ background: `linear-gradient(135deg, ${BRAND}, #293241)`, color: 'white', borderRadius: 20, padding: 18, marginBottom: 12 }}>
         <p style={{ margin: 0, opacity: 0.8, fontWeight: 700, fontSize: 13 }}>{tx('Saldo del monedero')}</p>
         <p style={{ margin: '4px 0 0', fontSize: 32, fontWeight: 900 }}>{money(dash.wallet?.balance, cur)}</p>
         {Number(dash.driver.debt) > 0 && <p style={{ margin: '6px 0 0', fontSize: 13, fontWeight: 700, color: '#fde68a' }}>{tx('Deuda de viajes en efectivo')}: {money(dash.driver.debt, cur)}</p>}
@@ -94,7 +94,7 @@ export function EarningsTab({ dash, loadDash, notify, openAccount }) {
                     <span style={{ display: 'block', fontWeight: 700, fontSize: 14 }}>{t.description || t.type}</span>
                     <span style={{ display: 'block', color: C.muted, fontSize: 12 }}>{dateTime(t.created_at)}</span>
                   </span>
-                  <span style={{ fontWeight: 900, color: t.amount < 0 ? C.danger : C.ok, whiteSpace: 'nowrap' }}>{t.amount > 0 ? '+' : ''}{money(t.amount, cur)}</span>
+                  <span style={{ fontWeight: 900, color: t.type === 'debit' ? C.danger : C.ok, whiteSpace: 'nowrap' }}>{t.type === 'debit' ? '−' : '+'}{money(Math.abs(t.amount), cur)}</span>
                 </div>
               ))}
             </Card>
@@ -155,7 +155,7 @@ export function AccountTab({ boot, dash, loadDash, notify, reload, onExit, sub, 
   return (
     <Page title={tx('Cuenta')}>
       <Card style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
-        <span style={{ width: 58, height: 58, borderRadius: '50%', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, overflow: 'hidden', flexShrink: 0 }}>
+        <span style={{ width: 58, height: 58, borderRadius: '50%', background: '#D5E6F0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, overflow: 'hidden', flexShrink: 0 }}>
           {d.photo ? <img src={taxiUrl(d.photo)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '🧑‍✈️'}
         </span>
         <span style={{ flex: 1, minWidth: 0 }}>
@@ -226,7 +226,7 @@ function FilePick({ accept = 'image/*,application/pdf', value, onUploaded, notif
   return (
     <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
       {value ? (isImg ? <img src={taxiUrl(value)} alt="" style={{ width: 56, height: 56, borderRadius: 10, objectFit: 'cover' }} /> : <span style={{ fontSize: 34 }}>📄</span>) : null}
-      <span style={{ background: '#e0e7ff', color: BRAND, borderRadius: 10, padding: '9px 12px', fontWeight: 800, fontSize: 14 }}>
+      <span style={{ background: '#D5E6F0', color: BRAND, borderRadius: 10, padding: '9px 12px', fontWeight: 800, fontSize: 14 }}>
         {busy ? tx('Subiendo…') : value ? tx('Cambiar archivo') : (label || tx('Elegir archivo'))}
       </span>
       <input type="file" accept={accept} onChange={pick} style={{ display: 'none' }} disabled={busy} />
@@ -325,7 +325,7 @@ function Documents({ notify, onBack }) {
               </span>
               {last ? <Badge s={last.status} /> : null}
               {!open && (!last || last.status === 'rejected' || !!t.has_expiry) && (
-                <button onClick={() => { setEditing(t.id); setF({ fileUrl: '', number: '', expiresAt: '' }); }} style={{ background: last ? '#e0e7ff' : BRAND, color: last ? BRAND : 'white', border: 'none', borderRadius: 10, padding: '8px 10px', fontWeight: 800, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>
+                <button onClick={() => { setEditing(t.id); setF({ fileUrl: '', number: '', expiresAt: '' }); }} style={{ background: last ? '#D5E6F0' : BRAND, color: last ? BRAND : 'white', border: 'none', borderRadius: 10, padding: '8px 10px', fontWeight: 800, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>
                   {last ? tx('Actualizar') : tx('Subir')}
                 </button>
               )}
@@ -414,7 +414,7 @@ function DriverInvite({ boot, onBack }) {
             <p style={{ fontSize: 44, margin: 0 }}>🎁</p>
             <p style={{ fontWeight: 800, margin: '6px 0' }}>{tx('Invita a otros conductores y a clientes')}</p>
             {data.settings?.driverReferrer > 0 && <p style={{ color: C.muted, margin: '0 0 12px', fontSize: 14 }}>{tx('Ganas {amount} cuando tu invitado complete su primer viaje.', { amount: money(data.settings.driverReferrer, cur) })}</p>}
-            <p style={{ fontSize: 28, fontWeight: 900, letterSpacing: 3, color: BRAND, background: '#eef2ff', borderRadius: 14, padding: 12, margin: '0 0 12px' }}>{data.code}</p>
+            <p style={{ fontSize: 28, fontWeight: 900, letterSpacing: 3, color: BRAND, background: '#E3EDF2', borderRadius: 14, padding: 12, margin: '0 0 12px' }}>{data.code}</p>
             <Btn onClick={share}>{tx('Compartir mi código')}</Btn>
           </Card>
           <Card><Line label={tx('Ganado')} value={money(data.earned, cur)} bold /></Card>

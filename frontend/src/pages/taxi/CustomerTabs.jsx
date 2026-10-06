@@ -6,12 +6,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { taxiApi, tx, money, dateTime, taxiUrl } from '../../utils/taxiApi';
 import { BRAND, C, Header, Btn, Card, Field, inputStyle, Spinner, Center, Stars } from './ui.jsx';
+import CardPay from './CardPay.jsx';
 
 const STATUS = {
-  searching: ['Buscando conductor', '#2563eb'], accepted: ['Conductor en camino', '#2563eb'], arrived: ['Conductor en la recogida', '#2563eb'],
-  started: ['En viaje', '#2563eb'], completed: ['Completado', '#16a34a'], cancelled: ['Cancelado', '#dc2626'], expired: ['Sin conductor', '#64748b'],
+  awaiting_payment: ['Esperando pago con tarjeta', '#d97706'], searching: ['Buscando conductor', '#3D5A80'], accepted: ['Conductor en camino', '#3D5A80'], arrived: ['Conductor en la recogida', '#3D5A80'],
+  started: ['En viaje', '#3D5A80'], completed: ['Completado', '#16a34a'], cancelled: ['Cancelado', '#dc2626'], expired: ['Sin conductor', '#64748b'],
 };
-const PAY = { cash: 'Efectivo', wallet: 'Monedero', stripe: 'Tarjeta' };
+const PAY = { cash: 'Efectivo', wallet: 'Monedero', stripe: 'Tarjeta de crédito' };
 
 export function Page({ title, onBack, children }) {
   return (
@@ -126,17 +127,48 @@ export const Line = ({ label, value, bold }) => (
 );
 
 // ══ Monedero ═════════════════════════════════════════════════════════════════
-export function WalletTab() {
+export function WalletTab({ boot, notify }) {
   const { data, error, load } = useLoad(() => taxiApi('/customer/wallet'));
+  const pay = boot?.settings?.payments || {};
+  const [amount, setAmount] = useState('20');
+  const [topup, setTopup] = useState(null);           // { card } mientras se confirma la tarjeta
+  const [busy, setBusy] = useState(false);
+  const startTopup = async () => {
+    setBusy(true);
+    try { const { card } = await taxiApi('/customer/wallet/topup', { method: 'POST', body: { amount: Number(String(amount).replace(',', '.')) } }); setTopup(card); }
+    catch (e) { notify?.(e.message, true); }
+    setBusy(false);
+  };
+  const topupDone = async () => {
+    await taxiApi(`/customer/wallet/topup/${topup.intentId}`, { method: 'POST' });
+    setTopup(null); notify?.(tx('Monedero recargado')); load();
+  };
   return (
     <Page title={tx('Monedero')}>
       {!data ? <Loading error={error} retry={load} /> : (
         <>
-          <div style={{ background: `linear-gradient(135deg, ${BRAND}, #1e3a8a)`, color: 'white', borderRadius: 20, padding: 20, marginBottom: 16 }}>
+          <div style={{ background: `linear-gradient(135deg, ${BRAND}, #293241)`, color: 'white', borderRadius: 20, padding: 20, marginBottom: 16 }}>
             <p style={{ margin: 0, opacity: 0.8, fontWeight: 700, fontSize: 13 }}>{tx('Saldo disponible')}</p>
             <p style={{ margin: '6px 0 0', fontSize: 34, fontWeight: 900 }}>{money(data.wallet.balance, data.wallet.currency)}</p>
             <p style={{ margin: '8px 0 0', opacity: 0.8, fontSize: 12 }}>{tx('Úsalo para pagar tus viajes. Aquí también recibes reembolsos y premios por invitar.')}</p>
           </div>
+          {pay.stripe && (
+            <Card style={{ marginBottom: 16 }}>
+              <p style={{ fontWeight: 900, margin: '0 0 10px' }}>💳 {tx('Recargar con tarjeta de crédito')}</p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                {[10, 20, 50].map(n => (
+                  <button key={n} onClick={() => setAmount(String(n))} style={{ padding: '8px 14px', borderRadius: 20, fontWeight: 800, cursor: 'pointer',
+                    border: `1.5px solid ${String(n) === amount ? BRAND : C.line}`, background: String(n) === amount ? '#E3EDF2' : 'white', color: String(n) === amount ? BRAND : C.text }}>
+                    {money(n, data.wallet.currency)}
+                  </button>
+                ))}
+                <input value={amount} onChange={e => setAmount(e.target.value.replace(/[^\d.,]/g, ''))} inputMode="decimal" aria-label={tx('Otro importe')}
+                       style={{ ...inputStyle, width: 90, padding: '8px 10px' }} />
+              </div>
+              <p style={{ fontSize: 12, color: C.muted, margin: '0 0 10px' }}>{tx('De {min} a {max}', { min: money(pay.topupMin || 5, data.wallet.currency), max: money(pay.topupMax || 500, data.wallet.currency) })}</p>
+              <Btn onClick={startTopup} disabled={busy || !Number(String(amount).replace(',', '.'))}>{busy ? tx('Un momento…') : tx('Recargar')}</Btn>
+            </Card>
+          )}
           <p style={{ fontWeight: 900, margin: '0 0 8px' }}>{tx('Movimientos')}</p>
           {!data.transactions.length ? <p style={{ color: C.muted }}>{tx('Sin movimientos todavía')}</p> : (
             <Card style={{ padding: '4px 14px' }}>
@@ -146,10 +178,14 @@ export function WalletTab() {
                     <span style={{ display: 'block', fontWeight: 700, fontSize: 14 }}>{t.description || t.type}</span>
                     <span style={{ display: 'block', color: C.muted, fontSize: 12 }}>{dateTime(t.created_at)}</span>
                   </span>
-                  <span style={{ fontWeight: 900, color: t.amount < 0 ? C.danger : C.ok, whiteSpace: 'nowrap' }}>{t.amount > 0 ? '+' : ''}{money(t.amount, data.wallet.currency)}</span>
+                  <span style={{ fontWeight: 900, color: t.type === 'debit' ? C.danger : C.ok, whiteSpace: 'nowrap' }}>{t.type === 'debit' ? '−' : '+'}{money(Math.abs(t.amount), data.wallet.currency)}</span>
                 </div>
               ))}
             </Card>
+          )}
+          {topup && (
+            <CardPay card={topup} lang={boot?.language?.code || 'es'} title={tx('Recargar con tarjeta de crédito')}
+              payLabel={`${tx('Pagar')} ${money(topup.amount, topup.currency)}`} onPaid={topupDone} onCancel={() => setTopup(null)} />
           )}
         </>
       )}
@@ -178,7 +214,7 @@ export function ProfileTab({ boot, notify, reload, onExit }) {
   return (
     <Page title={tx('Perfil')}>
       <Card style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
-        <span style={{ width: 58, height: 58, borderRadius: '50%', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, overflow: 'hidden', flexShrink: 0 }}>
+        <span style={{ width: 58, height: 58, borderRadius: '50%', background: '#D5E6F0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, overflow: 'hidden', flexShrink: 0 }}>
           {p.photo ? <img src={taxiUrl(p.photo)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '🙋'}
         </span>
         <span>
@@ -263,7 +299,7 @@ function Invite({ boot, onBack }) {
             <p style={{ fontSize: 44, margin: 0 }}>🎁</p>
             <p style={{ fontWeight: 800, margin: '6px 0' }}>{tx('Invita a tus amigos')}</p>
             {data.settings?.userReferrer > 0 && <p style={{ color: C.muted, margin: '0 0 12px', fontSize: 14 }}>{tx('Ganas {amount} por cada amigo que haga su primer viaje.', { amount: money(data.settings.userReferrer, cur) })}</p>}
-            <p style={{ fontSize: 28, fontWeight: 900, letterSpacing: 3, color: BRAND, background: '#eef2ff', borderRadius: 14, padding: 12, margin: '0 0 12px' }}>{data.code}</p>
+            <p style={{ fontSize: 28, fontWeight: 900, letterSpacing: 3, color: BRAND, background: '#E3EDF2', borderRadius: 14, padding: 12, margin: '0 0 12px' }}>{data.code}</p>
             <Btn onClick={share}>{tx('Compartir mi código')}</Btn>
           </Card>
           <Card>
@@ -306,7 +342,7 @@ export function Support({ notify, onBack }) {
         <Card key={t.id} onClick={() => setOpen(t.id)} style={{ marginBottom: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
             <span style={{ fontWeight: 800 }}>{t.subject}</span>
-            <span style={{ fontSize: 12, fontWeight: 800, color: solved(t.status) ? C.ok : '#2563eb' }}>{tx(solved(t.status) ? 'Resuelto' : 'Abierto')}</span>
+            <span style={{ fontSize: 12, fontWeight: 800, color: solved(t.status) ? C.ok : '#3D5A80' }}>{tx(solved(t.status) ? 'Resuelto' : 'Abierto')}</span>
           </div>
           <span style={{ fontSize: 12, color: C.muted }}>{t.number} · {dateTime(t.created_at)}</span>
         </Card>

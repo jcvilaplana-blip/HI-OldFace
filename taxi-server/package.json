@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node test/admin.test.mjs && node test/trip.test.mjs"
+    "test": "node test/admin.test.mjs && node test/trip.test.mjs && node test/card.test.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

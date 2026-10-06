@@ -115,6 +115,8 @@ function complete(driverId, code) {
     return { ...b, status: 'completed', paymentStatus, total };
   });
   notify(result, { message: 'Viaje finalizado', total: result.total, paymentStatus: result.paymentStatus });
+  // Tarjeta de crédito: se cobra lo reservado y se abona la ganancia al conductor (en segundo plano)
+  if (result.payment_method === 'stripe') require('./cardpay').captureBooking(result.id);
   return result;
 }
 
@@ -168,10 +170,11 @@ function cancelByCustomer(customerId, code, reason) {
   const out = tx(() => {
     const b = get('SELECT * FROM bookings WHERE code = ? AND customer_id = ?', code, customerId);
     if (!b) throw err(404, 'Viaje no encontrado');
-    if (!['searching', 'accepted', 'arrived'].includes(b.status)) throw err(409, b.status === 'started' ? 'El viaje ya ha empezado' : 'Este viaje ya no se puede cancelar');
+    if (!['awaiting_payment', 'searching', 'accepted', 'arrived'].includes(b.status)) throw err(409, b.status === 'started' ? 'El viaje ya ha empezado' : 'Este viaje ya no se puede cancelar');
     const fee = cancelFee(b);
     if (fee > 0) {
-      wallet.debit('customer', customerId, fee, `Cargo por cancelación del viaje ${b.code}`, { refType: 'booking', refId: b.id, allowNegative: true });
+      // Con tarjeta de crédito el gasto se cobra de la reserva de la tarjeta (después de la transacción); si no, del monedero
+      if (b.payment_method !== 'stripe') wallet.debit('customer', customerId, fee, `Cargo por cancelación del viaje ${b.code}`, { refType: 'booking', refId: b.id, allowNegative: true });
       if (b.driver_id) wallet.credit('driver', b.driver_id, fee, `Compensación por cancelación del viaje ${b.code}`, { refType: 'booking', refId: b.id });
     }
     run("UPDATE bookings SET status = 'cancelled', cancelled_by = 'customer', cancel_reason = ?, cancel_fee = ?, cancelled_at = ? WHERE id = ?",
@@ -183,6 +186,7 @@ function cancelByCustomer(customerId, code, reason) {
     return { ...b, status: 'cancelled', fee };
   });
   notify(out, { message: 'El cliente ha cancelado el viaje', cancelledBy: 'customer', fee: out.fee });
+  if (out.payment_method === 'stripe') require('./cardpay').settleCancelled(out.id, out.fee);
   return out;
 }
 

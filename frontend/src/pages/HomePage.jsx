@@ -13,7 +13,7 @@ import ChatList from '../components/ChatList.jsx';
 import BottomNav from '../components/BottomNav.jsx';
 import Avatar from '../components/Avatar.jsx';
 
-const BRAND   = '#000080';
+const BRAND   = '#3D5A80';
 const APP_URL = 'https://oldface.app';
 
 async function inviteContact(contact) {
@@ -210,11 +210,11 @@ export default function HomePage() {
           transform: 'translateX(-50%)',
           width: 58, height: 58,
           borderRadius: '50%',
-          background: 'linear-gradient(135deg, #fed7aa 0%, #fdba74 45%, #fb923c 100%)',
+          background: 'linear-gradient(135deg, #FF844B 0%, #EE6C4D 100%)',
           border: '3px solid white',
           cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 6px 20px rgba(251,146,60,0.45)',
+          boxShadow: '0 6px 20px rgba(238,108,77,0.45)',
           zIndex: 30,
         }}
       >
@@ -475,7 +475,7 @@ function StoriesBar({ user, T, isDark }) {
   const [viewerIdx,     setViewerIdx]     = React.useState(0);    // índice dentro de sus stories
   const [creating,      setCreating]      = React.useState(false);
   const [storyText,     setStoryText]     = React.useState('');
-  const [storyColor,    setStoryColor]    = React.useState('#000080');
+  const [storyColor,    setStoryColor]    = React.useState('#3D5A80');
   const [mediaQueue,    setMediaQueue]    = React.useState([]); // hasta 10 medios {type,dataUrl,name}
   const [publishing,    setPublishing]    = React.useState(false);
   const [replyText,     setReplyText]     = React.useState('');
@@ -507,7 +507,7 @@ function StoriesBar({ user, T, isDark }) {
     stories.filter(s => s.userId !== user?.id).map(s => [s.userId, s])
   ).values()];
 
-  const COLORS = ['#000080','#e11d48','#059669','#d97706','#7c3aed','#0284c7','#db2777'];
+  const COLORS = ['#3D5A80','#e11d48','#059669','#d97706','#7c3aed','#0284c7','#db2777'];
 
   const timeLeft = (s) => {
     const rem = s.expiresAt - Date.now();
@@ -757,10 +757,10 @@ function StoriesBar({ user, T, isDark }) {
       {/* Modal creador de estado */}
       {creating && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(0,0,0,0.75)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: isDark ? '#021d4a' : 'white', borderRadius: 24, padding: 20, width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '90vh', overflowY: 'auto' }}>
+          <div style={{ background: isDark ? '#293241' : 'white', borderRadius: 24, padding: 20, width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <p style={{ fontSize: 17, fontWeight: 900, color: isDark ? '#dce8ff' : '#1e293b', margin: 0 }}>Nuevo estado</p>
-              <button onClick={() => { setCreating(false); setMediaQueue([]); setStoryText(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: isDark ? '#8fb3dd' : '#9ca3af' }}>×</button>
+              <p style={{ fontSize: 17, fontWeight: 900, color: isDark ? '#E0FBFC' : '#293241', margin: 0 }}>Nuevo estado</p>
+              <button onClick={() => { setCreating(false); setMediaQueue([]); setStoryText(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: isDark ? '#98C1D9' : '#9ca3af' }}>×</button>
             </div>
 
             {/* Texto */}
@@ -770,7 +770,7 @@ function StoriesBar({ user, T, isDark }) {
               placeholder="Escribe tu estado (opcional)..."
               maxLength={200}
               rows={3}
-              style={{ width: '100%', padding: 12, borderRadius: 12, border: `1.5px solid ${isDark ? 'rgba(255,255,255,0.12)' : '#e2e8f0'}`, background: isDark ? 'rgba(255,255,255,0.05)' : '#f8fafc', color: isDark ? '#dce8ff' : '#1e293b', fontSize: 14, resize: 'none', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+              style={{ width: '100%', padding: 12, borderRadius: 12, border: `1.5px solid ${isDark ? 'rgba(255,255,255,0.12)' : '#e2e8f0'}`, background: isDark ? 'rgba(255,255,255,0.05)' : '#f8fafc', color: isDark ? '#E0FBFC' : '#293241', fontSize: 14, resize: 'none', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
             />
 
             {/* Selector de color (solo para texto) */}
@@ -802,7 +802,7 @@ function StoriesBar({ user, T, isDark }) {
                 ))}
                 {mediaQueue.length < 10 && (
                   <button onClick={() => fileRef.current?.click()}
-                    style={{ width: 72, height: 72, borderRadius: 10, border: `2px dashed ${isDark ? 'rgba(255,255,255,0.2)' : '#cbd5e1'}`, background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: isDark ? '#8fb3dd' : '#64748b', fontSize: 22 }}>+</button>
+                    style={{ width: 72, height: 72, borderRadius: 10, border: `2px dashed ${isDark ? 'rgba(255,255,255,0.2)' : '#cbd5e1'}`, background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: isDark ? '#98C1D9' : '#64748b', fontSize: 22 }}>+</button>
                 )}
               </div>
             )}
@@ -810,11 +810,11 @@ function StoriesBar({ user, T, isDark }) {
             {/* Botones de acción */}
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => fileRef.current?.click()} disabled={mediaQueue.length >= 10}
-                style={{ flex: 1, padding: '11px 6px', borderRadius: 12, background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9', border: 'none', cursor: mediaQueue.length >= 10 ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 12, color: isDark ? '#dce8ff' : '#1e293b', opacity: mediaQueue.length >= 10 ? 0.4 : 1 }}>
+                style={{ flex: 1, padding: '11px 6px', borderRadius: 12, background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9', border: 'none', cursor: mediaQueue.length >= 10 ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 12, color: isDark ? '#E0FBFC' : '#293241', opacity: mediaQueue.length >= 10 ? 0.4 : 1 }}>
                 🖼️ Foto
               </button>
               <button onClick={() => videoRef.current?.click()} disabled={mediaQueue.length >= 10}
-                style={{ flex: 1, padding: '11px 6px', borderRadius: 12, background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9', border: 'none', cursor: mediaQueue.length >= 10 ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 12, color: isDark ? '#dce8ff' : '#1e293b', opacity: mediaQueue.length >= 10 ? 0.4 : 1 }}>
+                style={{ flex: 1, padding: '11px 6px', borderRadius: 12, background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9', border: 'none', cursor: mediaQueue.length >= 10 ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 12, color: isDark ? '#E0FBFC' : '#293241', opacity: mediaQueue.length >= 10 ? 0.4 : 1 }}>
                 🎥 Video
               </button>
               <button onClick={publishStories} disabled={publishing || (!storyText.trim() && mediaQueue.length === 0)}
@@ -823,7 +823,7 @@ function StoriesBar({ user, T, isDark }) {
               </button>
             </div>
 
-            <p style={{ fontSize: 10, color: isDark ? '#8fb3dd' : '#94a3b8', textAlign: 'center', margin: 0 }}>
+            <p style={{ fontSize: 10, color: isDark ? '#98C1D9' : '#94a3b8', textAlign: 'center', margin: 0 }}>
               Hasta 10 fotos/videos · Expira en 24 h
             </p>
           </div>
@@ -832,7 +832,7 @@ function StoriesBar({ user, T, isDark }) {
 
       {/* Visor de estado full-screen (con navegación entre stories) */}
       {viewerStory && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 600, background: viewerStory.mediaType === 'image' || viewerStory.mediaType === 'video' ? 'black' : (viewerStory.bgColor || '#000080'), display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 600, background: viewerStory.mediaType === 'image' || viewerStory.mediaType === 'video' ? 'black' : (viewerStory.bgColor || '#3D5A80'), display: 'flex', flexDirection: 'column' }}>
           {/* Barras de progreso */}
           <div style={{ position: 'absolute', top: 'env(safe-area-inset-top, 12px)', left: 0, right: 0, display: 'flex', gap: 4, padding: '12px 12px 0', zIndex: 10 }}>
             {viewerStories.map((_, i) => (
@@ -925,7 +925,7 @@ function StoriesBar({ user, T, isDark }) {
                     disabled={!replyText.trim()}
                     style={{
                       width: 42, height: 42, borderRadius: '50%',
-                      background: replyText.trim() ? '#000080' : 'rgba(255,255,255,0.2)',
+                      background: replyText.trim() ? '#3D5A80' : 'rgba(255,255,255,0.2)',
                       border: 'none', cursor: replyText.trim() ? 'pointer' : 'default',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                       transition: 'background 0.2s',
@@ -1112,7 +1112,7 @@ function GroupCreateModal({ user, T, isDark, onClose, onCreated }) {
                     onClick={() => toggle(cId)}
                     style={{
                       width: '100%', display: 'flex', alignItems: 'center', gap: 14,
-                      padding: '11px 20px', background: isSelected ? (isDark ? 'rgba(0,0,128,0.2)' : '#eff6ff') : 'transparent',
+                      padding: '11px 20px', background: isSelected ? (isDark ? 'rgba(61,90,128,0.2)' : '#E3EDF2') : 'transparent',
                       border: 'none', cursor: 'pointer', textAlign: 'left',
                       borderBottom: `1px solid ${T.border}`,
                     }}
@@ -1335,14 +1335,14 @@ function CallsTab({ T, user, isDark }) {
                 )}
                 {isVideo ? (
                   <button onClick={() => sendVideoCall(call.contactId, call.contactName)}
-                    style={{ width: 32, height: 32, borderRadius: '50%', background: isDark ? 'rgba(0,0,128,0.25)' : '#eff6ff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    style={{ width: 32, height: 32, borderRadius: '50%', background: isDark ? 'rgba(61,90,128,0.25)' : '#E3EDF2', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                     </svg>
                   </button>
                 ) : (
                   <button onClick={() => sendVoiceCall(call.contactId, call.contactName)}
-                    style={{ width: 32, height: 32, borderRadius: '50%', background: isDark ? 'rgba(0,0,128,0.25)' : '#eff6ff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    style={{ width: 32, height: 32, borderRadius: '50%', background: isDark ? 'rgba(61,90,128,0.25)' : '#E3EDF2', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z"/>
                     </svg>

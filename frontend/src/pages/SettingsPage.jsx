@@ -8,7 +8,7 @@ import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import Avatar from '../components/Avatar.jsx';
 
-const BRAND   = '#000080';
+const BRAND   = '#3D5A80';
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 /** Recorta y comprime la imagen a 150×150 JPEG < 30KB */
@@ -97,10 +97,10 @@ export default function SettingsPage() {
   };
 
   // Estilos dinámicos según tema
-  const bg       = isDark ? 'linear-gradient(160deg, #021d4a 0%, #021132 100%)' : undefined;
-  const cardBg   = isDark ? '#041e50' : 'white';
-  const labelClr = isDark ? '#8fb3dd' : '#6b7280';
-  const textClr  = isDark ? '#dce8ff' : '#1f2937';
+  const bg       = isDark ? 'linear-gradient(160deg, #293241 0%, #141A2A 100%)' : undefined;
+  const cardBg   = isDark ? '#2F3A4D' : 'white';
+  const labelClr = isDark ? '#98C1D9' : '#6b7280';
+  const textClr  = isDark ? '#E0FBFC' : '#1f2937';
   const borderClr= isDark ? 'rgba(255,255,255,0.07)' : '#f9fafb';
 
   return (
@@ -108,7 +108,7 @@ export default function SettingsPage() {
       {/* ── Header ── */}
       <div
         className="flex-shrink-0 px-4 pb-4"
-        style={{ backgroundColor: isDark ? '#031640' : BRAND, paddingTop: 'var(--sat)', borderBottom: isDark ? '1px solid rgba(255,255,255,0.07)' : 'none' }}
+        style={{ backgroundColor: isDark ? '#222A38' : BRAND, paddingTop: 'var(--sat)', borderBottom: isDark ? '1px solid rgba(255,255,255,0.07)' : 'none' }}
       >
         <div className="flex items-center gap-3 pt-2">
           <button onClick={() => navigate(-1)} className="text-white p-1 -ml-1 active:opacity-70">
@@ -321,7 +321,7 @@ function SettingsSection({ title, icon, items, cardBg, textClr, labelClr, border
             <button
               onClick={() => setToggles(t => ({ ...t, [i]: !t[i] }))}
               className="relative w-12 h-6 rounded-full transition-colors duration-200 flex items-center"
-              style={{ backgroundColor: toggles[i] ? '#000080' : 'rgba(120,140,170,0.3)' }}
+              style={{ backgroundColor: toggles[i] ? '#3D5A80' : 'rgba(120,140,170,0.3)' }}
             >
               <span
                 className="absolute w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200"
@@ -362,31 +362,31 @@ function AppearanceSection({ isDark, setTheme, cardBg, textClr, labelClr, border
           onClick={() => setTheme('dark')}
           className="flex-1 rounded-2xl overflow-hidden transition-all duration-200"
           style={{
-            border: isDark ? '2px solid #000080' : '2px solid rgba(120,140,170,0.2)',
+            border: isDark ? '2px solid #3D5A80' : '2px solid rgba(120,140,170,0.2)',
             boxShadow: isDark ? '0 0 0 1px rgba(119,189,148,0.3), 0 6px 20px rgba(0,0,0,0.4)' : '0 2px 8px rgba(0,0,0,0.15)',
           }}
         >
           {/* Preview oscuro */}
-          <div style={{ background: 'linear-gradient(160deg, #021d4a 0%, #021132 100%)', padding: '10px 10px 8px' }}>
+          <div style={{ background: 'linear-gradient(160deg, #293241 0%, #141A2A 100%)', padding: '10px 10px 8px' }}>
             {/* Mini header */}
-            <div style={{ height: 8, borderRadius: 4, width: '60%', background: '#031640', marginBottom: 6 }} />
+            <div style={{ height: 8, borderRadius: 4, width: '60%', background: '#222A38', marginBottom: 6 }} />
             {/* Mini burbujas */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
-              <div style={{ height: 7, width: '55%', borderRadius: 6, background: 'linear-gradient(135deg,#000066,#000080)' }} />
+              <div style={{ height: 7, width: '55%', borderRadius: 6, background: 'linear-gradient(135deg,#293241,#3D5A80)' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 4 }}>
               <div style={{ height: 7, width: '45%', borderRadius: 6, background: '#0c2a5e' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <div style={{ height: 7, width: '40%', borderRadius: 6, background: 'linear-gradient(135deg,#000066,#000080)' }} />
+              <div style={{ height: 7, width: '40%', borderRadius: 6, background: 'linear-gradient(135deg,#293241,#3D5A80)' }} />
             </div>
           </div>
           {/* Label */}
           <div style={{ padding: '8px 10px 10px', background: cardBg }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: isDark ? '#000080' : textClr }}>Oscuro</span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: isDark ? '#3D5A80' : textClr }}>Oscuro</span>
               {isDark && (
-                <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#000080', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#3D5A80', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                     <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
@@ -402,31 +402,31 @@ function AppearanceSection({ isDark, setTheme, cardBg, textClr, labelClr, border
           onClick={() => setTheme('light')}
           className="flex-1 rounded-2xl overflow-hidden transition-all duration-200"
           style={{
-            border: !isDark ? '2px solid #000080' : '2px solid rgba(120,140,170,0.2)',
+            border: !isDark ? '2px solid #3D5A80' : '2px solid rgba(120,140,170,0.2)',
             boxShadow: !isDark ? '0 0 0 1px rgba(119,189,148,0.3), 0 6px 20px rgba(0,0,0,0.2)' : '0 2px 8px rgba(0,0,0,0.15)',
           }}
         >
           {/* Preview claro */}
           <div style={{ background: '#f9fafb', padding: '10px 10px 8px' }}>
             {/* Mini header */}
-            <div style={{ height: 8, borderRadius: 4, width: '60%', background: '#000080', marginBottom: 6 }} />
+            <div style={{ height: 8, borderRadius: 4, width: '60%', background: '#3D5A80', marginBottom: 6 }} />
             {/* Mini burbujas */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
-              <div style={{ height: 7, width: '55%', borderRadius: 6, background: '#dbeafe' }} />
+              <div style={{ height: 7, width: '55%', borderRadius: 6, background: '#D5E6F0' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 4 }}>
               <div style={{ height: 7, width: '45%', borderRadius: 6, background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <div style={{ height: 7, width: '40%', borderRadius: 6, background: '#dbeafe' }} />
+              <div style={{ height: 7, width: '40%', borderRadius: 6, background: '#D5E6F0' }} />
             </div>
           </div>
           {/* Label */}
           <div style={{ padding: '8px 10px 10px', background: cardBg }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: !isDark ? '#000080' : textClr }}>Claro</span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: !isDark ? '#3D5A80' : textClr }}>Claro</span>
               {!isDark && (
-                <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#000080', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#3D5A80', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                     <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>

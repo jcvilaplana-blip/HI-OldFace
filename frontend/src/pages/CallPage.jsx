@@ -287,7 +287,7 @@ export default function CallPage() {
         <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
           <p style={{ color: '#f87171', fontWeight: 700, fontSize: 16, margin: 0 }}>No se pudo conectar</p>
           <button onClick={() => { setStatus('calling'); startCall(); }}
-            style={{ background: '#000080', color: 'white', border: 'none', borderRadius: 18, padding: '12px 28px', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
+            style={{ background: '#3D5A80', color: 'white', border: 'none', borderRadius: 18, padding: '12px 28px', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
             Reintentar
           </button>
           <button onClick={handleEnd}
@@ -468,7 +468,7 @@ export default function CallPage() {
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <div style={{
-                          width: 42, height: 42, borderRadius: '50%', background: '#000080',
+                          width: 42, height: 42, borderRadius: '50%', background: '#3D5A80',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: 18, fontWeight: 900, color: 'white', flexShrink: 0,
                         }}>
@@ -483,7 +483,7 @@ export default function CallPage() {
                           padding: '8px 16px', borderRadius: 16, border: 'none',
                           cursor: sentState ? 'default' : 'pointer',
                           fontWeight: 700, fontSize: 13,
-                          background: sentState === 'sent' ? 'rgba(34,197,94,0.25)' : sentState === 'sending' ? 'rgba(255,255,255,0.1)' : '#000080',
+                          background: sentState === 'sent' ? 'rgba(34,197,94,0.25)' : sentState === 'sending' ? 'rgba(255,255,255,0.1)' : '#3D5A80',
                           color: sentState === 'sent' ? '#4ade80' : sentState === 'error' ? '#f87171' : 'white',
                         }}
                       >

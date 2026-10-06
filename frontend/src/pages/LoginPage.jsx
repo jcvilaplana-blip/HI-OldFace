@@ -187,7 +187,7 @@ export default function LoginPage() {
 
   return (
     /* Contenedor scrollable — ocupa todo el viewport sin romper el overflow:hidden del root */
-    <div style={{ height: '100%', overflowY: 'auto', background: 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)' }}>
+    <div style={{ height: '100%', overflowY: 'auto', background: 'linear-gradient(135deg, #E3EDF2 0%, #D5E6F0 100%)' }}>
       <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '32px 24px 0' }}>
 
         {/* Logo */}
@@ -261,20 +261,20 @@ export default function LoginPage() {
                   onChange={e => setTermsAccepted(e.target.checked)}
                   style={{
                     marginTop: 2, width: 18, height: 18, flexShrink: 0,
-                    accentColor: '#000080', cursor: 'pointer',
+                    accentColor: '#3D5A80', cursor: 'pointer',
                   }}
                 />
                 <span style={{ fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
                   He leído y acepto los{' '}
-                  <Link to="/terms" style={{ color: '#000080', fontWeight: 600, textDecoration: 'underline' }}>
+                  <Link to="/terms" style={{ color: '#3D5A80', fontWeight: 600, textDecoration: 'underline' }}>
                     Términos y condiciones
                   </Link>
                   {', '}la{' '}
-                  <Link to="/privacy" style={{ color: '#000080', fontWeight: 600, textDecoration: 'underline' }}>
+                  <Link to="/privacy" style={{ color: '#3D5A80', fontWeight: 600, textDecoration: 'underline' }}>
                     Política de privacidad
                   </Link>
                   {' '}y la{' '}
-                  <Link to="/cookies" style={{ color: '#000080', fontWeight: 600, textDecoration: 'underline' }}>
+                  <Link to="/cookies" style={{ color: '#3D5A80', fontWeight: 600, textDecoration: 'underline' }}>
                     Política de cookies
                   </Link>
                   {' '}de OldFace.
@@ -339,11 +339,11 @@ export default function LoginPage() {
         <footer style={{ width: '100%', maxWidth: 384, textAlign: 'center', padding: '28px 0 32px', color: '#9ca3af', fontSize: 11 }}>
           <p style={{ marginBottom: 10 }}>© {new Date().getFullYear()} OldFace. Todos los derechos reservados.</p>
           <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '6px 14px' }}>
-            <Link to="/terms" style={{ color: '#000080', textDecoration: 'none', fontWeight: 500 }}>Términos y condiciones</Link>
+            <Link to="/terms" style={{ color: '#3D5A80', textDecoration: 'none', fontWeight: 500 }}>Términos y condiciones</Link>
             <span style={{ color: '#d1d5db' }}>·</span>
-            <Link to="/privacy" style={{ color: '#000080', textDecoration: 'none', fontWeight: 500 }}>Privacidad</Link>
+            <Link to="/privacy" style={{ color: '#3D5A80', textDecoration: 'none', fontWeight: 500 }}>Privacidad</Link>
             <span style={{ color: '#d1d5db' }}>·</span>
-            <Link to="/cookies" style={{ color: '#000080', textDecoration: 'none', fontWeight: 500 }}>Cookies</Link>
+            <Link to="/cookies" style={{ color: '#3D5A80', textDecoration: 'none', fontWeight: 500 }}>Cookies</Link>
           </div>
         </footer>
 

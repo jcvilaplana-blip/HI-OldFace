@@ -64,7 +64,7 @@ const ACTIONS = ['view', 'create', 'edit', 'delete'];
 const DEFAULT_SETTINGS = {
   app: { appName: 'OldFace Taxi', supportEmail: 'contacto@oldface.app', supportPhone: '', maintenanceMode: false,
          adminLogo: '', androidVersion: '1.0.0', androidForceUpdate: false, iosVersion: '1.0.0', iosForceUpdate: false,
-         appleShareLink: '', androidShareLink: 'https://oldface.app', adminPrimaryColor: '#000080', appPrimaryColor: '#000080' },
+         appleShareLink: '', androidShareLink: 'https://oldface.app', adminPrimaryColor: '#3D5A80', appPrimaryColor: '#3D5A80' },
   payments: {
     cash:     { enabled: true },
     wallet:   { enabled: true },

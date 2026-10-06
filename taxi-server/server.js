@@ -22,6 +22,8 @@ const { DB_FILE } = require('./db');
 const app = express();
 app.disable('x-powered-by');
 app.use(cors());
+// Avisos de la pasarela de la tarjeta de crédito (Stripe): cuerpo SIN procesar para comprobar la firma → antes de express.json
+app.post('/taxi/api/payments/stripe/webhook', express.raw({ type: () => true, limit: '1mb' }), (req, res) => require('./cardpay').webhook(req, res));
 app.use(express.json({ limit: '2mb' }));
 
 const started = Date.now();

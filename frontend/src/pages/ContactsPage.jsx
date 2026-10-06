@@ -10,7 +10,7 @@ import { useContacts } from '../hooks/useContacts';
 import { useCallStore } from '../store/callStore';
 import Avatar from '../components/Avatar.jsx';
 
-const BRAND       = '#000080';
+const BRAND       = '#3D5A80';
 const APP_URL     = 'https://oldface.app';
 const APP_NAME    = 'OldFace';
 
@@ -123,7 +123,7 @@ export default function ContactsPage() {
                 <line x1="17" y1="11" x2="23" y2="11"/>
               </svg>
             </div>
-            <p style={{ fontSize: 16, fontWeight: 900, color: '#1e293b', margin: 0 }}>Permiso de contactos denegado</p>
+            <p style={{ fontSize: 16, fontWeight: 900, color: '#293241', margin: 0 }}>Permiso de contactos denegado</p>
             <p style={{ fontSize: 13, color: '#64748b', margin: 0, lineHeight: 1.7 }}>
               Para ver y chatear con tus contactos, OldFace necesita acceso a tu lista de contactos.
             </p>
@@ -249,7 +249,7 @@ function ContactRow({ contact, action, isInvite, onPress, onCall, onVideo, onInv
 
       {/* Info — pulsar abre chat */}
       <button onClick={onPress} style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', minWidth: 0, padding: 0 }}>
-        <p style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.name}</p>
+        <p style={{ fontSize: 14, fontWeight: 800, color: '#293241', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.name}</p>
         <p style={{ fontSize: 11, color: isInvite ? '#94a3b8' : BRAND, margin: 0, fontWeight: isInvite ? 400 : 600 }}>
           {isInvite ? contact.phone : '● En OldFace'}
         </p>
@@ -294,7 +294,7 @@ function IconBtn({ onClick, children }) {
   return (
     <button
       onClick={e => { e.stopPropagation(); onClick(); }}
-      style={{ width: 36, height: 36, borderRadius: '50%', background: '#eff6ff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      style={{ width: 36, height: 36, borderRadius: '50%', background: '#E3EDF2', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeLinecap="round" strokeLinejoin="round">
         {children}

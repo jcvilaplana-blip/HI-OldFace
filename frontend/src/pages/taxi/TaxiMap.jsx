@@ -13,7 +13,7 @@ import { Protocol } from 'pmtiles';
 import { layers, namedFlavor } from '@protomaps/basemaps';
 import { taxiUrl } from '../../utils/taxiApi';
 
-const BRAND = '#000080';
+const BRAND = '#3D5A80';
 let protocolReady = false;
 
 const LANGS = ['es', 'en', 'fr', 'de', 'it', 'pt', 'nl', 'pl', 'ru', 'ar', 'zh', 'ja', 'ko'];

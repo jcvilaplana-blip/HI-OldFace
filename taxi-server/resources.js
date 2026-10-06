@@ -12,10 +12,11 @@
 const opt = (...pairs) => pairs.map(([value, label]) => ({ value, label }));
 
 const STATUS_ACTIVE = opt(['active', 'Activo'], ['blocked', 'Bloqueado']);
-const BOOKING_STATUS = opt(['searching', 'Buscando conductor'], ['accepted', 'Aceptado'], ['arrived', 'Conductor en el punto'],
-  ['started', 'En curso'], ['completed', 'Completado'], ['cancelled', 'Cancelado'], ['expired', 'Caducado']);
-const PAY_METHOD = opt(['cash', 'Efectivo'], ['wallet', 'Monedero'], ['stripe', 'Tarjeta (Stripe)']);
-const PAY_STATUS = opt(['pending', 'Pendiente'], ['paid', 'Pagado'], ['failed', 'Fallido'], ['refunded', 'Reembolsado']);
+const BOOKING_STATUS = opt(['awaiting_payment', 'Esperando pago con tarjeta'], ['searching', 'Buscando conductor'], ['accepted', 'Aceptado'],
+  ['arrived', 'Conductor en el punto'], ['started', 'En curso'], ['completed', 'Completado'], ['cancelled', 'Cancelado'], ['expired', 'Caducado']);
+const PAY_METHOD = opt(['cash', 'Efectivo'], ['wallet', 'Monedero'], ['stripe', 'Tarjeta de crédito']);
+const PAY_STATUS = opt(['pending', 'Pendiente'], ['authorized', 'Reservado en la tarjeta'], ['paid', 'Pagado'], ['failed', 'Fallido'],
+  ['released', 'Reserva liberada'], ['refunded', 'Reembolsado']);
 const AUDIENCE = opt(['customer', 'Clientes'], ['driver', 'Conductores'], ['all', 'Todos']);
 const PRIORITY = opt(['low', 'Baja'], ['normal', 'Normal'], ['high', 'Alta'], ['urgent', 'Urgente']);
 const OWNER = opt(['customer', 'Cliente'], ['driver', 'Conductor']);

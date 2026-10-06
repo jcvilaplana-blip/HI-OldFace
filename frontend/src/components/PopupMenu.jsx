@@ -6,7 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const BRAND = '#000080';
+const BRAND = '#3D5A80';
 
 // ─── Definición de items ────────────────────────────────────────────────────
 // route   → navega a esa ruta React Router
@@ -55,6 +55,7 @@ const ITEMS = {
   taxi: {
     label: 'Taxi',
     route: '/taxi',     // 1ª vez: elegir Cliente o Conductor; después abre directamente esa parte
+    taxi: true,         // colores típicos del taxi: fondo amarillo, icono negro
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M5 13l1.5-4.5A2 2 0 018.4 7h7.2a2 2 0 011.9 1.5L19 13
          M5 13h14v4a1 1 0 01-1 1h-1a1 1 0 01-1-1v-1H8v1a1 1 0 01-1 1H6a1 1 0 01-1-1v-4z
@@ -196,7 +197,7 @@ export default function PopupMenu({ onClose, onGroups }) {
               />
             </div>
             <div>
-              <p style={{ fontSize: 15, fontWeight: 900, color: '#1e293b', lineHeight: 1.2 }}>OldFace</p>
+              <p style={{ fontSize: 15, fontWeight: 900, color: '#293241', lineHeight: 1.2 }}>OldFace</p>
               <p style={{ fontSize: 10, fontWeight: 700, color: BRAND }}>Elige una acción</p>
             </div>
           </div>
@@ -248,6 +249,13 @@ function MenuButton({ item, onClick }) {
   const isPoll      = item.primary    === true;
   const isDirecto   = item.highlight  === true;
   const isSoon      = item.action     === 'soon';
+  const isTaxi      = item.taxi       === true;
+
+  // POLL: fondo marca | DIRECTO: fondo rojo | TAXI: amarillo con icono negro | resto: blanco con borde
+  const look = isPoll    ? { bg: BRAND,     fg: 'white',   label: '#3D5A80', shadow: '0 4px 14px rgba(61,90,128,0.35)' }
+             : isDirecto ? { bg: '#ef4444', fg: 'white',   label: '#dc2626', shadow: '0 4px 14px rgba(239,68,68,0.40)' }
+             : isTaxi    ? { bg: '#FFC800', fg: '#111111', label: '#111111', shadow: '0 4px 14px rgba(255,200,0,0.45)' }
+             : null;
 
   return (
     <button
@@ -266,15 +274,10 @@ function MenuButton({ item, onClick }) {
           width: 60, height: 60, borderRadius: '50%',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           transition: 'transform 0.15s',
-          // POLL: fondo marca | DIRECTO: fondo rojo | resto: fondo blanco con borde
-          background: isPoll ? BRAND : isDirecto ? '#ef4444' : 'white',
-          border: (isPoll || isDirecto) ? 'none' : '1px solid #e2e8f0',
-          boxShadow: isPoll
-            ? '0 4px 14px rgba(37,99,235,0.35)'
-            : isDirecto
-              ? '0 4px 14px rgba(239,68,68,0.40)'
-              : '0 1px 6px rgba(0,0,0,0.07)',
-          color: (isPoll || isDirecto) ? 'white' : BRAND,
+          background: look ? look.bg : 'white',
+          border: look ? 'none' : '1px solid #e2e8f0',
+          boxShadow: look ? look.shadow : '0 1px 6px rgba(0,0,0,0.07)',
+          color: look ? look.fg : BRAND,
         }}
         onMouseDown={e => e.currentTarget.style.transform = 'scale(0.88)'}
         onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
@@ -285,7 +288,7 @@ function MenuButton({ item, onClick }) {
         <svg
           width="26" height="26"
           fill="none"
-          stroke={(isPoll || isDirecto) ? 'white' : BRAND}
+          stroke={look ? look.fg : BRAND}
           strokeLinecap="round"
           strokeLinejoin="round"
           viewBox="0 0 24 24"
@@ -297,7 +300,7 @@ function MenuButton({ item, onClick }) {
       <span
         style={{
           fontSize: 10, fontWeight: 800, textAlign: 'center', lineHeight: 1.2,
-          color: isPoll ? '#000080' : isDirecto ? '#dc2626' : '#64748b',
+          color: look ? look.label : '#64748b',
         }}
       >
         {item.label}

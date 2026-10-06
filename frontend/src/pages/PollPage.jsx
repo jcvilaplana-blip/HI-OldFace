@@ -9,7 +9,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-const BRAND   = '#000080';
+const BRAND   = '#3D5A80';
 
 const SEX_LABELS = { male: 'Hombre', female: 'Mujer', other: 'Otro', prefer_not_say: 'Prefiero no decirlo' };
 const AGE_ORDER  = ['< 18', '18-24', '25-34', '35-44', '45-54', '55+'];
@@ -176,8 +176,8 @@ function CurrentPollCard({ poll, onOpen }) {
   return (
     <button onClick={onOpen} style={{
       width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
-      background: `linear-gradient(135deg, ${BRAND} 0%, #1e3a8a 100%)`, color: 'white',
-      borderRadius: 20, padding: 18, marginBottom: 18, boxShadow: '0 8px 24px rgba(0,0,128,0.3)',
+      background: `linear-gradient(135deg, ${BRAND} 0%, #293241 100%)`, color: 'white',
+      borderRadius: 20, padding: 18, marginBottom: 18, boxShadow: '0 8px 24px rgba(61,90,128,0.3)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <span style={{ background: '#ef4444', fontSize: 10, fontWeight: 900, padding: '3px 8px', borderRadius: 20, letterSpacing: 0.6 }}>
@@ -220,7 +220,7 @@ function PollRow({ poll, onOpen }) {
     }}>
       <div style={{
         width: 42, height: 42, borderRadius: 12, flexShrink: 0, fontSize: 20,
-        background: closed ? '#f1f5f9' : '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: closed ? '#f1f5f9' : '#E3EDF2', display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         {poll.category?.icon || '📊'}
       </div>
@@ -236,7 +236,7 @@ function PollRow({ poll, onOpen }) {
       {poll.myVote
         ? <Badge color="#16a34a" bg="#dcfce7">Votado</Badge>
         : closed ? <Badge color="#64748b" bg="#f1f5f9">Cerrada</Badge>
-        : <Badge color={BRAND} bg="#e0e7ff">Votar</Badge>}
+        : <Badge color={BRAND} bg="#D5E6F0">Votar</Badge>}
     </button>
   );
 }
@@ -324,7 +324,7 @@ function PollDetail({ pollId }) {
                       width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: 8,
                       padding: '13px 14px', borderRadius: 12, fontSize: 14, fontWeight: 700,
                       border: `2px solid ${on ? BRAND : 'rgba(148,163,184,0.35)'}`,
-                      background: on ? '#e0e7ff' : undefined, color: on ? BRAND : undefined,
+                      background: on ? '#D5E6F0' : undefined, color: on ? BRAND : undefined,
                       display: 'flex', alignItems: 'center', gap: 10,
                     }}>
                       <span style={{
@@ -456,7 +456,7 @@ function ProfileModal({ userId, onClose, onSaved }) {
     } catch (err) { setError(err.message); setSaving(false); }
   };
 
-  const input = { width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #cbd5e1', fontSize: 15, outline: 'none', background: 'white', color: '#1e293b' };
+  const input = { width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #cbd5e1', fontSize: 15, outline: 'none', background: 'white', color: '#293241' };
   const label = { display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', margin: '0 0 6px' };
 
   return (
@@ -465,8 +465,8 @@ function ProfileModal({ userId, onClose, onSaved }) {
         background: 'white', width: '100%', maxWidth: 480, borderRadius: '24px 24px 0 0',
         padding: '22px 20px calc(var(--sab) + 22px)', maxHeight: '92dvh', overflowY: 'auto',
       }}>
-        <p style={{ fontSize: 19, fontWeight: 900, color: '#1e293b', margin: '0 0 8px' }}>Completa tu perfil</p>
-        <p style={{ fontSize: 13, color: '#1e40af', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: 12, margin: '0 0 16px', lineHeight: 1.5 }}>
+        <p style={{ fontSize: 19, fontWeight: 900, color: '#293241', margin: '0 0 8px' }}>Completa tu perfil</p>
+        <p style={{ fontSize: 13, color: '#293241', background: '#E3EDF2', border: '1px solid #98C1D9', borderRadius: 12, padding: 12, margin: '0 0 16px', lineHeight: 1.5 }}>
           Para mostrar resultados claros necesitamos tu sexo, edad, código postal y nacionalidad.
           Se muestran solo de forma agregada y anónima. Solo se pide una vez.
         </p>

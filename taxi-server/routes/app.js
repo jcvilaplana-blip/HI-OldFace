@@ -23,6 +23,8 @@ const dispatch = require('../dispatch');
 const trips = require('../trips');
 const wallet = require('../wallet');
 const rt = require('../realtime');
+const stripe = require('../stripe');
+const cardpay = require('../cardpay');
 
 const router = express.Router();
 const UPLOADS = path.join(path.dirname(DB_FILE), 'uploads');
@@ -40,12 +42,15 @@ router.use(appAuth);
 // ── Común ───────────────────────────────────────────────────────────────────
 function publicSettings() {
   const app = getSetting('app', {}), pay = getSetting('payments', {}), ref = getSetting('referral', {}), refund = getSetting('refund', {});
+  const card = stripe.status();
   return {
     app: { name: app.appName, supportEmail: app.supportEmail, supportPhone: app.supportPhone, maintenance: !!app.maintenanceMode,
            primaryColor: app.appPrimaryColor, androidVersion: app.androidVersion, androidForceUpdate: !!app.androidForceUpdate,
            shareLink: app.androidShareLink },
-    payments: { cash: !!pay.cash?.enabled, wallet: !!pay.wallet?.enabled, stripe: !!pay.stripe?.enabled,
-                stripePublishableKey: pay.stripe?.enabled ? pay.stripe.publishableKey : null },
+    // stripe = tarjeta de crédito: solo se ofrece si está activa y con claves coherentes con su modo (pruebas / real)
+    payments: { cash: !!pay.cash?.enabled, wallet: !!pay.wallet?.enabled, stripe: card.ready,
+                stripePublishableKey: card.ready ? card.publishableKey : null, cardTestMode: card.ready ? card.testMode : null,
+                topupMin: cardpay.TOPUP_MIN, topupMax: cardpay.TOPUP_MAX },
     referral: { userReferrer: ref.userReferrer, userReferred: ref.userReferred, driverReferrer: ref.driverReferrer,
                 driverReferred: ref.driverReferred, friendDiscount: ref.userFriendDiscount },
     currency: getSetting('currency'), refundHours: refund.requiredHours, otpRequired: getSetting('booking', {}).otpRequired !== false,
@@ -161,6 +166,9 @@ customer.post('/bookings', a(async (req, res) => {
   const method = req.body?.paymentMethod || 'cash';
   const pay = getSetting('payments', {});
   if (!['cash', 'wallet', 'stripe'].includes(method) || !pay[method]?.enabled) throw err(400, 'Esa forma de pago no está disponible');
+  const byCard = method === 'stripe';
+  if (byCard && !stripe.status().ready) throw err(400, 'El pago con tarjeta de crédito no está disponible ahora mismo');
+  if (byCard) cardpay.dropAbandoned(req.me.id);
   const route = await maps.route([pickup, dropoff]);
   const q = pricing.quote({ pickup, route, promoCode: req.body?.promoCode, customerId: req.me.id, rideTypeId: req.body?.rideTypeId });
   if (!q.served) throw err(400, 'Todavía no damos servicio en esta zona');
@@ -172,12 +180,23 @@ customer.post('/bookings', a(async (req, res) => {
   const id = Number(run(`INSERT INTO bookings (code, customer_id, ride_type_id, city_id, zone_id, status, pickup_address, pickup_lat, pickup_lng,
       dropoff_address, dropoff_lat, dropoff_lng, distance_km, duration_min, route_shape, currency, base_fare, distance_fare, time_fare, surge,
       discount, promo_code_id, tax_amount, estimated_fare, total_amount, payment_method, created_at)
-      VALUES (?,?,?,?,?,'searching',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    code, req.me.id, opt.rideType.id, q.city?.id || null, q.zone?.id || null, pickup.address, pickup.lat, pickup.lng,
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    code, req.me.id, opt.rideType.id, q.city?.id || null, q.zone?.id || null, byCard ? 'awaiting_payment' : 'searching', pickup.address, pickup.lat, pickup.lng,
     dropoff.address, dropoff.lat, dropoff.lng, route.distanceKm, route.durationMin, route.shape, q.currency.code,
     opt.price.base, opt.price.distance, opt.price.time, opt.price.surge, opt.price.discount, opt.promoId, opt.price.tax,
     opt.price.total, opt.price.total, method, now()).lastInsertRowid);
   dispatch.logEvent(id, 'created', { rideType: opt.rideType.code, total: opt.price.total });
+  if (byCard) {
+    // Tarjeta de crédito: se reserva el precio y el viaje espera a que el cliente confirme la tarjeta en la app
+    let card;
+    try { card = await cardpay.startBooking(get('SELECT * FROM bookings WHERE id = ?', id)); }
+    catch (e) {
+      run("UPDATE bookings SET status = 'cancelled', cancelled_by = 'customer', cancel_reason = 'No se pudo iniciar el pago con tarjeta', cancelled_at = ? WHERE id = ?", now(), id);
+      throw e;
+    }
+    const s = stripe.status();
+    return res.status(201).json({ booking: trips.forCustomer(code), card: { ...card, publishableKey: s.publishableKey, testMode: s.testMode } });
+  }
   dispatch.start(id);
   rt.toAdmins('booking:update', { code, status: 'searching' });
   res.status(201).json({ booking: trips.forCustomer(code) });
@@ -194,6 +213,13 @@ customer.get('/bookings/:code', (req, res) => {
   if (!b || b.customer_id !== req.me.id) throw err(404, 'Viaje no encontrado');
   res.json({ booking: b });
 });
+/** La app ha confirmado la tarjeta → se comprueba con Stripe y empieza la búsqueda de conductor */
+customer.post('/bookings/:code/card', a(async (req, res) => {
+  const b = get('SELECT * FROM bookings WHERE code = ? AND customer_id = ?', req.params.code, req.me.id);
+  if (!b) throw err(404, 'Viaje no encontrado');
+  await cardpay.confirmBooking(b);
+  res.json({ booking: trips.forCustomer(b.code) });
+}));
 customer.get('/bookings/:code/cancel-fee', (req, res) => {
   const b = get('SELECT * FROM bookings WHERE code = ? AND customer_id = ?', req.params.code, req.me.id);
   if (!b) throw err(404, 'Viaje no encontrado');
@@ -209,6 +235,18 @@ customer.get('/wallet', (req, res) => {
   const w = wallet.ensureWallet('customer', req.me.id);
   res.json({ wallet: w, transactions: all('SELECT id, type, amount, balance_after, description, created_at FROM wallet_transactions WHERE wallet_id = ? ORDER BY id DESC LIMIT 200', w.id) });
 });
+
+/** Recargar el monedero con tarjeta de crédito: 1) crear el cobro → la app confirma la tarjeta → 2) comprobar y abonar */
+customer.post('/wallet/topup', a(async (req, res) => {
+  if (!stripe.status().ready) throw err(400, 'El pago con tarjeta de crédito no está disponible ahora mismo');
+  const t = await cardpay.startTopup(req.me.id, Number(req.body?.amount));
+  const s = stripe.status();
+  res.status(201).json({ card: { ...t, publishableKey: s.publishableKey, testMode: s.testMode } });
+}));
+customer.post('/wallet/topup/:intentId', a(async (req, res) => {
+  await cardpay.confirmTopup(req.me.id, req.params.intentId);
+  res.json({ wallet: wallet.ensureWallet('customer', req.me.id) });
+}));
 
 customer.put('/profile', (req, res) => {
   const b = req.body || {};

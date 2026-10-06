@@ -419,7 +419,7 @@ export default function ChatPage() {
 
   const fmtTime = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-  const BRAND = '#000080';
+  const BRAND = '#3D5A80';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: T.bgMain, overflow: 'hidden' }}
@@ -839,7 +839,7 @@ export default function ChatPage() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#111', display: 'flex', flexDirection: 'column' }}>
           {/* Cabecera */}
           <div style={{
-            background: '#000080', padding: '0 14px 12px',
+            background: '#3D5A80', padding: '0 14px 12px',
             paddingTop: 'max(12px, env(safe-area-inset-top, 12px))',
             display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
           }}>
@@ -976,7 +976,7 @@ export default function ChatPage() {
               }}
               style={{
                 width: '100%', maxWidth: 320,
-                background: docDownloading ? '#4a4a8a' : '#000080',
+                background: docDownloading ? '#6D8AA8' : '#3D5A80',
                 color: 'white', border: 'none',
                 borderRadius: 16, padding: '16px 0',
                 fontSize: 16, fontWeight: 800,
@@ -1061,15 +1061,15 @@ function AudioPlayer({ src, isMine, isDark }) {
   };
 
   // Dark mode + enviado  → fondo azul oscuro → iconos blancos
-  // Light mode + enviado → fondo azul claro (#dbeafe) → iconos azul oscuro
+  // Light mode + enviado → fondo azul claro (#D5E6F0) → iconos azul oscuro
   // Recibido (ambos modos) → iconos azul oscuro
   const sentDark = isMine && isDark;
-  const playBg    = sentDark ? 'rgba(255,255,255,0.22)' : '#000080';
+  const playBg    = sentDark ? 'rgba(255,255,255,0.22)' : '#3D5A80';
   const iconColor = sentDark ? 'white' : 'white';
-  const trackBg   = sentDark ? 'rgba(255,255,255,0.3)' : (isMine ? 'rgba(0,0,128,0.2)' : 'rgba(0,0,128,0.15)');
-  const trackFill = sentDark ? 'rgba(255,255,255,0.9)' : '#000080';
-  const timeColor = sentDark ? 'rgba(255,255,255,0.85)' : '#000066';
-  const micColor  = sentDark ? 'rgba(255,255,255,0.7)' : '#000080';
+  const trackBg   = sentDark ? 'rgba(255,255,255,0.3)' : (isMine ? 'rgba(61,90,128,0.2)' : 'rgba(61,90,128,0.15)');
+  const trackFill = sentDark ? 'rgba(255,255,255,0.9)' : '#3D5A80';
+  const timeColor = sentDark ? 'rgba(255,255,255,0.85)' : '#293241';
+  const micColor  = sentDark ? 'rgba(255,255,255,0.7)' : '#3D5A80';
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 180, maxWidth: 240 }}>
@@ -1166,7 +1166,7 @@ function VideoThumb({ src, onClick }) {
       )}
       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.28)', borderRadius: 12 }}>
         <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(255,255,255,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <svg width="18" height="18" fill="#000080" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg width="18" height="18" fill="#3D5A80" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
         </div>
       </div>
     </div>
@@ -1183,10 +1183,10 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
   const [showReplyBtn, setShowReplyBtn] = useState(false);
   const longPressRef = useRef(null);
 
-  const sentBg   = isDark ? 'linear-gradient(135deg, #000066, #000080)' : '#dbeafe';
-  const recvBg   = isDark ? '#0c1e3c' : 'white';
-  const sentText  = isDark ? '#ffffff' : '#000066';
-  const recvText  = isDark ? '#dce8ff' : '#1f2937';
+  const sentBg   = isDark ? 'linear-gradient(135deg, #293241, #3D5A80)' : '#D5E6F0';
+  const recvBg   = isDark ? '#2F3A4D' : 'white';
+  const sentText  = isDark ? '#ffffff' : '#293241';
+  const recvText  = isDark ? '#E0FBFC' : '#1f2937';
   const timeColor = isDark ? '#93b8e0' : '#6b7280';
   const recvTime  = isDark ? '#3d5578' : '#9ca3af';
 
@@ -1212,9 +1212,9 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
           {/* Responder */}
           <button
             onClick={(e) => { e.stopPropagation(); onReply(msg); setShowReplyBtn(false); }}
-            style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: '5px 8px', borderRadius: 16, color: '#000080', fontSize: 12, fontWeight: 700 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: '5px 8px', borderRadius: 16, color: '#3D5A80', fontSize: 12, fontWeight: 700 }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000080" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3D5A80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 17H5a2 2 0 01-2-2V5a2 2 0 012-2h11a2 2 0 012 2v3"/>
               <path d="M13 21l-4-4 4-4"/><path d="M9 17h8a2 2 0 002-2v-5"/>
             </svg>
@@ -1255,7 +1255,7 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
       }}>
         {/* Nombre remitente en grupos */}
         {isGroup && !msg.isMine && (
-          <p style={{ fontSize: 12, fontWeight: 800, color: '#000080', margin: '0 0 4px', letterSpacing: '0.2px', paddingLeft: (isImage || isVideo) ? 8 : 0 }}>
+          <p style={{ fontSize: 12, fontWeight: 800, color: '#3D5A80', margin: '0 0 4px', letterSpacing: '0.2px', paddingLeft: (isImage || isVideo) ? 8 : 0 }}>
             {memberNames[msg.sender] || msg.sender?.replace(/^user_/, '') || '?'}
           </p>
         )}
@@ -1263,14 +1263,14 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
         {/* Cita del mensaje al que se responde */}
         {msg.replyTo && (
           <div style={{
-            borderLeft: `3px solid ${msg.isMine ? 'rgba(255,255,255,0.6)' : '#000080'}`,
+            borderLeft: `3px solid ${msg.isMine ? 'rgba(255,255,255,0.6)' : '#3D5A80'}`,
             background: 'rgba(0,0,0,0.28)',
             borderRadius: '0 6px 6px 0', padding: '4px 8px',
             margin: '0 0 6px',
             display: 'flex', alignItems: 'center', gap: 8,
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 12, fontWeight: 800, color: msg.isMine ? 'rgba(255,255,255,0.9)' : '#000080', margin: '0 0 2px' }}>
+              <p style={{ fontSize: 12, fontWeight: 800, color: msg.isMine ? 'rgba(255,255,255,0.9)' : '#3D5A80', margin: '0 0 2px' }}>
                 {msg.replyTo.senderName}
               </p>
               <p style={{ fontSize: 12, color: msg.isMine ? 'rgba(255,255,255,0.75)' : T.textMuted, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
@@ -1318,7 +1318,7 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
             {/* Icono con badge de extensión — siempre azul oscuro sobre blanco */}
             <span style={{
               width: 44, height: 44, borderRadius: 12, flexShrink: 0,
-              background: '#000080',
+              background: '#3D5A80',
               display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center', gap: 1,
             }}>
@@ -1330,7 +1330,7 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
             <div style={{ minWidth: 0 }}>
               <div style={{
                 fontSize: 13, fontWeight: 700,
-                color: msg.isMine ? (isDark ? '#dbeafe' : '#1e3a8a') : (isDark ? '#dce8ff' : '#1e3a8a'),
+                color: msg.isMine ? (isDark ? '#D5E6F0' : '#293241') : (isDark ? '#E0FBFC' : '#293241'),
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180,
               }}>{docName}</div>
               <div style={{ fontSize: 11, color: msg.isMine ? (isDark ? '#93c5fd' : '#3b82f6') : (isDark ? '#93b8e0' : '#6b7280'), marginTop: 2 }}>
@@ -1357,7 +1357,7 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
             </a>
           );
         })() : isLocation ? (
-          <a href={msg.url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, color: msg.isMine ? '#dbeafe' : '#000080', textDecoration: 'none' }}>
+          <a href={msg.url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, color: msg.isMine ? '#D5E6F0' : '#3D5A80', textDecoration: 'none' }}>
             <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
               <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
             </svg>

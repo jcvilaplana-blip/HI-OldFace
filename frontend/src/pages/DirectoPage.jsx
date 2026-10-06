@@ -10,7 +10,7 @@ import { useContacts } from '../hooks/useContacts';
 import { onRtc } from '../utils/rtcClient';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-const BRAND   = '#000080';
+const BRAND   = '#3D5A80';
 const RED     = '#ef4444';
 
 // Como en Instagram / TikTok: cualquier usuario puede hacer directos
@@ -26,7 +26,7 @@ function formatScheduled(iso) {
 function statusLabel(status) {
   if (status === 'live')      return { text: '● EN VIVO',    color: RED,     bg: '#fee2e2' };
   if (status === 'ended')     return { text: 'Finalizado',   color: '#94a3b8', bg: '#f1f5f9' };
-  return                             { text: 'Programado',   color: BRAND,    bg: '#eff6ff' };
+  return                             { text: 'Programado',   color: BRAND,    bg: '#E3EDF2' };
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
@@ -284,17 +284,17 @@ function DirectoCard({ directo: d, canManage, canWatch, onEdit, onDelete, onGoLi
       boxShadow: '0 1px 6px rgba(0,0,0,0.07)', overflow: 'hidden',
     }}>
       {/* Franja de estado */}
-      <div style={{ background: d.status === 'live' ? RED : d.status === 'ended' ? '#f1f5f9' : '#eff6ff', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ background: d.status === 'live' ? RED : d.status === 'ended' ? '#f1f5f9' : '#E3EDF2', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 10, fontWeight: 800, color: st.color, letterSpacing: '0.5px' }}>{st.text}</span>
         {d.price > 0 && (
-          <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, color: '#1e293b', background: '#fef9c3', borderRadius: 20, padding: '2px 8px' }}>
+          <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, color: '#293241', background: '#fef9c3', borderRadius: 20, padding: '2px 8px' }}>
             {d.price} € / acceso
           </span>
         )}
       </div>
 
       <div style={{ padding: '12px 14px' }}>
-        <p style={{ fontSize: 15, fontWeight: 900, color: '#1e293b', margin: '0 0 4px' }}>{d.title}</p>
+        <p style={{ fontSize: 15, fontWeight: 900, color: '#293241', margin: '0 0 4px' }}>{d.title}</p>
         {d.description && (
           <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 8px' }}>{d.description}</p>
         )}
@@ -323,7 +323,7 @@ function DirectoCard({ directo: d, canManage, canWatch, onEdit, onDelete, onGoLi
             </>
           )}
           {canManage && d.status !== 'live' && (
-            <button onClick={onEdit} style={btnStyle('#e2e8f0', '#1e293b')}>Editar</button>
+            <button onClick={onEdit} style={btnStyle('#e2e8f0', '#293241')}>Editar</button>
           )}
           {canManage && (
             <button onClick={onDelete} style={btnStyle('#fee2e2', RED)}>Eliminar</button>
@@ -452,7 +452,7 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
                 <path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314"/>
               </svg>
             </div>
-            <h2 style={{ fontSize: 16, fontWeight: 900, color: '#1e293b', margin: 0 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 900, color: '#293241', margin: 0 }}>
               {initial ? 'Editar directo' : 'Nuevo directo'}
             </h2>
           </div>
@@ -521,7 +521,7 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
                 style={{ width: 18, height: 18, accentColor: RED }}
               />
               <div>
-                <p style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', margin: 0 }}>Todos mis contactos</p>
+                <p style={{ fontSize: 13, fontWeight: 700, color: '#293241', margin: 0 }}>Todos mis contactos</p>
                 <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>Notificar a todos cuando empiece el directo</p>
               </div>
             </label>
@@ -603,7 +603,7 @@ function ContactCheck({ contact, checked, onChange }) {
     <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', cursor: 'pointer', borderBottom: '0.5px solid #f1f5f9' }}>
       <input type="checkbox" checked={checked} onChange={onChange} style={{ width: 16, height: 16, accentColor: RED }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.name}</p>
+        <p style={{ fontSize: 13, fontWeight: 700, color: '#293241', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.name}</p>
         <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{contact.phone}</p>
       </div>
     </label>
@@ -616,7 +616,7 @@ const inputStyle = {
   borderRadius: 12,
   border: '1.5px solid #e2e8f0',
   fontSize: 14,
-  color: '#1e293b',
+  color: '#293241',
   background: 'white',
   outline: 'none',
   boxSizing: 'border-box',

@@ -109,9 +109,11 @@ export const SETTINGS = {
     F('adminPrimaryColor', 'Color principal del panel', 'color'), F('appPrimaryColor', 'Color principal de la app', 'color')] },
   payments: { title: 'Métodos de pago', icon: '💳', fields: [
     F('cash.enabled', 'Efectivo', 'bool'), F('wallet.enabled', 'Monedero', 'bool'),
-    F('stripe.enabled', 'Stripe (tarjeta)', 'bool'), F('stripe.mode', 'Modo de Stripe', 'select', { options: [['sandbox', 'Pruebas (sandbox)'], ['live', 'Real (live)']] }),
-    F('stripe.currency', 'Moneda de Stripe'), F('stripe.publishableKey', 'Clave pública de Stripe'), F('stripe.secretKey', 'Clave secreta de Stripe', 'secret'),
-    F('stripe.webhookSecret', 'Secreto del webhook de Stripe', 'secret', { help: 'URL del webhook: https://oldface.app/taxi/api/payments/stripe/webhook' }),
+    F('stripe.enabled', 'Tarjeta de crédito', 'bool'),
+    F('stripe.mode', 'Tarjeta de crédito: modo', 'select', { options: [['sandbox', 'Pruebas (no se cobra de verdad)'], ['live', 'Real (cobros de verdad)']] }),
+    F('stripe.publishableKey', 'Tarjeta de crédito: clave pública', 'text', { help: 'De tu cuenta de Stripe → Desarrolladores → Claves de API. En pruebas empieza por pk_test_' }),
+    F('stripe.secretKey', 'Tarjeta de crédito: clave secreta', 'secret', { help: 'En pruebas empieza por sk_test_. Después pulsa "Configurar avisos automáticamente".' }),
+    F('stripe.webhookSecret', 'Tarjeta de crédito: secreto de los avisos', 'secret', { help: 'Se rellena solo con el botón "Configurar avisos automáticamente"' }),
     F('razorpay.enabled', 'Razorpay', 'bool'), F('razorpay.keyId', 'Razorpay key ID'), F('razorpay.currency', 'Moneda de Razorpay'),
     F('razorpay.secretKey', 'Clave secreta de Razorpay', 'secret'), F('razorpay.webhookSecret', 'Secreto del webhook de Razorpay', 'secret')] },
   referral: { title: 'Importes de invitación', icon: '🎁', fields: [
@@ -173,7 +175,7 @@ export function SettingsPage({ skey, canEdit, notify }) {
               {f.type === 'bool' ? <label className="switch"><input type="checkbox" disabled={!canEdit} checked={!!v} onChange={e => set(e.target.checked)} /> {v ? t('Activado') : t('Desactivado')}</label>
                : f.type === 'select' ? <select className="select" disabled={!canEdit} value={v ?? ''} onChange={e => set(e.target.value)}>{f.options.map(([a, b]) => <option key={a} value={a}>{t(b)}</option>)}</select>
                : f.type === 'number' ? <input className="input" type="number" step="any" disabled={!canEdit} value={v ?? ''} onChange={e => set(e.target.value === '' ? null : Number(e.target.value))} />
-               : f.type === 'color' ? <input className="input" type="color" style={{ height: 38, padding: 3 }} disabled={!canEdit} value={v || '#000080'} onChange={e => set(e.target.value)} />
+               : f.type === 'color' ? <input className="input" type="color" style={{ height: 38, padding: 3 }} disabled={!canEdit} value={v || '#3D5A80'} onChange={e => set(e.target.value)} />
                : <input className="input" type={f.type === 'secret' ? 'password' : f.type === 'email' ? 'email' : 'text'} autoComplete="off" disabled={!canEdit}
                         value={v ?? ''} placeholder={f.type === 'secret' ? t('Sin configurar') : ''} onChange={e => set(e.target.value)} />}
               {f.help && <div className="help">{t(f.help)}</div>}
@@ -182,6 +184,46 @@ export function SettingsPage({ skey, canEdit, notify }) {
         })}
       </div>
       {canEdit && <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}><button className="btn primary" disabled={busy} onClick={save}>{busy ? t('Guardando…') : t('Guardar ajustes')}</button></div>}
+      {skey === 'payments' && <CardTools canEdit={canEdit} notify={notify} refresh={value} />}
+    </div>
+  );
+}
+
+/** Tarjeta de crédito: estado, comprobar la conexión con la pasarela y configurar los avisos (webhook) con un botón */
+function CardTools({ canEdit, notify, refresh }) {
+  const [s, setS] = useState(null), [busy, setBusy] = useState('');
+  const load = () => api('/payments/card').then(setS).catch(() => {});
+  useEffect(() => { load(); }, [refresh]); // eslint-disable-line
+  const run = async (what) => {
+    setBusy(what);
+    try {
+      const r = await api(`/payments/card/${what}`, { method: 'POST' });
+      notify(what === 'check' ? t(r.testMode ? 'Conexión correcta (modo pruebas)' : 'Conexión correcta (modo real)') : t('Avisos configurados'));
+      load();
+    } catch (e) { notify(e.message, true); }
+    setBusy('');
+  };
+  if (!s) return null;
+  const color = s.ready ? (s.webhook ? '#16a34a' : '#d97706') : '#64748b';
+  return (
+    <div style={{ marginTop: 20, borderTop: '1px solid #e2e8f0', paddingTop: 16 }}>
+      <h3 style={{ margin: '0 0 8px' }}>💳 {t('Tarjeta de crédito')}</h3>
+      <p style={{ margin: '0 0 6px', color, fontWeight: 700 }}>
+        {!s.enabled ? t('Desactivada') : !s.configured ? t(s.problem) : s.webhook ? t('Activa y lista para cobrar') : t('Activa, falta configurar los avisos')}
+        {s.configured && ` · ${s.testMode ? t('MODO PRUEBAS') : t('MODO REAL')}`}
+      </p>
+      {s.testMode && (
+        <p className="muted" style={{ margin: '0 0 10px' }}>
+          {t('En modo pruebas no se cobra dinero real. Tarjeta de prueba: 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC. Para probar la verificación del banco: 4000 0027 6000 3184.')}
+        </p>
+      )}
+      <p className="muted" style={{ margin: '0 0 10px', wordBreak: 'break-all' }}>{t('Dirección de los avisos')}: {s.webhookUrl}</p>
+      {canEdit && s.configured && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn" disabled={!!busy} onClick={() => run('check')}>{busy === 'check' ? t('Comprobando…') : t('Comprobar conexión')}</button>
+          <button className="btn primary" disabled={!!busy} onClick={() => run('webhook')}>{busy === 'webhook' ? t('Configurando…') : t('Configurar avisos automáticamente')}</button>
+        </div>
+      )}
     </div>
   );
 }

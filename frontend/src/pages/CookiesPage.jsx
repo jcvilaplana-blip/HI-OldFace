@@ -4,7 +4,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const BRAND = '#000080';
+const BRAND = '#3D5A80';
 
 const COOKIE_TYPES = [
   {
@@ -53,7 +53,7 @@ export default function CookiesPage() {
           </svg>
         </button>
         <div>
-          <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#1e293b' }}>Política de cookies</h1>
+          <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#293241' }}>Política de cookies</h1>
           <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>Última actualización: enero 2025</p>
         </div>
       </div>
@@ -84,11 +84,11 @@ export default function CookiesPage() {
               <span style={{ fontSize: 24, flexShrink: 0, lineHeight: 1 }}>{c.icon}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                  <p style={{ fontSize: 13, fontWeight: 800, color: '#1e293b', margin: 0 }}>{c.name}</p>
+                  <p style={{ fontSize: 13, fontWeight: 800, color: '#293241', margin: 0 }}>{c.name}</p>
                   {c.required && (
                     <span style={{
                       fontSize: 10, fontWeight: 700, color: BRAND,
-                      background: '#eff6ff', borderRadius: 6, padding: '2px 7px',
+                      background: '#E3EDF2', borderRadius: 6, padding: '2px 7px',
                     }}>Obligatoria</span>
                   )}
                 </div>

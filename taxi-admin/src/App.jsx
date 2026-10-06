@@ -51,7 +51,7 @@ export default function App() {
 
   useEffect(() => {
     const c = meta?.app?.adminPrimaryColor;
-    if (c) document.documentElement.style.setProperty('--primary', c);
+    if (c && c.toLowerCase() !== '#000080') document.documentElement.style.setProperty('--primary', c);
     document.title = `${meta?.app?.appName || 'OldFace Taxi'} · ${t('Panel')}`;
   }, [meta]);
 

@@ -12,7 +12,7 @@ import { RTC_HTTP } from '../utils/rtcClient';
 import { fmtTime } from '../utils/lrc';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-const BRAND   = '#000080';
+const BRAND   = '#3D5A80';
 const RED     = '#ef4444';
 export const absUrl = (u) => (!u ? null : /^https?:/.test(u) ? u : `${BACKEND}${u}`);
 
@@ -72,7 +72,7 @@ export default function KaraokePage() {
   return (
     <div className="bg-gray-50" style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
       {/* Cabecera */}
-      <div style={{ background: `linear-gradient(135deg, ${BRAND}, #2d3bb8)`, color: 'white', paddingTop: 'var(--sat)', flexShrink: 0 }}>
+      <div style={{ background: `linear-gradient(135deg, ${BRAND}, #4E7D96)`, color: 'white', paddingTop: 'var(--sat)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px 6px' }}>
           <button onClick={() => navigate(-1)} aria-label="Volver" style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 19l-7-7 7-7"/></svg>
@@ -85,7 +85,7 @@ export default function KaraokePage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'white', borderRadius: 22, padding: '9px 14px' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
               <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Busca una canción o artista"
-                style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, color: '#1e293b', background: 'transparent' }} />
+                style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, color: '#293241', background: 'transparent' }} />
               {query && <button onClick={() => setQuery('')} style={{ border: 'none', background: 'none', color: '#94a3b8', fontSize: 16 }}>✕</button>}
             </div>
           </div>
@@ -109,7 +109,7 @@ export default function KaraokePage() {
               <button onClick={() => setTab('salas')} style={{
                 display: 'flex', alignItems: 'center', gap: 14, width: 'calc(100% - 28px)', margin: '14px 14px 4px',
                 padding: '16px', border: 'none', borderRadius: 18, cursor: 'pointer', textAlign: 'left', color: 'white',
-                background: `linear-gradient(120deg, ${BRAND}, #4f46e5 60%, ${RED})`, boxShadow: '0 6px 18px rgba(0,0,128,0.25)',
+                background: `linear-gradient(120deg, ${BRAND}, #4E7D96 60%, ${RED})`, boxShadow: '0 6px 18px rgba(61,90,128,0.25)',
               }}>
                 <span style={{ fontSize: 34 }}>🎙️</span>
                 <span style={{ flex: 1 }}>
@@ -232,7 +232,7 @@ export default function KaraokePage() {
 export function SongCover({ song, size = 58 }) {
   return song.coverUrl
     ? <img src={absUrl(song.coverUrl)} alt="" style={{ width: size, height: size, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }} />
-    : <div style={{ width: size, height: size, borderRadius: 12, flexShrink: 0, background: `linear-gradient(135deg, ${BRAND}, #4f46e5)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.42 }}>🎵</div>;
+    : <div style={{ width: size, height: size, borderRadius: 12, flexShrink: 0, background: `linear-gradient(135deg, ${BRAND}, #4E7D96)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.42 }}>🎵</div>;
 }
 
 export function SongRow({ song, onSing, cta = 'Canta' }) {
@@ -244,7 +244,7 @@ export function SongRow({ song, onSing, cta = 'Canta' }) {
         <p className="text-gray-500" style={{ margin: '1px 0 0', fontSize: 12 }}>{song.artist || 'Artista desconocido'}{song.duration ? ` · ${fmtTime(song.duration)}` : ''}</p>
         <p className="text-gray-400" style={{ margin: '2px 0 0', fontSize: 11 }}>🎙 {song.recordings || 0} grabaci{song.recordings === 1 ? 'ón' : 'ones'}</p>
       </div>
-      <button onClick={onSing} style={{ background: '#e0e7ff', color: BRAND, border: 'none', borderRadius: 18, padding: '8px 16px', fontWeight: 900, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>{cta}</button>
+      <button onClick={onSing} style={{ background: '#D5E6F0', color: BRAND, border: 'none', borderRadius: 18, padding: '8px 16px', fontWeight: 900, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>{cta}</button>
     </div>
   );
 }
@@ -253,7 +253,7 @@ function RoomCard({ room, onOpen }) {
   return (
     <button onClick={onOpen} style={{
       position: 'relative', aspectRatio: '1 / 1.1', border: 'none', borderRadius: 16, overflow: 'hidden', cursor: 'pointer',
-      background: `linear-gradient(160deg, ${BRAND}, #4f46e5 55%, #ec4899)`, color: 'white', textAlign: 'left', padding: 12,
+      background: `linear-gradient(160deg, ${BRAND}, #4E7D96 55%, #ec4899)`, color: 'white', textAlign: 'left', padding: 12,
       display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
     }}>
       <span style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
@@ -303,7 +303,7 @@ function RecordingRow({ rec, userId, onDeleted }) {
           {rec.duetOf && <p style={{ margin: '2px 0 0', fontSize: 11, fontWeight: 800, color: '#be185d' }}>👥 Dúo con {rec.partnerName}</p>}
           {rec.duetPart && !rec.duetOf && <p style={{ margin: '2px 0 0', fontSize: 11, fontWeight: 800, color: '#be185d' }}>👥 Dúo abierto (parte {rec.duetPart}) · {rec.duetJoins} se {rec.duetJoins === 1 ? 'ha' : 'han'} unido</p>}
         </div>
-        <button onClick={share} aria-label="Compartir" style={{ background: '#e0e7ff', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer' }}>↗</button>
+        <button onClick={share} aria-label="Compartir" style={{ background: '#D5E6F0', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer' }}>↗</button>
         <button onClick={remove} aria-label="Borrar" style={{ background: '#fee2e2', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer' }}>🗑</button>
       </div>
       {rec.video

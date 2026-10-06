@@ -28,7 +28,7 @@ import { listenDeepLinks, savePendingLink, takePendingLink } from './utils/deepL
 // El taxi (mapa MapLibre) se carga solo al abrirlo
 const TaxiPage = React.lazy(() => import('./pages/taxi/TaxiPage.jsx'));
 
-const BRAND = '#000080';
+const BRAND = '#3D5A80';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuthStore();
@@ -177,19 +177,19 @@ function PermissionsGate({ onDone }) {
   if (step === 0) {
     return (
       <div style={{
-        position: 'fixed', inset: 0, background: 'linear-gradient(160deg, #eff6ff 0%, #eff6ff 100%)',
+        position: 'fixed', inset: 0, background: 'linear-gradient(160deg, #E3EDF2 0%, #E3EDF2 100%)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         padding: '32px 24px', zIndex: 9999,
       }}>
         {/* Logo */}
-        <div style={{ width: 80, height: 80, borderRadius: 24, background: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, boxShadow: '0 8px 24px rgba(37,99,235,0.3)' }}>
+        <div style={{ width: 80, height: 80, borderRadius: 24, background: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, boxShadow: '0 8px 24px rgba(61,90,128,0.3)' }}>
           <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
             <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
           </svg>
         </div>
 
-        <h1 style={{ fontSize: 26, fontWeight: 900, color: '#1e293b', margin: '0 0 8px', textAlign: 'center' }}>
+        <h1 style={{ fontSize: 26, fontWeight: 900, color: '#293241', margin: '0 0 8px', textAlign: 'center' }}>
           Bienvenido a OldFace
         </h1>
         <p style={{ fontSize: 14, color: '#64748b', margin: '0 0 32px', textAlign: 'center', lineHeight: 1.6, maxWidth: 300 }}>
@@ -200,11 +200,11 @@ function PermissionsGate({ onDone }) {
         <div style={{ width: '100%', maxWidth: 360, display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 32 }}>
           {PERMISSIONS_LIST.map(p => (
             <div key={p.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, background: 'white', borderRadius: 16, padding: '14px 16px', boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
-              <div style={{ width: 48, height: 48, borderRadius: 14, background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 14, background: '#E3EDF2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 {p.icon}
               </div>
               <div style={{ minWidth: 0 }}>
-                <p style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', margin: '0 0 3px' }}>{p.title}</p>
+                <p style={{ fontSize: 14, fontWeight: 800, color: '#293241', margin: '0 0 3px' }}>{p.title}</p>
                 <p style={{ fontSize: 12, color: '#64748b', margin: 0, lineHeight: 1.5 }}>{p.desc}</p>
               </div>
             </div>
@@ -238,10 +238,10 @@ function PermissionsGate({ onDone }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 24,
       }}>
         <div style={{ background: 'white', borderRadius: 24, padding: '32px 24px', maxWidth: 340, width: '100%', textAlign: 'center' }}>
-          <div style={{ width: 64, height: 64, borderRadius: 20, background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+          <div style={{ width: 64, height: 64, borderRadius: 20, background: '#E3EDF2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
             {current?.icon}
           </div>
-          <p style={{ fontSize: 16, fontWeight: 900, color: '#1e293b', margin: '0 0 8px' }}>
+          <p style={{ fontSize: 16, fontWeight: 900, color: '#293241', margin: '0 0 8px' }}>
             Permiso: {current?.title}
           </p>
           <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 20px', lineHeight: 1.6 }}>
@@ -268,17 +268,17 @@ function PermissionsGate({ onDone }) {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'linear-gradient(160deg, #eff6ff 0%, #eff6ff 100%)',
+      position: 'fixed', inset: 0, background: 'linear-gradient(160deg, #E3EDF2 0%, #E3EDF2 100%)',
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       padding: '32px 24px', zIndex: 9999,
     }}>
-      <div style={{ width: 72, height: 72, borderRadius: '50%', background: allGranted ? BRAND : '#fef9c3', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, boxShadow: `0 6px 20px ${allGranted ? 'rgba(37,99,235,0.3)' : 'rgba(0,0,0,0.1)'}` }}>
+      <div style={{ width: 72, height: 72, borderRadius: '50%', background: allGranted ? BRAND : '#fef9c3', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, boxShadow: `0 6px 20px ${allGranted ? 'rgba(61,90,128,0.3)' : 'rgba(0,0,0,0.1)'}` }}>
         <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M20 6L9 17l-5-5"/>
         </svg>
       </div>
 
-      <h2 style={{ fontSize: 22, fontWeight: 900, color: '#1e293b', margin: '0 0 8px', textAlign: 'center' }}>
+      <h2 style={{ fontSize: 22, fontWeight: 900, color: '#293241', margin: '0 0 8px', textAlign: 'center' }}>
         {allGranted ? '¡Todo listo!' : 'Configuración completada'}
       </h2>
 
@@ -289,7 +289,7 @@ function PermissionsGate({ onDone }) {
           return (
             <div key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'white', borderRadius: 14, padding: '12px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
               <span style={{ fontSize: 18 }}>{ok ? '✅' : '⚠️'}</span>
-              <p style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', margin: 0, flex: 1 }}>{p.title}</p>
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#293241', margin: 0, flex: 1 }}>{p.title}</p>
               <span style={{ fontSize: 11, fontWeight: 600, color: ok ? BRAND : '#f59e0b' }}>{ok ? 'Concedido' : 'Denegado'}</span>
             </div>
           );
@@ -638,7 +638,7 @@ function OutgoingCallOverlay({ onCancel, callInfo }) {
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 201,
-      background: 'linear-gradient(160deg, #000080 0%, #111827 100%)',
+      background: 'linear-gradient(160deg, #3D5A80 0%, #111827 100%)',
       display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
     }}>
@@ -706,7 +706,7 @@ function IncomingCallModal({ call, onAccept, onReject }) {
     return () => clearInterval(t);
   }, []);
 
-  const avatarBg  = isVideo ? '#000080'  : '#000080';
+  const avatarBg  = isVideo ? '#3D5A80'  : '#3D5A80';
   const acceptBg  = isVideo ? '#22c55e'  : '#22c55e';
 
   return (
@@ -717,7 +717,7 @@ function IncomingCallModal({ call, onAccept, onReject }) {
       padding: 24,
     }}>
       <div style={{
-        background: 'linear-gradient(160deg, #1e293b 0%, #0a0a1a 100%)',
+        background: 'linear-gradient(160deg, #293241 0%, #0a0a1a 100%)',
         borderRadius: 32, padding: '40px 28px 32px',
         maxWidth: 340, width: '100%',
         textAlign: 'center',

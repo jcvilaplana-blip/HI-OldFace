@@ -16,7 +16,7 @@ import TaxiMap from './TaxiMap.jsx';
 import { EarningsTab, DriverTripsTab, AccountTab } from './DriverTabs.jsx';
 
 const GREEN = '#16a34a';
-const PAY = { cash: 'Efectivo', wallet: 'Monedero', stripe: 'Tarjeta' };
+const PAY = { cash: 'Efectivo', wallet: 'Monedero', stripe: 'Tarjeta de crédito' };
 
 export default function DriverApp({ boot, reload, onExit }) {
   const [tab, setTab] = useState('home');
@@ -381,7 +381,12 @@ function TripPanel({ trip: t, settings, cur, pickupRoute, busy, notify, onCall, 
             <p style={{ margin: '4px 0 0', fontSize: 32, fontWeight: 900, color: '#166534' }}>{money(t.total_amount, curT)}</p>
           </div>
         ) : (
-          <p style={{ textAlign: 'center', fontSize: 30, fontWeight: 900, color: BRAND, margin: '6px 0' }}>{money(t.total_amount, curT)}</p>
+          <>
+            <p style={{ textAlign: 'center', fontSize: 30, fontWeight: 900, color: BRAND, margin: '6px 0' }}>{money(t.total_amount, curT)}</p>
+            <p style={{ textAlign: 'center', fontWeight: 800, color: C.ok, margin: '0 0 6px' }}>
+              {t.payment_method === 'stripe' ? `💳 ${tx('Pagado con tarjeta de crédito: no cobres nada al cliente')}` : `👛 ${tx('Pagado con el monedero: no cobres nada al cliente')}`}
+            </p>
+          </>
         )}
         <p style={{ textAlign: 'center', color: C.muted, margin: '0 0 12px', fontSize: 13 }}>
           {tx('Tu ganancia')}: <b style={{ color: C.text }}>{money(t.driver_earning, curT)}</b>
@@ -413,12 +418,12 @@ function TripPanel({ trip: t, settings, cur, pickupRoute, busy, notify, onCall, 
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
         {c.photo ? <img src={taxiUrl(c.photo)} alt="" style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover' }} />
-                 : <span style={{ width: 48, height: 48, borderRadius: '50%', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>🙋</span>}
+                 : <span style={{ width: 48, height: 48, borderRadius: '50%', background: '#D5E6F0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>🙋</span>}
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ margin: 0, fontWeight: 900 }}>{c.name}</p>
           <p style={{ margin: 0, fontSize: 13, color: C.muted }}>★ {Number(c.rating || 5).toFixed(1)} · {money(t.total_amount ?? t.estimated_fare, curT)} · {tx(PAY[t.payment_method] || t.payment_method)}</p>
         </div>
-        <button onClick={onCall} aria-label={tx('Llamar')} title={tx('Llamar')} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: '#e0e7ff', fontSize: 20, cursor: 'pointer', flexShrink: 0 }}>📞</button>
+        <button onClick={onCall} aria-label={tx('Llamar')} title={tx('Llamar')} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: '#D5E6F0', fontSize: 20, cursor: 'pointer', flexShrink: 0 }}>📞</button>
         <button onClick={() => openNavigation(target.lat, target.lng, target.address)} aria-label={tx('Navegar')} title={tx('Navegar')} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: BRAND, color: 'white', fontSize: 20, cursor: 'pointer', flexShrink: 0 }}>🧭</button>
       </div>
 
@@ -493,7 +498,7 @@ function StepCard({ n, state, title, text, action, onClick }) {
         <span style={{ display: 'block', fontWeight: 900 }}>{title}</span>
         <span style={{ display: 'block', fontSize: 13, color: C.muted }}>{text}</span>
       </span>
-      {action && <button onClick={onClick} style={{ background: state === 'todo' ? BRAND : '#e0e7ff', color: state === 'todo' ? 'white' : BRAND, border: 'none', borderRadius: 10, padding: '8px 12px', fontWeight: 800, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>{action}</button>}
+      {action && <button onClick={onClick} style={{ background: state === 'todo' ? BRAND : '#D5E6F0', color: state === 'todo' ? 'white' : BRAND, border: 'none', borderRadius: 10, padding: '8px 12px', fontWeight: 800, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>{action}</button>}
     </Card>
   );
 }

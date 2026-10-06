@@ -6,17 +6,22 @@ export default {
     extend: {
       colors: {
         oldface: {
-          50:  '#e6e6ff',
-          100: '#b3b3ff',
-          200: '#8080ff',
-          300: '#4d4dff',
-          400: '#1a1aff',
-          500: '#000080',
-          600: '#000066',
-          700: '#00004d',
-          800: '#000033',
-          900: '#00001a',
-        }
+          50:  '#F3F8FA',
+          100: '#E3EDF2',   // fondo claro
+          200: '#98C1D9',   // azul cielo
+          300: '#7AA3BD',
+          400: '#4E7D96',   // azul acero (cabeceras)
+          500: '#3D5A80',   // PRIMARIO
+          600: '#34506F',
+          700: '#293241',   // azul pizarra (textos)
+          800: '#1D2433',
+          900: '#0A0D25',   // casi negro
+        },
+        accent: {
+          DEFAULT: '#EE6C4D', // naranja de acción (botón +, avisos)
+          light:   '#FF844B',
+        },
+        ice: '#E0FBFC'
       },
       fontFamily: {
         sans: ['Nunito', 'system-ui', 'sans-serif'],

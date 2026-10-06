@@ -151,7 +151,7 @@ export function FieldInput({ field: f, value, onChange, readOnly }) {
     case 'json': case 'polygon':
       return <textarea {...common} rows={4} style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}
         value={typeof value === 'string' ? value : value ? JSON.stringify(value) : ''} />;
-    case 'color': return <input {...common} type="color" style={{ height: 38, padding: 3 }} value={value || '#000080'} />;
+    case 'color': return <input {...common} type="color" style={{ height: 38, padding: 3 }} value={value || '#3D5A80'} />;
     case 'email': return <input {...common} type="email" />;
     case 'phone': return <input {...common} type="tel" />;
     case 'password': return <input {...common} type="password" autoComplete="new-password" placeholder={t('Nueva contraseña')} />;

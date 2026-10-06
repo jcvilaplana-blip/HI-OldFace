@@ -131,7 +131,7 @@ function RoleCard({ icon, title, text, onClick }) {
   return (
     <button onClick={onClick} style={{ width: '100%', textAlign: 'left', display: 'flex', gap: 14, alignItems: 'center', background: 'white', border: `1.5px solid ${C.line}`,
       borderRadius: 18, padding: 16, marginBottom: 12, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-      <span style={{ width: 56, height: 56, borderRadius: 16, background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, flexShrink: 0 }}>{icon}</span>
+      <span style={{ width: 56, height: 56, borderRadius: 16, background: '#D5E6F0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, flexShrink: 0 }}>{icon}</span>
       <span style={{ flex: 1 }}>
         <span style={{ display: 'block', fontSize: 17, fontWeight: 900, color: BRAND }}>{title}</span>
         <span style={{ display: 'block', fontSize: 13, color: C.muted, marginTop: 3 }}>{text}</span>

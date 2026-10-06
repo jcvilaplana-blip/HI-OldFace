@@ -486,3 +486,20 @@ CREATE TABLE IF NOT EXISTS languages (
   app_json     TEXT,                            -- traducciones de las apps (JSON clave → texto)
   panel_json   TEXT                             -- traducciones del panel
 );
+
+-- Pagos con tarjeta de crédito (Stripe): uno por viaje (reserva del importe y cobro al terminar) o por recarga del monedero
+CREATE TABLE IF NOT EXISTS card_payments (
+  id          INTEGER PRIMARY KEY,
+  intent_id   TEXT NOT NULL UNIQUE,            -- PaymentIntent de Stripe (pi_…)
+  kind        TEXT NOT NULL,                   -- booking | topup
+  owner_type  TEXT NOT NULL,                   -- customer
+  owner_id    INTEGER NOT NULL,
+  booking_id  INTEGER REFERENCES bookings(id),
+  amount      REAL NOT NULL,                   -- importe reservado / a cobrar
+  currency    TEXT NOT NULL,
+  captured    REAL NOT NULL DEFAULT 0,         -- importe cobrado de verdad
+  refunded    REAL NOT NULL DEFAULT 0,
+  status      TEXT NOT NULL DEFAULT 'created', -- created | authorized | succeeded | canceled | failed
+  created_at  INTEGER, updated_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_card_payments_booking ON card_payments(booking_id);

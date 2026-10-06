@@ -1,7 +1,7 @@
-/* Panel de OldFace Taxi — colores de marca: azul marino #000080 (ajustable en Ajustes → App) */
+/* Panel de OldFace Taxi — paleta OldFace: primario #3D5A80, acento naranja #EE6C4D (ajustable en Ajustes → App) */
 :root {
-  --primary: #000080; --primary-2: #2d3bb8; --red: #ef4444; --green: #16a34a; --amber: #d97706;
-  --bg: #f4f6fb; --card: #ffffff; --text: #0f172a; --muted: #64748b; --line: #e2e8f0; --soft: #eef2ff;
+  --primary: #3D5A80; --primary-2: #4E7D96; --red: #ef4444; --green: #16a34a; --amber: #d97706;
+  --bg: #E3EDF2; --card: #ffffff; --text: #293241; --muted: #64748b; --line: #e2e8f0; --soft: #E3EDF2;
   --radius: 14px; --shadow: 0 1px 3px rgba(15, 23, 42, .06), 0 6px 20px rgba(15, 23, 42, .04);
 }
 * { box-sizing: border-box; }
@@ -12,11 +12,11 @@ a { color: var(--primary); }
 
 /* ── Estructura ── */
 .layout { display: flex; height: 100%; }
-.sidebar { width: 252px; flex-shrink: 0; background: linear-gradient(180deg, var(--primary), #0b0b55); color: #fff; overflow-y: auto; padding: 14px 10px 24px; }
+.sidebar { width: 252px; flex-shrink: 0; background: linear-gradient(180deg, var(--primary), #293241); color: #fff; overflow-y: auto; padding: 14px 10px 24px; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 16px; font-weight: 900; font-size: 17px; }
 .brand-logo { width: 34px; height: 34px; border-radius: 10px; background: #fff; color: var(--primary); display: grid; place-items: center; font-size: 18px; }
 .nav-group { margin-top: 12px; padding: 0 10px 4px; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; opacity: .55; }
-.nav-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px; background: none; color: #dbe4ff; cursor: pointer; text-align: left; }
+.nav-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px; background: none; color: #D5E6F0; cursor: pointer; text-align: left; }
 .nav-item:hover { background: rgba(255,255,255,.08); color: #fff; }
 .nav-item.active { background: #fff; color: var(--primary); font-weight: 800; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -41,7 +41,7 @@ a { color: var(--primary); }
 .btn:disabled { opacity: .5; cursor: default; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
 .input, .select, textarea.input { width: 100%; padding: 8px 11px; border: 1px solid var(--line); border-radius: 10px; background: #fff; outline: none; }
-.input:focus, .select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(0,0,128,.08); }
+.input:focus, .select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(61,90,128,.08); }
 .search { max-width: 280px; }
 .muted { color: var(--muted); }
 .error { color: var(--red); font-weight: 700; }
@@ -54,7 +54,7 @@ a { color: var(--primary); }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
 th { font-size: 12px; color: var(--muted); font-weight: 800; white-space: nowrap; cursor: pointer; user-select: none; }
-tr:hover td { background: #fafbff; }
+tr:hover td { background: #F3F8FA; }
 td.actions { white-space: nowrap; text-align: right; }
 .thumb { width: 38px; height: 38px; border-radius: 8px; object-fit: cover; background: var(--soft); }
 .pager { display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin-top: 12px; }
@@ -76,11 +76,11 @@ td.actions { white-space: nowrap; text-align: right; }
 .perm-matrix td:first-child, .perm-matrix th:first-child { text-align: left; }
 
 /* ── Login ── */
-.login { min-height: 100%; display: grid; place-items: center; background: linear-gradient(135deg, var(--primary), #4f46e5 60%, var(--red)); padding: 20px; }
+.login { min-height: 100%; display: grid; place-items: center; background: linear-gradient(135deg, #293241, var(--primary) 55%, #EE6C4D); padding: 20px; }
 .login .card { width: 100%; max-width: 380px; padding: 28px; }
 .login h1 { margin: 0 0 4px; font-size: 22px; }
 
-.toast { position: fixed; right: 18px; bottom: 18px; z-index: 80; background: #0f172a; color: #fff; padding: 11px 16px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); font-weight: 700; }
+.toast { position: fixed; right: 18px; bottom: 18px; z-index: 80; background: #293241; color: #fff; padding: 11px 16px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); font-weight: 700; }
 .toast.err { background: var(--red); }
 .chat { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; padding: 4px; }
 .msg { max-width: 80%; padding: 8px 12px; border-radius: 12px; background: #f1f5f9; }

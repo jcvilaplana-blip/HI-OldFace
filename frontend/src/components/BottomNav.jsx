@@ -5,8 +5,8 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useThemeStore } from '../store/themeStore';
 
-const BRAND    = '#000080';
-const INACTIVE_DARK  = '#3a5578';
+const BRAND    = '#3D5A80';
+const INACTIVE_DARK  = '#5F84A0';
 const INACTIVE_LIGHT = '#9ca3af';
 
 const NAV_ITEMS = [
@@ -31,7 +31,7 @@ export default function BottomNav() {
   const { pathname } = useLocation();
   const { isDark }  = useThemeStore();
 
-  const bg       = isDark ? '#0c1526' : 'white';
+  const bg       = isDark ? '#222A38' : 'white';
   const border   = isDark ? 'rgba(255,255,255,0.06)' : '#e5e7eb';
   const inactive = isDark ? INACTIVE_DARK : INACTIVE_LIGHT;
 
