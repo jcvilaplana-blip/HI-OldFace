@@ -179,7 +179,7 @@ function cancelByCustomer(customerId, code, reason) {
     }
     run("UPDATE bookings SET status = 'cancelled', cancelled_by = 'customer', cancel_reason = ?, cancel_fee = ?, cancelled_at = ? WHERE id = ?",
         String(reason || '').slice(0, 300) || null, fee, now(), b.id);
-    run("UPDATE booking_offers SET status = 'expired', responded_at = ? WHERE booking_id = ? AND status = 'offered'", now(), b.id);
+    dispatch.expireOffers(b);
     if (b.driver_id) run('UPDATE drivers SET available = CASE WHEN online = 1 THEN 1 ELSE 0 END WHERE id = ?', b.driver_id);
     dispatch.clear(b.id);
     dispatch.logEvent(b.id, 'cancelled', { by: 'customer', fee });

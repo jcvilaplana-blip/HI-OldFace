@@ -1875,9 +1875,14 @@ router.post('/internal/push', async (req, res) => {
   const secret = process.env.RTC_SECRET || '';
   if (!secret || hdr.length !== secret.length || !crypto.timingSafeEqual(Buffer.from(hdr), Buffer.from(secret)))
     return res.status(401).json({ error: 'unauthorized' });
-  const { userId, title, body, data } = req.body || {};
+  const { userId, title, body, data, dataOnly } = req.body || {};
   const token = fcmStore.get(String(userId || ''));
   if (!token) return res.json({ success: false, reason: 'sin token FCM' });
+  // Solo datos (ofertas de viaje del taxi): la app nativa muestra la pantalla "Nuevo servicio" aunque esté cerrada
+  if (dataOnly) {
+    await sendFCMData(token, data && typeof data === 'object' ? data : {}, 60000);
+    return res.json({ success: true });
+  }
   await sendFCMPush(token, String(title || 'OldFace').slice(0, 120), String(body || '').slice(0, 300),
                     data && typeof data === 'object' ? data : {});
   res.json({ success: true });

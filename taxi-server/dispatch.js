@@ -5,15 +5,21 @@
  *   de uno en uno, durante `offerSeconds`. Si rechaza o no responde → siguiente. Sin candidatos → siguiente ronda.
  *   Tras la última ronda se reintenta cada 10 s hasta `searchTimeoutSec`; después la reserva caduca.
  *   Al arrancar el servidor se retoman las búsquedas pendientes.
+ *
+ *   Un conductor conectado sigue contando aunque su móvil deje de mandar la ubicación (ahorro de batería, pantalla
+ *   apagada o app cerrada): se usa su última posición durante `locationMaxAgeMin`, primero los de posición reciente.
+ *   A esos se les despierta con el aviso push de pantalla completa "Nuevo servicio" y tienen `wakeExtraSeconds` más.
  */
 const { all, get, run, tx, now, getSetting } = require('./db');
 const { haversineKm, bbox } = require('./geo');
 const rt = require('./realtime');
 
 const timers = new Map();      // bookingId → timeout
+const offerSecs = new Map();   // `${bookingId}:${driverId}` → segundos de esa oferta
 const LOCATION_FRESH_MS = 5 * 60 * 1000;
 
-const cfg = () => ({ ...{ round1Km: 3, round2Km: 6, round3Km: 10, offerSeconds: 20 }, ...getSetting('driverSearch', {}),
+const cfg = () => ({ ...{ round1Km: 3, round2Km: 6, round3Km: 10, offerSeconds: 20, locationMaxAgeMin: 480, wakeExtraSeconds: 20 },
+                     ...getSetting('driverSearch', {}),
                      searchTimeoutSec: getSetting('booking', {}).searchTimeoutSec || 120 });
 
 function clear(bookingId) { clearTimeout(timers.get(bookingId)); timers.delete(bookingId); }
@@ -23,19 +29,24 @@ function logEvent(bookingId, type, data) {
   run('INSERT INTO booking_events (booking_id, type, data, created_at) VALUES (?, ?, ?, ?)', bookingId, type, data ? JSON.stringify(data) : null, now());
 }
 
-/** Conductores candidatos para una reserva dentro de un radio, del más cercano al más lejano */
+/**
+ * Conductores candidatos para una reserva dentro de un radio: primero los que tienen la posición al día
+ * (del más cercano al más lejano) y después los que llevan un rato sin mandarla (`stale`, móvil dormido).
+ */
 function candidates(b, radiusKm) {
+  const maxAgeMs = Math.max(LOCATION_FRESH_MS, (Number(cfg().locationMaxAgeMin) || 0) * 60000);
   const box = bbox(b.pickup_lat, b.pickup_lng, radiusKm);
   const rows = all(`
-    SELECT d.id, d.lat, d.lng, v.id AS vehicle_id FROM drivers d
+    SELECT d.id, d.lat, d.lng, d.location_at, v.id AS vehicle_id FROM drivers d
     JOIN vehicles v ON v.driver_id = d.id AND v.status = 'active' AND v.ride_type_id = ?
     WHERE d.status = 'active' AND d.verified = 1 AND d.online = 1 AND d.available = 1
       AND d.location_at > ? AND d.lat BETWEEN ? AND ? AND d.lng BETWEEN ? AND ?
       AND d.id NOT IN (SELECT driver_id FROM booking_offers WHERE booking_id = ?)
       AND d.id NOT IN (SELECT driver_id FROM bookings WHERE status IN ('accepted','arrived','started') AND driver_id IS NOT NULL)`,
-    b.ride_type_id, now() - LOCATION_FRESH_MS, box.minLat, box.maxLat, box.minLng, box.maxLng, b.id);
-  return rows.map(r => ({ ...r, km: haversineKm(b.pickup_lat, b.pickup_lng, r.lat, r.lng) }))
-             .filter(r => r.km <= radiusKm).sort((a, c) => a.km - c.km);
+    b.ride_type_id, now() - maxAgeMs, box.minLat, box.maxLat, box.minLng, box.maxLng, b.id);
+  const fresh = now() - LOCATION_FRESH_MS;
+  return rows.map(r => ({ ...r, km: haversineKm(b.pickup_lat, b.pickup_lng, r.lat, r.lng), stale: r.location_at <= fresh }))
+             .filter(r => r.km <= radiusKm).sort((a, c) => (a.stale - c.stale) || (a.km - c.km));
 }
 
 /** Datos de la oferta que ve el conductor */
@@ -48,6 +59,13 @@ function offerPayload(b, km, seconds) {
            expiresIn: seconds, expiresAt: now() + seconds * 1000 };
 }
 
+/** Da por caducadas las ofertas abiertas de una reserva y avisa a esos conductores (deja de sonar el aviso) */
+function expireOffers(b) {
+  const open = all("SELECT driver_id FROM booking_offers WHERE booking_id = ? AND status = 'offered'", b.id);
+  run("UPDATE booking_offers SET status = 'expired', responded_at = ? WHERE booking_id = ? AND status = 'offered'", now(), b.id);
+  for (const o of open) { offerSecs.delete(`${b.id}:${o.driver_id}`); rt.toDriver(o.driver_id, 'offer:expired', { code: b.code }); }
+}
+
 /** Busca el siguiente conductor y le ofrece el viaje */
 function next(bookingId) {
   const b = get('SELECT * FROM bookings WHERE id = ?', bookingId);
@@ -57,7 +75,7 @@ function next(bookingId) {
 
   if (now() - (b.search_started_at || b.created_at) > c.searchTimeoutSec * 1000) {
     run("UPDATE bookings SET status = 'expired' WHERE id = ? AND status = 'searching'", b.id);
-    run("UPDATE booking_offers SET status = 'expired', responded_at = ? WHERE booking_id = ? AND status = 'offered'", now(), b.id);
+    expireOffers(b);
     logEvent(b.id, 'expired');
     rt.toCustomer(b.customer_id, 'booking:update', { code: b.code, status: 'expired', message: 'No hay conductores disponibles ahora mismo' });
     if (b.payment_method === 'stripe') require('./cardpay').settleCancelled(b.id, 0);   // se libera la reserva de la tarjeta
@@ -70,12 +88,15 @@ function next(bookingId) {
     const list = candidates(b, radii[round - 1]);
     if (list.length) {
       const d = list[0];
+      const seconds = Number(c.offerSeconds) + (d.stale ? Math.max(0, Number(c.wakeExtraSeconds) || 0) : 0);
+      offerSecs.set(`${b.id}:${d.id}`, seconds);
       run('UPDATE bookings SET search_round = ? WHERE id = ?', round, b.id);
       run('INSERT INTO booking_offers (booking_id, driver_id, round, distance_km, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
           b.id, d.id, round, Math.round(d.km * 100) / 100, 'offered', now());
-      logEvent(b.id, 'offer', { driverId: d.id, round, km: d.km });
-      rt.toDriver(d.id, 'offer:new', offerPayload(b, d.km, c.offerSeconds));
-      later(b.id, c.offerSeconds * 1000, () => {
+      logEvent(b.id, 'offer', { driverId: d.id, round, km: d.km, stale: d.stale });
+      rt.toDriver(d.id, 'offer:new', offerPayload(b, d.km, seconds));
+      later(b.id, seconds * 1000, () => {
+        offerSecs.delete(`${b.id}:${d.id}`);
         const changed = run("UPDATE booking_offers SET status = 'expired', responded_at = ? WHERE booking_id = ? AND driver_id = ? AND status = 'offered'", now(), b.id, d.id);
         if (changed.changes) rt.toDriver(d.id, 'offer:expired', { code: b.code });
         next(b.id);
@@ -109,6 +130,7 @@ function accept(driverId, code) {
     run("UPDATE bookings SET status = 'accepted', driver_id = ?, vehicle_id = ?, accepted_at = ?, start_otp = ? WHERE id = ?", driverId, vehicle?.id || null, now(), otp, b.id);
     run("UPDATE booking_offers SET status = 'accepted', responded_at = ? WHERE id = ?", now(), offer.id);
     run('UPDATE drivers SET available = 0 WHERE id = ?', driverId);
+    offerSecs.delete(`${b.id}:${driverId}`);
     logEvent(b.id, 'accepted', { driverId });
     clear(b.id);
     return b.id;
@@ -121,6 +143,7 @@ function reject(driverId, code) {
   if (!b) throw Object.assign(new Error('Viaje no encontrado'), { status: 404 });
   const r = run("UPDATE booking_offers SET status = 'rejected', responded_at = ? WHERE booking_id = ? AND driver_id = ? AND status = 'offered'", now(), b.id, driverId);
   if (!r.changes) throw Object.assign(new Error('Esta oferta ya no está disponible'), { status: 409 });
+  offerSecs.delete(`${b.id}:${driverId}`);
   logEvent(b.id, 'rejected', { driverId });
   next(b.id);
 }
@@ -144,8 +167,9 @@ function pendingOffer(driverId, code) {
   const o = get(`SELECT o.distance_km, o.created_at AS offered_at, b.* FROM booking_offers o JOIN bookings b ON b.id = o.booking_id
                  WHERE o.driver_id = ? AND b.code = ? AND o.status = 'offered' AND b.status = 'searching'`, driverId, code);
   if (!o) return null;
-  const left = Math.round((o.offered_at + cfg().offerSeconds * 1000 - now()) / 1000);
+  const seconds = offerSecs.get(`${o.id}:${driverId}`) ?? Number(cfg().offerSeconds);
+  const left = Math.round((o.offered_at + seconds * 1000 - now()) / 1000);
   return left > 0 ? offerPayload(o, o.distance_km || 0, left) : null;
 }
 
-module.exports = { start, accept, reject, restart, resume, clear, next, candidates, logEvent, pendingOffer };
+module.exports = { start, accept, reject, restart, resume, clear, next, candidates, logEvent, pendingOffer, expireOffers };

@@ -80,7 +80,7 @@ const DEFAULT_SETTINGS = {
                   maps: { provider: 'oldface', googleEnabled: false, googleKey: '' },
                   mail: { mailer: 'smtp', host: '', port: 587, username: '', password: '', encryption: 'tls', fromAddress: '', fromName: 'OldFace Taxi' } },
   refund: { requiredHours: 48 },
-  driverSearch: { round1Km: 3, round2Km: 6, round3Km: 10, offerSeconds: 20, active: true },
+  driverSearch: { round1Km: 3, round2Km: 6, round3Km: 10, offerSeconds: 20, wakeExtraSeconds: 20, locationMaxAgeMin: 480, active: true },
   booking: { otpRequired: true, scheduleMaxDays: 7, searchTimeoutSec: 120 },
 };
 

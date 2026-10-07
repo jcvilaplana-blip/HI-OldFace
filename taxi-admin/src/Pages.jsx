@@ -137,7 +137,10 @@ export const SETTINGS = {
   refund: { title: 'Reembolsos', icon: '↩️', fields: [F('requiredHours', 'Plazo de revisión de reembolsos (horas)', 'number', { help: 'Se muestra a los clientes al pedir un reembolso' })] },
   driverSearch: { title: 'Radio de búsqueda de conductores', icon: '📡', fields: [
     F('round1Km', 'Ronda 1 (km)', 'number'), F('round2Km', 'Ronda 2 (km)', 'number'), F('round3Km', 'Ronda 3 (km)', 'number'),
-    F('offerSeconds', 'Segundos para aceptar cada oferta', 'number'), F('active', 'Activo', 'bool')] },
+    F('offerSeconds', 'Segundos para aceptar cada oferta', 'number'),
+    F('wakeExtraSeconds', 'Segundos extra si hay que despertar el móvil del conductor', 'number'),
+    F('locationMaxAgeMin', 'Minutos que vale la última ubicación de un conductor conectado', 'number'),
+    F('active', 'Activo', 'bool')] },
   booking: { title: 'Reservas', icon: '🚕', fields: [
     F('otpRequired', 'Pedir el código de 4 cifras para empezar el viaje', 'bool'),
     F('searchTimeoutSec', 'Tiempo máximo buscando conductor (segundos)', 'number'), F('scheduleMaxDays', 'Días máximos para reservar con antelación', 'number')] },

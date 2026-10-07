@@ -392,6 +392,12 @@ export default function AppRoot() {
               console.log('[Push] primer plano:', n.title);
               // Llamada con la app abierta (aviso solo de datos) → modal de llamada entrante
               const data = n.data || {};
+              // Nuevo servicio del taxi con la app a la vista → abrir el taxi con la oferta
+              if (data.type === 'taxi_offer' && data.code) {
+                if (Number(data.expiresAt) && Date.now() > Number(data.expiresAt)) return;
+                openTaxiOffer(data.code);
+                return;
+              }
               if (data.type === 'call' && data.callerId) {
                 if (Date.now() - (Number(data.ts) || 0) > 45000) return;
                 import('./store/callStore').then(({ useCallStore }) => {
@@ -465,6 +471,20 @@ export default function AppRoot() {
 }
 
 // ── Shell interior al BrowserRouter ──────────────────────────────────────────
+/**
+ * Abrir una oferta de viaje del taxi (conductor): si el taxi ya está abierto se le pasa la oferta (evento
+ * 'taxi:offer'); si no, se abre /taxi y el conductor la ve al cargar (dashboard → pendingOffer).
+ */
+function openTaxiOffer(code, navigate) {
+  if (window.location.pathname === '/taxi') {
+    window.dispatchEvent(new CustomEvent('taxi:offer', { detail: { code } }));
+  } else if (navigate) {
+    navigate('/taxi');
+  } else {
+    window.location.href = '/taxi';
+  }
+}
+
 function AppShell() {
   const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuthStore();
@@ -542,6 +562,19 @@ function AppShell() {
     try { window.OldFaceCalls.ensureCallPermissions(); } catch { /* app antigua */ }
     return () => window.removeEventListener('oldfacecall', takeAccepted);
   }, [isAuthenticated]);
+
+  // ── "Ver servicio" en la pantalla nativa "Nuevo servicio" del taxi (conductor) → abrir la oferta en el taxi ──
+  useEffect(() => {
+    if (!isAuthenticated || !window.OldFaceCalls?.takePendingTaxiOffer) return;
+    const takeOffer = () => {
+      let o = null;
+      try { o = JSON.parse(window.OldFaceCalls.takePendingTaxiOffer() || 'null'); } catch { /* nada */ }
+      if (o?.code) openTaxiOffer(o.code, navigate);
+    };
+    takeOffer();
+    window.addEventListener('oldfacetaxi', takeOffer);
+    return () => window.removeEventListener('oldfacetaxi', takeOffer);
+  }, [isAuthenticated]); // eslint-disable-line
 
   // ── Deep links: https://oldface.app/directo/<id>/live (WhatsApp, etc.) abre la app ──
   useEffect(() => {

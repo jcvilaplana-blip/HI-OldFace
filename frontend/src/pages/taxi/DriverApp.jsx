@@ -103,6 +103,19 @@ function DriverHome({ boot, dash, loadDash, notify, onExit, openAccount }) {
     taxiApi(`/driver/offers/${dash.pendingOffer}`).then(({ offer: o }) => setOffer({ ...o, receivedAt: Date.now() })).catch(() => {});
   }, [dash.pendingOffer]); // eslint-disable-line
 
+  // Oferta abierta desde el aviso "Nuevo servicio" (pantalla nativa o push) con el taxi ya abierto
+  useEffect(() => {
+    const onTaxiOffer = (e) => {
+      const code = e.detail?.code;
+      if (!code || offerRef.current?.code === code) return;
+      if (tripRef.current && ['accepted', 'arrived', 'started'].includes(tripRef.current.status)) return;
+      taxiApi(`/driver/offers/${code}`).then(({ offer: o }) => { setOffer({ ...o, receivedAt: Date.now() }); setFit(f => f + 1); })
+        .catch(() => notify(tx('La oferta ya no está disponible'), true));
+    };
+    window.addEventListener('taxi:offer', onTaxiOffer);
+    return () => window.removeEventListener('taxi:offer', onTaxiOffer);
+  }, [notify]);
+
   // Primera posición para centrar el mapa
   useEffect(() => {
     if (pos) return;
@@ -174,6 +187,8 @@ function DriverHome({ boot, dash, loadDash, notify, onExit, openAccount }) {
     return null;
   }, [trip?.code, trip?.status, trip?.route_shape, pickupRoute]); // eslint-disable-line
 
+  const [bgSetup, setBgSetup] = useState(false);
+
   const toggleOnline = async () => {
     setBusy(true);
     try {
@@ -184,6 +199,7 @@ function DriverHome({ boot, dash, loadDash, notify, onExit, openAccount }) {
       if (!online && p) sockRef.current?.emit('driver:location', p);
       await loadDash();
       notify(online ? tx('Te has desconectado') : tx('Conectado: ya puedes recibir viajes'));
+      if (!online && needsBackgroundSetup()) setBgSetup(true);   // la primera vez: ajustes para recibir viajes con la app cerrada
     } catch (e) { notify(e.message, true); }
     setBusy(false);
   };
@@ -239,7 +255,89 @@ function DriverHome({ boot, dash, loadDash, notify, onExit, openAccount }) {
                     onCall={() => trip.customer?.user_id && navigate(`/call/${trip.customer.user_id}`)}
                     onArrived={() => step('arrived')} onStart={(otp) => step('start', { otp })} onComplete={() => step('complete')}
                     onCancel={cancelTrip} onDone={finish} />
-        : <IdlePanel online={online} dash={dash} cur={cur} busy={busy} onToggle={toggleOnline} openAccount={openAccount} />}
+        : <IdlePanel online={online} dash={dash} cur={cur} busy={busy} onToggle={toggleOnline} openAccount={openAccount}
+                     onBackgroundSetup={backgroundBridge() ? () => setBgSetup(true) : null} />}
+
+      {bgSetup && <BackgroundSetup onClose={() => setBgSetup(false)} />}
+    </div>
+  );
+}
+
+// ── Ajustes del móvil para recibir viajes con la app cerrada (Android) ──────
+// Notificaciones, pantalla completa, batería sin restricciones y el "Inicio automático" de cada marca.
+const BG_SETUP_KEY = 'oldface_taxi_bg_setup_v1';
+const backgroundBridge = () => (typeof window !== 'undefined' && window.OldFaceCalls?.backgroundSetup ? window.OldFaceCalls : null);
+function readBackgroundStatus() {
+  try { return JSON.parse(backgroundBridge()?.backgroundSetup() || 'null'); } catch { return null; }
+}
+/** ¿Hay que enseñar el asistente? (solo la primera vez y si queda algo por activar) */
+function needsBackgroundSetup() {
+  try { if (localStorage.getItem(BG_SETUP_KEY) === 'done') return false; } catch { /* sin almacenamiento */ }
+  const st = readBackgroundStatus();
+  return !!st && (st.autostart || !st.battery || !st.fullScreen || !st.notifications);
+}
+
+/** Qué hay que activar en el ajuste de "Inicio automático" de cada marca */
+function autostartHelp(brand = '') {
+  if (/samsung/.test(brand)) return tx('Añade OldFace a «Aplicaciones que nunca se suspenden» (Batería → Límites de uso en segundo plano).');
+  if (/huawei|honor/.test(brand)) return tx('Busca OldFace, elige «Gestionar manualmente» y activa las tres opciones.');
+  if (/xiaomi|redmi|poco/.test(brand)) return tx('Activa «Inicio automático» para OldFace. En Batería, elige «Sin restricciones».');
+  if (/oppo|realme|oneplus|vivo/.test(brand)) return tx('Activa «Inicio automático» para OldFace y permite la actividad en segundo plano.');
+  return tx('Permite que OldFace se inicie sola y funcione en segundo plano.');
+}
+
+function BackgroundSetup({ onClose }) {
+  const [st, setSt] = useState(readBackgroundStatus);
+  const [autoDone, setAutoDone] = useState(false);
+  // Al volver de los ajustes del móvil, comprobar otra vez
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === 'visible') setSt(readBackgroundStatus()); };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => { document.removeEventListener('visibilitychange', refresh); window.removeEventListener('focus', refresh); };
+  }, []);
+  if (!st) return null;
+  const open = (kind) => { try { backgroundBridge()?.openBackgroundSettings(kind); } catch { /* app antigua */ } };
+  const finish = () => { try { localStorage.setItem(BG_SETUP_KEY, 'done'); } catch { /* sin almacenamiento */ } onClose(); };
+
+  const steps = [
+    { key: 'notifications', ok: st.notifications, title: tx('Notificaciones'), text: tx('Permite las notificaciones de OldFace.') },
+    { key: 'fullscreen', ok: st.fullScreen, title: tx('Pantalla completa'), text: tx('Para que el aviso de nuevo servicio encienda la pantalla.') },
+    { key: 'battery', ok: st.battery, title: tx('Batería sin restricciones'), text: tx('Para que los avisos lleguen en modo ahorro o con la pantalla apagada.') },
+    ...(st.autostart ? [{ key: 'autostart', ok: autoDone, manual: true, title: tx('Inicio automático'), text: autostartHelp(st.brand) }] : []),
+  ];
+
+  return (
+    <div role="dialog" aria-modal="true" style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(10,13,37,0.55)', display: 'flex', alignItems: 'flex-end' }}>
+      <div style={{ background: 'white', width: '100%', borderRadius: '22px 22px 0 0', padding: '20px 18px calc(var(--sab, 0px) + 18px)', maxHeight: '88%', overflowY: 'auto', color: C.text }}>
+        <p style={{ fontWeight: 900, fontSize: 19, margin: 0 }}>📲 {tx('Recibe viajes con la app cerrada')}</p>
+        <p style={{ color: C.muted, fontSize: 13, margin: '4px 0 14px' }}>
+          {tx('Activa estos ajustes una sola vez para que te llegue la pantalla de «Nuevo servicio» aunque el móvil esté bloqueado, en ahorro de batería o con OldFace cerrada.')}
+        </p>
+        {steps.map((x, i) => (
+          <div key={x.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: i ? `1px solid ${C.line}` : 'none' }}>
+            <span style={{ width: 30, height: 30, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900,
+                           background: x.ok ? '#dcfce7' : '#f1f5f9', color: x.ok ? GREEN : C.muted }}>{x.ok ? '✓' : i + 1}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontWeight: 800, fontSize: 15 }}>{x.title}</span>
+              <span style={{ display: 'block', color: C.muted, fontSize: 12.5 }}>{x.text}</span>
+            </span>
+            {(!x.ok || x.manual) && (
+              <button onClick={() => { open(x.key); if (x.manual) setAutoDone(true); }}
+                      style={{ background: x.ok ? '#f1f5f9' : BRAND, color: x.ok ? BRAND : 'white', border: 'none', borderRadius: 12, padding: '9px 12px', fontWeight: 800, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>
+                {x.ok ? tx('Abrir otra vez') : tx('Activar')}
+              </button>
+            )}
+          </div>
+        ))}
+        <p style={{ color: C.muted, fontSize: 12, margin: '6px 0 14px' }}>
+          💡 {tx('No cierres OldFace deslizándola desde las apps recientes: sal con el botón de inicio.')}
+        </p>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Btn variant="soft" onClick={onClose} style={{ flex: 1 }}>{tx('Más tarde')}</Btn>
+          <Btn onClick={finish} style={{ flex: 2 }}>{tx('Listo')}</Btn>
+        </div>
+      </div>
     </div>
   );
 }
@@ -252,7 +350,7 @@ function RoundBtn({ children, onClick, label }) {
 }
 
 // ── Conectado / desconectado ─────────────────────────────────────────────────
-function IdlePanel({ online, dash, cur, busy, onToggle, openAccount }) {
+function IdlePanel({ online, dash, cur, busy, onToggle, openAccount, onBackgroundSetup }) {
   const debt = Number(dash.driver.debt) || 0;
   return (
     <Sheet>
@@ -285,6 +383,11 @@ function IdlePanel({ online, dash, cur, busy, onToggle, openAccount }) {
       )}
       {online ? <Btn variant="danger" onClick={onToggle} disabled={busy}>{busy ? tx('Un momento…') : tx('Desconectarse')}</Btn>
               : <Btn onClick={onToggle} disabled={busy} style={{ background: GREEN }}>{busy ? tx('Un momento…') : tx('Conectarse')}</Btn>}
+      {onBackgroundSetup && (
+        <button onClick={onBackgroundSetup} style={{ width: '100%', background: 'none', border: 'none', color: BRAND, fontSize: 13, fontWeight: 800, padding: '12px 0 0', cursor: 'pointer' }}>
+          ⚙️ {tx('Ajustes del móvil para recibir viajes con la app cerrada')}
+        </button>
+      )}
       <style>{'@keyframes drvPulse{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.5);opacity:0}}'}</style>
     </Sheet>
   );

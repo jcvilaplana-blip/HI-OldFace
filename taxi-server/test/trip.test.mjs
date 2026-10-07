@@ -6,6 +6,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHmac } from 'node:crypto';
 import { io } from 'socket.io-client';
+import { DatabaseSync } from 'node:sqlite';
 
 const dir = mkdtempSync(join(tmpdir(), 'taxi-trip-'));
 const PORT = 4198, ORIGIN = `http://127.0.0.1:${PORT}`, B = `${ORIGIN}/taxi`, SECRET = 'test-secret';
@@ -208,6 +209,19 @@ try {
   ok('mapa en vivo del panel responde', Array.isArray(live.drivers) && Array.isArray(live.bookings), live);
   const icon = await (await fetch(B + '/api/admin/upload', { method: 'POST', headers: { 'Content-Type': 'image/png', Authorization: `Bearer ${A}` }, body: png })).json();
   ok('subir un icono desde el panel', /^\/taxi\/files\/.+\.png$/.test(icon.url), icon);
+
+  // ── Móvil del conductor dormido (ahorro de batería, pantalla apagada, app cerrada): sigue recibiendo ofertas ──
+  await req('POST', '/api/app/driver/online', { online: true, lat: 40.4210, lng: -3.7038 }, D2);
+  const db = new DatabaseSync(env.TAXI_DB);
+  db.prepare('UPDATE drivers SET location_at = ? WHERE online = 1').run(Date.now() - 30 * 60000);   // última posición hace 30 min
+  db.close();
+  const sleepy = waitEvent(s2, 'offer:new');
+  const bk3 = await req('POST', '/api/app/customer/bookings', { pickup: MADRID, dropoff: ATOCHA, rideTypeId: economy.id, paymentMethod: 'cash' }, C);
+  const o3 = await sleepy;
+  ok('conductor conectado sin ubicación reciente (móvil dormido) → recibe la oferta con tiempo extra', bk3.s === 201 && o3?.code === bk3.d.booking.code && o3.expiresIn === 40, { bk3: bk3.d, o3 });
+  const closed = waitEvent(s2, 'offer:expired');
+  await req('POST', `/api/app/customer/bookings/${bk3.d.booking.code}/cancel`, { reason: 'prueba' }, C);
+  ok('el cliente cancela mientras se busca → al conductor se le cierra la oferta (deja de sonar)', (await closed)?.code === bk3.d.booking.code);
 
   const role = await req('PUT', '/api/admin/accounts/user_cliente1/role', { role: 'driver' }, A);
   ok('solo el administrador puede cambiar el rol de una cuenta', role.d?.role === 'driver' && (await req('GET', '/api/app/bootstrap', null, C)).d.role === 'driver', role);
