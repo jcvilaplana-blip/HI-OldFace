@@ -213,6 +213,30 @@ async function sendFCMPush(fcmToken, title, body, data = {}, channelId = 'oldfac
   }
 }
 
+/**
+ * Aviso push SOLO de datos (sin bloque notification) y prioridad alta: lo recibe la app aunque esté cerrada
+ * o el móvil en reposo, y es la app (OldFaceMessagingService) la que suena y abre la pantalla de llamada.
+ */
+async function sendFCMData(fcmToken, data = {}, ttlMs = 60000) {
+  if (!fcmToken) return;
+  const admin = getFirebaseAdmin();
+  if (!admin) return;
+  const dataStr = {};
+  for (const [k, v] of Object.entries(data)) dataStr[k] = String(v ?? '');
+  try {
+    await admin.messaging().send({ token: fcmToken, android: { priority: 'high', ttl: ttlMs }, data: dataStr });
+  } catch (e) {
+    if (e.code === 'messaging/registration-token-not-registered' ||
+        e.code === 'messaging/invalid-registration-token') {
+      for (const [uid, tok] of fcmStore.entries()) {
+        if (tok === fcmToken) { fcmStore.delete(uid); saveFcm(); break; }
+      }
+    } else {
+      console.warn('[FCM] sendFCMData error:', e.message);
+    }
+  }
+}
+
 // ── Token para el servidor RTC propio (rtc-server) ───────────────
 // Formato: <userId>.<expSeg>.<hmac-sha256 base64url>, firmado con RTC_SECRET (compartido con rtc-server)
 function signRtcToken(userId, ttlSec = 30 * 24 * 3600) {
@@ -471,23 +495,34 @@ router.post('/call-notification', async (req, res) => {
   const fcmToken = fcmStore.get(calleeId);
   if (!fcmToken) return res.json({ success: false, reason: 'sin token FCM para el destinatario' });
 
-  const isVideo   = callType === 'video';
-  const title     = isVideo ? `📹 Videollamada de ${callerName || callerId}` : `📞 Llamada de ${callerName || callerId}`;
-  const body      = isVideo ? 'Videollamada entrante — toca para responder' : 'Llamada entrante — toca para responder';
+  // Solo datos: la app suena con el tono de llamada y abre la pantalla de llamada (también con la pantalla apagada)
+  await sendFCMData(fcmToken, {
+    type:       'call',
+    callType:   callType === 'video' ? 'video' : 'voice',
+    callerId,
+    callerName: callerName || callerId,
+    calleeId,
+    roomId:     roomId || '',
+    ts:         Date.now(), // la app descarta llamadas ya caducadas
+  });
+  return res.json({ success: true });
+});
 
-  try {
-    await sendFCMPush(fcmToken, title, body, {
-      type:       'call',
-      callType:   callType || 'voice',
-      callerId,
-      callerName: callerName || callerId,
-      roomId:     roomId    || '',
-      ts:         Date.now(), // la app descarta notificaciones de llamadas ya caducadas
-    }, 'oldface_calls');
-    return res.json({ success: true });
-  } catch (e) {
-    return res.json({ success: false, reason: e.message });
-  }
+/** POST /call-cancel — quien llama colgó antes de que contestaran: deja de sonar en el móvil del destinatario */
+router.post('/call-cancel', async (req, res) => {
+  const { calleeId, callerId } = req.body || {};
+  if (!calleeId || !callerId) return res.status(400).json({ error: 'calleeId y callerId son requeridos' });
+  const fcmToken = fcmStore.get(calleeId);
+  if (fcmToken) await sendFCMData(fcmToken, { type: 'call_cancel', callerId, ts: Date.now() });
+  return res.json({ success: true });
+});
+
+/** POST /call-response — rechazo desde la pantalla de llamada nativa (la app puede estar cerrada, sin socket) */
+router.post('/call-response', (req, res) => {
+  const { callerId, calleeId, action } = req.body || {};
+  if (!callerId || !calleeId || action !== 'reject') return res.status(400).json({ error: 'datos no válidos' });
+  rtcEmit(callerId, 'signal', { from: calleeId, type: 'call_reject', ts: Date.now(), payload: {} });
+  return res.json({ success: true });
 });
 
 // ════════════════════════════════════════════════════════════════
@@ -1177,7 +1212,7 @@ router.get('/admin/calls', adminAuth, (_req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════
-//  POLL — encuestas integradas (antes poll.fullstark.es)
+//  POLL — encuestas integradas (https://oldface.app/poll)
 // ════════════════════════════════════════════════════════════════
 const POLL_COUNTRIES = [
   'España', 'México', 'Argentina', 'Colombia', 'Chile', 'Perú', 'Venezuela', 'Ecuador',

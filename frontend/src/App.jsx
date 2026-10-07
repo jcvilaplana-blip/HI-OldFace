@@ -390,7 +390,17 @@ export default function AppRoot() {
             // Notificación recibida con app en primer plano — reproducir sonido
             PushNotifications.addListener('pushNotificationReceived', (n) => {
               console.log('[Push] primer plano:', n.title);
-              // El sonido lo gestiona el sistema; en foreground solo mostramos la notificación
+              // Llamada con la app abierta (aviso solo de datos) → modal de llamada entrante
+              const data = n.data || {};
+              if (data.type === 'call' && data.callerId) {
+                if (Date.now() - (Number(data.ts) || 0) > 45000) return;
+                import('./store/callStore').then(({ useCallStore }) => {
+                  const st = useCallStore.getState();
+                  if (st.incomingCall?.callerId === data.callerId) return;   // ya llegó por el socket
+                  st.showIncomingCall({ callerId: data.callerId, callerName: data.callerName,
+                                        callType: data.callType, roomId: data.roomId || null });
+                }).catch(() => {});
+              }
             });
 
             // Usuario pulsa la notificación → navegar al chat o a la llamada
@@ -511,6 +521,28 @@ function AppShell() {
     showIncomingCall({ callerId, callerName: callerName || callerId, callType, roomId });
   }, [pendingFCMCall]);
 
+  // ── "Contestar" en la pantalla de llamada nativa (Android) → entrar directamente en la llamada ──
+  useEffect(() => {
+    if (!isAuthenticated || !window.OldFaceCalls) return;
+    const takeAccepted = () => {
+      let call = null;
+      try { call = JSON.parse(window.OldFaceCalls.takePendingCall() || 'null'); } catch { /* nada */ }
+      if (!call || call.action !== 'accept' || !call.callerId) return;
+      if (Date.now() - (call.at || 0) > 60000) return;   // contestada hace demasiado
+      useCallStore.getState().sendCallSignal(call.callerId, 'call_accept');
+      useCallStore.setState({
+        incomingCall: null,
+        callAccepted: { callerId: call.callerId, callerName: call.callerName || call.callerId,
+                        callType: call.callType || 'voice', roomId: call.roomId || null },
+      });
+    };
+    takeAccepted();
+    window.addEventListener('oldfacecall', takeAccepted);
+    // Una vez: permisos para que las llamadas entren a pantalla completa y en modo ahorro
+    try { window.OldFaceCalls.ensureCallPermissions(); } catch { /* app antigua */ }
+    return () => window.removeEventListener('oldfacecall', takeAccepted);
+  }, [isAuthenticated]);
+
   // ── Deep links: https://oldface.app/directo/<id>/live (WhatsApp, etc.) abre la app ──
   useEffect(() => {
     let stop = null;
@@ -552,6 +584,13 @@ function AppShell() {
   const isRinging = !!incomingCall;
   useEffect(() => {
     if (!isRinging) return;
+    // App Android: el tono de llamada del propio teléfono (y vibración), como una llamada normal
+    if (window.OldFaceCalls?.startRingtone) {
+      try {
+        window.OldFaceCalls.startRingtone();
+        return () => { try { window.OldFaceCalls.stopRingtone(); } catch { /* nada */ } };
+      } catch { /* app antigua → tono web */ }
+    }
     let audioCtx = null;
     let interval = null;
     try {

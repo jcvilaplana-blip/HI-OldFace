@@ -22,8 +22,8 @@ oldface-app/
 │   ├── backend/              ← API Express (server.js) + panel /admin (admin.html)
 │   └── android/              ← Proyecto Android (NO está en git: se genera con Capacitor)
 ├── rtc-server/               ← Servidor RTC propio (Socket.IO + mediasoup), servicio systemd
-├── docs/webrtc/PLAN.md       ← Plan de la migración a WebRTC propio (completada)
-└── nginx.conf                ← Referencia de configuración nginx
+├── taxi-server/ · taxi-admin/ ← Módulo de taxi (API + panel /taxi/admin)
+└── docs/webrtc/PLAN.md       ← Plan de la migración a WebRTC propio (completada)
 ```
 
 ## Arquitectura en producción

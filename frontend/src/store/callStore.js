@@ -33,6 +33,25 @@ async function notifyCall(calleeId, callType, roomId = '') {
   } catch { /* silencioso */ }
 }
 
+/** Colgar → si el otro móvil aún está sonando (pantalla nativa, app cerrada), deja de sonar */
+async function notifyCallCancel(calleeId) {
+  try {
+    const { useAuthStore } = await import('./authStore');
+    const user = useAuthStore.getState().user;
+    if (!user?.id || !calleeId) return;
+    await fetch(`${BACKEND}/call-cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calleeId, callerId: user.id }),
+    });
+  } catch { /* silencioso */ }
+}
+
+/** App Android en segundo plano → la llamada la muestra la pantalla nativa (no el modal web) */
+const nativeHandlesCall = () => {
+  try { return !!window.OldFaceCalls && !window.OldFaceCalls.isForeground(); } catch { return false; }
+};
+
 export const useCallStore = create((set, get) => ({
   rtcConnected:   false,
 
@@ -76,6 +95,7 @@ export const useCallStore = create((set, get) => ({
       // Ignorar invitaciones viejas (p. ej. entregadas al reconectar)
       const age = Date.now() - (ts || 0);
       if (age > 30000) { console.log('[Señal] call_invite obsoleto ignorado (age:', age, 'ms)'); return; }
+      if (nativeHandlesCall()) return;
       console.log('[Señal] Llamada entrante de:', from, payload);
       get().showIncomingCall({ callerId: from, callerName: payload.callerName || fromName, callType: payload.callType, roomId: payload.roomId });
     }
@@ -91,6 +111,7 @@ export const useCallStore = create((set, get) => ({
 
   /** Envía una señal de llamada por el servidor RTC */
   sendCallSignal: (to, type, payload = {}) => {
+    if (type === 'call_end' || type === 'call_cancel') notifyCallCancel(to);
     if (!isRtcConnected()) return Promise.resolve(false);
     return sendSignal(to, type, payload);
   },
