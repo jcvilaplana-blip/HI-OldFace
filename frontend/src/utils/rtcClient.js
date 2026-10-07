@@ -2,7 +2,7 @@
  * rtcClient — conexión con el servidor RTC propio de OldFace (rtc-server, Socket.IO):
  * señalización de llamadas, mensajes en tiempo real, directos y karaoke.
  *
- *   connectRtc(user, { onSignal, onChatMessage, onConnectionChange })
+ *   connectRtc(user, { onSignal, onChatMessage, onChatUpdate, onConnectionChange })
  *   sendSignal(to, type, payload) → Promise<boolean>  (true si el destinatario estaba conectado)
  *   isRtcConnected(), disconnectRtc()
  */
@@ -37,7 +37,7 @@ export async function getRtcToken(userId, { force = false } = {}) {
   return token;
 }
 
-export async function connectRtc(user, { onSignal, onChatMessage, onConnectionChange } = {}) {
+export async function connectRtc(user, { onSignal, onChatMessage, onChatUpdate, onConnectionChange } = {}) {
   if (socket && currentUserId === user.id) return socket;
   disconnectRtc();
   currentUserId = user.id;
@@ -70,6 +70,8 @@ export async function connectRtc(user, { onSignal, onChatMessage, onConnectionCh
   });
   socket.on('signal', (sig) => onSignal?.(sig));
   socket.on('chat:message', (msg) => onChatMessage?.(msg));
+  // Algo cambió en un chat (leído, editado, eliminado, fijado, ubicación en tiempo real) → recargar sus mensajes
+  socket.on('chat:update', (d) => onChatUpdate?.(d));
   return socket;
 }
 

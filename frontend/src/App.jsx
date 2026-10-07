@@ -563,6 +563,48 @@ function AppShell() {
     return () => window.removeEventListener('oldfacecall', takeAccepted);
   }, [isAuthenticated]);
 
+  // ── Presencia ("en línea" / "últ. vez"): latido cada 25 s SOLO con la app a la vista; al pasar a segundo plano
+  //    o cerrarla se avisa de que ya no está (antes solo se avisaba con un chat abierto y seguía "en línea" de fondo)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const BACKEND_P = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+    let active = document.visibilityState === 'visible';
+    const ping = (away = false) => {
+      const uid = useAuthStore.getState().user?.id;
+      if (!uid) return;
+      const body = JSON.stringify({ userId: uid, away });
+      // keepalive: llega aunque la página se esté cerrando
+      fetch(`${BACKEND_P}/presence`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
+    };
+    const setActive = (on) => { if (on === active) return; active = on; ping(!on); };
+    if (active) ping(false);
+    const beat = setInterval(() => { if (active) ping(false); }, 25000);
+    const onVis = () => setActive(document.visibilityState === 'visible');
+    const onHide = () => setActive(false);
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('pagehide', onHide);
+    // En el móvil la app sigue viva en segundo plano: usar el estado real de la app (a la vista / no)
+    let removeApp = null;
+    import('@capacitor/core').then(async ({ Capacitor }) => {
+      if (!Capacitor.isNativePlatform()) return;
+      const { App: CapApp } = await import('@capacitor/app');
+      const h = await CapApp.addListener('appStateChange', ({ isActive }) => setActive(isActive));
+      removeApp = () => h.remove();
+    }).catch(() => {});
+    return () => {
+      clearInterval(beat);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('pagehide', onHide);
+      removeApp?.();
+    };
+  }, [isAuthenticated]);
+
+  // ── Ubicación en tiempo real del chat: retomar lo que se estaba compartiendo al volver a abrir la app ──
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    import('./utils/liveLocation').then(({ resumeLiveShares }) => resumeLiveShares()).catch(() => {});
+  }, [isAuthenticated]);
+
   // ── "Ver servicio" en la pantalla nativa "Nuevo servicio" del taxi (conductor) → abrir la oferta en el taxi ──
   useEffect(() => {
     if (!isAuthenticated || !window.OldFaceCalls?.takePendingTaxiOffer) return;

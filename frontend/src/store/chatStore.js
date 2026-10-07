@@ -113,7 +113,7 @@ export const useChatStore = create((set, get) => ({
   /** Carga el historial de mensajes de un chat desde el backend */
   loadMessages: async (chatId, userId, participantId = null) => {
     try {
-      const res = await fetch(`${BACKEND}/messages/${encodeURIComponent(chatId)}`);
+      const res = await fetch(`${BACKEND}/messages/${encodeURIComponent(chatId)}?userId=${encodeURIComponent(userId || '')}`);
       if (res.ok) {
         const data = await res.json();
         const mapped = (data.messages || []).map(m => {
@@ -132,6 +132,14 @@ export const useChatStore = create((set, get) => ({
             url:      m.url || null,
             replyTo:  m.replyTo || null,
             fileName: m.fileName || null,   // ← antes faltaba: documentos perdían el nombre
+            duration: m.duration || null,   // segundos de la nota de voz
+            live:     m.live || null,       // ubicación en tiempo real { lat, lng, until, updatedAt, stopped }
+            createdAt: m.createdAt || null,
+            editedAt: m.editedAt || null,   // "editado"
+            deleted:  !!m.deleted,          // eliminado para todos
+            pinned:   !!m.pinned,           // fijado arriba del chat
+            pinnedAt: m.pinnedAt || null,
+            starred:  Array.isArray(m.starredBy) && m.starredBy.includes(userId),   // destacado por mí
             status,
             isMine,
           };
@@ -213,16 +221,78 @@ export const useChatStore = create((set, get) => ({
     }));
   },
 
-  /** Persiste un mensaje en el backend */
-  persistMessage: async (chatId, senderId, text, type = 'text', url = null, replyTo = null, fileName = null) => {
+  /**
+   * Eliminar mensajes: scope 'me' (solo desaparecen para mí) o 'all' (para todos: queda "Se eliminó este
+   * mensaje"; solo los míos).
+   */
+  deleteMessagesScoped: async (chatId, messageIds, scope, userId) => {
+    const ids = new Set(messageIds);
+    await Promise.all([...ids].map(id =>
+      fetch(`${BACKEND}/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(id)}?scope=${scope}&userId=${encodeURIComponent(userId)}`,
+            { method: 'DELETE' }).catch(() => {})));
+    set((state) => ({
+      messages: { ...state.messages, [chatId]: scope === 'me'
+        ? (state.messages[chatId] || []).filter(m => !ids.has(m.id))
+        : (state.messages[chatId] || []).map(m => ids.has(m.id)
+            ? { ...m, type: 'deleted', text: 'Se eliminó este mensaje', url: null, deleted: true, pinned: false, live: null, replyTo: null }
+            : m) },
+    }));
+  },
+
+  /** Editar un mensaje de texto propio (hasta 15 min). Devuelve null si fue bien o el texto del error */
+  editMessage: async (chatId, messageId, userId, text) => {
     try {
-      await fetch(`${BACKEND}/messages`, {
+      const res = await fetch(`${BACKEND}/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(messageId)}/edit`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return data.error || 'No se pudo editar';
+      set((state) => ({
+        messages: { ...state.messages, [chatId]: (state.messages[chatId] || []).map(m => m.id === messageId
+          ? { ...m, text: data.message.text, editedAt: data.message.editedAt } : m) },
+      }));
+      return null;
+    } catch { return 'Sin conexión'; }
+  },
+
+  /** Fijar (para todos) o destacar (para mí) un mensaje: flags = { pinned } o { starred } */
+  setMessageFlags: async (chatId, messageId, userId, flags) => {
+    set((state) => ({
+      messages: { ...state.messages, [chatId]: (state.messages[chatId] || []).map(m => m.id === messageId
+        ? { ...m, ...('pinned' in flags ? { pinned: flags.pinned, pinnedAt: flags.pinned ? Date.now() : null } : {}),
+                  ...('starred' in flags ? { starred: flags.starred } : {}) } : m) },
+    }));
+    try {
+      await fetch(`${BACKEND}/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(messageId)}/flags`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, ...flags }),
+      });
+    } catch { /* se corrige en la siguiente carga */ }
+  },
+
+  /** Elimina varios mensajes a la vez (selección múltiple) */
+  deleteMessages: async (chatId, messageIds) => {
+    const ids = new Set(messageIds);
+    await Promise.all([...ids].map(id =>
+      fetch(`${BACKEND}/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {})));
+    set((state) => ({
+      messages: { ...state.messages, [chatId]: (state.messages[chatId] || []).filter(m => !ids.has(m.id)) },
+    }));
+  },
+
+  /**
+   * Persiste un mensaje en el backend. `extra`: { duration } (nota de voz) · { live } (ubicación en tiempo real).
+   * Devuelve el mensaje guardado (con su id) o null.
+   */
+  persistMessage: async (chatId, senderId, text, type = 'text', url = null, replyTo = null, fileName = null, extra = {}) => {
+    try {
+      const res = await fetch(`${BACKEND}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId, senderId, text, type, url, replyTo, fileName }),
+        body: JSON.stringify({ chatId, senderId, text, type, url, replyTo, fileName, ...extra }),
       });
+      return res.ok ? await res.json() : null;
     } catch {
-      // Fallo silencioso — el mensaje ya está en el store local
+      return null;   // Fallo silencioso — el mensaje ya está en el store local
     }
   },
 }));

@@ -60,6 +60,7 @@ const _karaokeSongs  = loadJSON('karaoke_songs.json', {});
 const _karaokeRecs   = loadJSON('karaoke_recordings.json', {});
 const _karaokeGenres = loadJSON('karaoke_genres.json', {});
 const _karaokeBans   = loadJSON('karaoke_bans.json', {});
+const _stickers      = loadJSON('stickers.json', {});
 
 // Convertir a Map (operaciones en memoria, persistimos después de cada escritura)
 const userStore    = new Map(Object.entries(_users));
@@ -79,6 +80,8 @@ const karaokeSongStore = new Map(Object.entries(_karaokeSongs)); // songId → {
 const karaokeRecStore  = new Map(Object.entries(_karaokeRecs));  // recId → { userId, songId, audioUrl, duration, createdAt }
 const karaokeGenreStore = new Map(Object.entries(_karaokeGenres)); // genreId → { name, icon, createdAt }
 const karaokeBanStore   = new Map(Object.entries(_karaokeBans));   // userId → { reason, at }
+const stickerStore      = new Map(Object.entries(_stickers));      // userId → [url] (stickers creados por el usuario)
+const saveStickers      = () => saveJSON('stickers.json', Object.fromEntries(stickerStore));
 
 const saveUsers    = () => saveJSON('users.json',    Object.fromEntries(userStore));
 const saveChats    = () => saveJSON('chats.json',    Object.fromEntries(chatStore2));
@@ -407,6 +410,19 @@ function rtcEmit(to, event, data) {
   }).catch(() => {});
 }
 
+/** Participantes de un chat (1 a 1 o grupo) */
+function chatMembers(chatId) {
+  return chatStore2.get(chatId)?.participants || chatId.replace(/^chat_/, '').split(/_(?=user_)/);
+}
+
+/**
+ * Avisar al instante a los demás del chat de que algo cambió (leído, editado, eliminado, fijado, ubicación en
+ * tiempo real…): la app vuelve a cargar los mensajes de ese chat en vez de esperar a su refresco de 5 s.
+ */
+function notifyChatUpdate(chatId, exceptUserId, reason) {
+  for (const to of chatMembers(chatId)) if (to && to !== exceptUserId) rtcEmit(to, 'chat:update', { chatId, reason });
+}
+
 /** POST /rtc-token — token para el servidor RTC (sesiones iniciadas antes de existir rtcToken) */
 router.post('/rtc-token', (req, res) => {
   const { userId } = req.body || {};
@@ -630,6 +646,31 @@ router.post('/upload-file', (req, res) => {
   }
 });
 
+/**
+ * POST /chat/upload?userId= — foto, vídeo o audio del chat en binario (cuerpo = archivo, Content-Type = su tipo).
+ * Los vídeos de la cámara superan el límite de /upload-file (base64 en JSON, ~10 MB).
+ */
+const CHAT_UPLOAD_EXT = {
+  'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif',
+  'video/mp4': '.mp4', 'video/webm': '.webm', 'video/3gpp': '.3gp', 'video/quicktime': '.mov',
+  'audio/webm': '.webm', 'audio/mp4': '.m4a', 'audio/ogg': '.ogg', 'audio/mpeg': '.mp3',
+};
+router.post('/chat/upload', express.raw({ type: () => true, limit: '150mb' }), (req, res) => {
+  if (!req.query.userId || !findUserById(req.query.userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+  const ext = CHAT_UPLOAD_EXT[type];
+  if (!ext) return res.status(415).json({ error: 'Formato no admitido' });
+  if (!Buffer.isBuffer(req.body) || req.body.length < 100) return res.status(400).json({ error: 'Archivo vacío' });
+  const safeName = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`;
+  try {
+    fs.writeFileSync(path.join(UPLOADS_DIR, safeName), req.body);
+    res.json({ url: `/files/${safeName}` });
+  } catch (err) {
+    console.error('[chat/upload] Error:', err.message);
+    res.status(500).json({ error: 'Error al guardar el archivo' });
+  }
+});
+
 /** GET /files/:filename — sirve archivos subidos por los usuarios */
 router.get('/files/:filename', (req, res) => {
   const safeName = path.basename(req.params.filename); // evita path traversal
@@ -640,16 +681,36 @@ router.get('/files/:filename', (req, res) => {
 
 /** GET /messages/:chatId */
 router.get('/messages/:chatId', (req, res) => {
-  return res.json({ messages: messageStore.get(req.params.chatId) || [] });
+  const list = messageStore.get(req.params.chatId) || [];
+  const uid = req.query.userId;
+  return res.json({ messages: uid ? list.filter(m => !(m.hiddenFor || []).includes(uid)) : list });
 });
 
 /** DELETE /messages/:chatId/:messageId — elimina un mensaje concreto */
 router.delete('/messages/:chatId/:messageId', (req, res) => {
   const { chatId, messageId } = req.params;
+  const { userId, scope } = req.query;
   if (!chatId || !messageId) return res.status(400).json({ error: 'chatId y messageId requeridos' });
   const msgs = messageStore.get(chatId) || [];
   const idx  = msgs.findIndex(m => m.id === messageId);
   if (idx === -1) return res.status(404).json({ error: 'Mensaje no encontrado' });
+  if (scope === 'me') {
+    if (!userId) return res.status(400).json({ error: 'userId requerido' });
+    const m = msgs[idx];
+    m.hiddenFor = [...new Set([...(m.hiddenFor || []), userId])];
+    saveMessages();
+    return res.json({ ok: true });
+  }
+  if (scope === 'all') {
+    const m = msgs[idx];
+    if (!userId || m.senderId !== userId) return res.status(403).json({ error: 'Solo quien lo envió puede eliminarlo para todos' });
+    Object.assign(m, { type: 'deleted', text: 'Se eliminó este mensaje', url: null, fileName: null, replyTo: null,
+                       live: null, pinned: false, pinnedAt: null, deleted: true, deletedAt: Date.now() });
+    delete m.duration;
+    saveMessages();
+    notifyChatUpdate(chatId, userId, 'deleted');
+    return res.json({ ok: true, message: m });
+  }
   msgs.splice(idx, 1);
   messageStore.set(chatId, msgs);
   saveMessages();
@@ -658,7 +719,7 @@ router.delete('/messages/:chatId/:messageId', (req, res) => {
 
 /** POST /messages */
 router.post('/messages', async (req, res) => {
-  const { chatId, senderId, text, type = 'text', url, replyTo, fileName } = req.body || {};
+  const { chatId, senderId, text, type = 'text', url, replyTo, fileName, duration, live } = req.body || {};
   if (!chatId || !senderId || !text) return res.status(400).json({ error: 'chatId, senderId y text son requeridos' });
 
   const msg = {
@@ -666,6 +727,12 @@ router.post('/messages', async (req, res) => {
     chatId, senderId, text, type, url: url || null,
     replyTo:   replyTo || null,
     fileName:  fileName || null,
+    ...(Number(duration) > 0 ? { duration: Math.round(Number(duration)) } : {}),
+    // Ubicación en tiempo real: hasta cuándo se comparte; la posición la va actualizando quien la envía
+    ...(type === 'live_location' && live ? { live: {
+      lat: Number(live.lat), lng: Number(live.lng), updatedAt: Date.now(),
+      until: Math.min(Number(live.until) || 0, Date.now() + 8 * 3600 * 1000), stopped: false,
+    } } : {}),
     time:      new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
     createdAt: Date.now(),
   };
@@ -677,7 +744,9 @@ router.post('/messages', async (req, res) => {
 
   if (chatStore2.has(chatId)) {
     const c = chatStore2.get(chatId);
-    c.lastMessage = type === 'audio' ? '🎤 Nota de voz' : type === 'location' ? '📍 Ubicación' : text;
+    c.lastMessage = type === 'audio' ? '🎤 Nota de voz' : type === 'location' ? '📍 Ubicación'
+                  : type === 'live_location' ? '📍 Ubicación en tiempo real' : type === 'image' ? '📷 Foto'
+                  : type === 'video' ? '🎥 Vídeo' : type === 'sticker' ? '🌟 Sticker' : text;
     c.lastTime = Date.now();
     chatStore2.set(chatId, c);
     saveChats();
@@ -707,6 +776,10 @@ router.post('/messages', async (req, res) => {
         }
         const notifBody = type === 'audio' ? '🎤 Te ha enviado una nota de voz'
                         : type === 'location' ? '📍 Te ha enviado su ubicación'
+                        : type === 'live_location' ? '📍 Está compartiendo su ubicación en tiempo real'
+                        : type === 'image' ? '📷 Te ha enviado una foto'
+                        : type === 'video' ? '🎥 Te ha enviado un vídeo'
+                        : type === 'sticker' ? '🌟 Te ha enviado un sticker'
                         : text.length > 80 ? text.slice(0, 80) + '…' : text;
         // No await — responder al cliente sin esperar el push
         sendFCMPush(fcmToken, senderName, notifBody, { chatId, senderId }).catch(() => {});
@@ -717,18 +790,116 @@ router.post('/messages', async (req, res) => {
   return res.json(msg);
 });
 
+const EDIT_WINDOW_MS = 15 * 60 * 1000;   // como WhatsApp: se puede editar durante 15 minutos
+
+/** POST /messages/:chatId/:messageId/edit — { userId, text } — editar un mensaje de texto propio */
+router.post('/messages/:chatId/:messageId/edit', (req, res) => {
+  const { userId, text } = req.body || {};
+  const msg = (messageStore.get(req.params.chatId) || []).find(m => m.id === req.params.messageId);
+  if (!msg) return res.status(404).json({ error: 'Mensaje no encontrado' });
+  if (msg.senderId !== userId) return res.status(403).json({ error: 'Solo puedes editar tus mensajes' });
+  if ((msg.type || 'text') !== 'text') return res.status(400).json({ error: 'Solo se pueden editar mensajes de texto' });
+  if (Date.now() - (msg.createdAt || 0) > EDIT_WINDOW_MS) return res.status(410).json({ error: 'Ya no se puede editar (pasaron más de 15 minutos)' });
+  const clean = String(text || '').trim().slice(0, 5000);
+  if (!clean) return res.status(400).json({ error: 'El mensaje no puede quedar vacío' });
+  msg.text = clean;
+  msg.editedAt = Date.now();
+  saveMessages();
+  notifyChatUpdate(req.params.chatId, userId, 'edited');
+  res.json({ message: msg });
+});
+
+/**
+ * POST /messages/:chatId/:messageId/flags — { userId, pinned?, starred? }
+ *   pinned: fijar arriba del chat para todos (máx. 3; al fijar un 4.º se quita el más antiguo)
+ *   starred: destacar solo para este usuario
+ */
+router.post('/messages/:chatId/:messageId/flags', (req, res) => {
+  const { userId, pinned, starred } = req.body || {};
+  const list = messageStore.get(req.params.chatId) || [];
+  const msg = list.find(m => m.id === req.params.messageId);
+  if (!msg) return res.status(404).json({ error: 'Mensaje no encontrado' });
+  if (!userId || !chatMembers(req.params.chatId).includes(userId)) return res.status(403).json({ error: 'No perteneces a este chat' });
+  if (typeof pinned === 'boolean') {
+    msg.pinned = pinned;
+    msg.pinnedAt = pinned ? Date.now() : null;
+    if (pinned) {
+      const pins = list.filter(m => m.pinned).sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0));
+      for (const old of pins.slice(3)) { old.pinned = false; old.pinnedAt = null; }
+    }
+    notifyChatUpdate(req.params.chatId, userId, 'pinned');
+  }
+  if (typeof starred === 'boolean') {
+    const set = new Set(msg.starredBy || []);
+    if (starred) set.add(userId); else set.delete(userId);
+    msg.starredBy = [...set];
+  }
+  saveMessages();
+  res.json({ message: msg });
+});
+
+/**
+ * POST /messages/:chatId/:messageId/live — { senderId, lat, lng, stop } — nueva posición de una ubicación en
+ * tiempo real (solo quien la comparte) o dejar de compartirla. Los demás la ven al refrescar los mensajes.
+ */
+let liveSaveTimer = null;
+router.post('/messages/:chatId/:messageId/live', (req, res) => {
+  const { senderId, lat, lng, stop } = req.body || {};
+  const msg = (messageStore.get(req.params.chatId) || []).find(m => m.id === req.params.messageId);
+  if (!msg || msg.type !== 'live_location' || !msg.live) return res.status(404).json({ error: 'Mensaje no encontrado' });
+  if (msg.senderId !== senderId) return res.status(403).json({ error: 'Solo quien comparte la ubicación puede actualizarla' });
+  if (stop) {
+    msg.live.stopped = true;
+  } else {
+    if (msg.live.stopped || Date.now() > msg.live.until) return res.status(410).json({ error: 'Ya no se comparte' });
+    const la = Number(lat), ln = Number(lng);
+    if (!Number.isFinite(la) || !Number.isFinite(ln) || Math.abs(la) > 90 || Math.abs(ln) > 180) return res.status(400).json({ error: 'Posición no válida' });
+    msg.live.lat = la; msg.live.lng = ln;
+  }
+  msg.live.updatedAt = Date.now();
+  notifyChatUpdate(req.params.chatId, senderId, 'live');
+  // Guardar en disco como mucho cada 30 s (llegan posiciones a menudo)
+  if (stop) { clearTimeout(liveSaveTimer); liveSaveTimer = null; saveMessages(); }
+  else if (!liveSaveTimer) liveSaveTimer = setTimeout(() => { liveSaveTimer = null; saveMessages(); }, 30000);
+  res.json({ live: msg.live });
+});
+
 // ════════════════════════════════════════════════════════════════
 //  PRESENCIA (online / última vez)
 // ════════════════════════════════════════════════════════════════
 
 /** POST /presence — actualiza el lastSeen del usuario (heartbeat cada 30s) */
+// La app manda un latido cada 25 s mientras está a la vista, y { away: true } al pasar a segundo plano o cerrarse
+const ONLINE_WINDOW_MS = 75 * 1000;
 router.post('/presence', (req, res) => {
-  const { userId } = req.body || {};
+  const { userId, away } = req.body || {};
   if (!userId) return res.status(400).json({ error: 'userId requerido' });
   for (const [phone, u] of userStore.entries()) {
-    if (u.userId === userId) { u.lastSeen = Date.now(); userStore.set(phone, u); break; }
+    if (u.userId === userId) { u.lastSeen = Date.now(); u.away = !!away; userStore.set(phone, u); break; }
   }
   return res.json({ success: true });
+});
+
+/** GET /stickers/:userId — stickers creados por el usuario */
+router.get('/stickers/:userId', (req, res) => res.json({ stickers: stickerStore.get(req.params.userId) || [] }));
+
+/** POST /stickers — { userId, url } (la imagen se sube antes con /chat/upload) */
+router.post('/stickers', (req, res) => {
+  const { userId, url } = req.body || {};
+  if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  if (!/^https?:\/\/.+\/files\/[\w.-]+$/.test(String(url || ''))) return res.status(400).json({ error: 'Sticker no válido' });
+  const list = [url, ...(stickerStore.get(userId) || []).filter(u => u !== url)].slice(0, 200);
+  stickerStore.set(userId, list);
+  saveStickers();
+  res.json({ stickers: list });
+});
+
+/** DELETE /stickers/:userId?url= — quitar un sticker de la colección */
+router.delete('/stickers/:userId', (req, res) => {
+  const list = (stickerStore.get(req.params.userId) || []).filter(u => u !== req.query.url);
+  stickerStore.set(req.params.userId, list);
+  saveStickers();
+  res.json({ stickers: list });
 });
 
 /** GET /presence/:userId — devuelve online + lastSeen del usuario */
@@ -737,7 +908,7 @@ router.get('/presence/:userId', (req, res) => {
   for (const u of userStore.values()) {
     if (u.userId === userId) {
       const lastSeen = u.lastSeen || u.lastLogin || 0;
-      const online   = Date.now() - lastSeen < 2 * 60 * 1000; // 2 min
+      const online   = !u.away && Date.now() - lastSeen < ONLINE_WINDOW_MS;
       return res.json({ online, lastSeen });
     }
   }
@@ -786,7 +957,7 @@ router.post('/messages/:chatId/mark-read', (req, res) => {
       if (!m.readBy.includes(userId)) { m.readBy.push(userId); changed = true; }
     }
   });
-  if (changed) { messageStore.set(chatId, msgs); saveMessages(); }
+  if (changed) { messageStore.set(chatId, msgs); saveMessages(); notifyChatUpdate(chatId, userId, 'read'); }
   return res.json({ success: true });
 });
 

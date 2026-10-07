@@ -132,6 +132,8 @@ export const useCallStore = create((set, get) => ({
           url:      msg.url || null,
           replyTo:  msg.replyTo || null,
           fileName: msg.fileName || null,
+          duration: msg.duration || null,
+          live:     msg.live || null,
           status:   'received',
           isMine:   false,
         });
@@ -145,6 +147,18 @@ export const useCallStore = create((set, get) => ({
     });
   },
 
+  /** Un chat cambió (leído, editado, eliminado…): si sus mensajes están cargados, recargarlos ya */
+  _handleChatUpdate: (user, d) => {
+    if (!d?.chatId) return;
+    import('./chatStore').then(({ useChatStore }) => {
+      const st = useChatStore.getState();
+      if (!st.messages[d.chatId]) return;
+      const other = d.chatId.startsWith('chat_')
+        ? d.chatId.replace(/^chat_/, '').split(/_(?=user_)/).find(p => p !== user.id) : null;
+      st.loadMessages(d.chatId, user.id, other);
+    });
+  },
+
   // ── Conectar con el servidor RTC propio (una vez por sesión) ──────────────
   init: async (user) => {
     if (!user?.id || rtcStartedFor === user.id) return;
@@ -153,6 +167,7 @@ export const useCallStore = create((set, get) => ({
       await connectRtc(user, {
         onSignal:           (sig) => get()._handleCallSignal(sig),
         onChatMessage:      (msg) => get()._handleChatPush(user, msg),
+        onChatUpdate:       (d)   => get()._handleChatUpdate(user, d),
         onConnectionChange: (ok)  => set({ rtcConnected: ok }),
       });
       console.log('[RTC] Conectado como', user.id);
