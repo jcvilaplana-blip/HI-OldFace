@@ -19,13 +19,13 @@ export class RtcCall {
   /**
    * @param publish  false = solo ver/escuchar (espectador de un directo). Se puede emitir después con publish().
    */
-  constructor({ roomId, video = false, publish = true, onPeerStream, onPeerLeft, onPeerMedia }) {
+  constructor({ roomId, video = false, publish = true, onPeerStream, onPeerLeft, onPeerMedia, onPeerJoined }) {
     this.roomId = roomId;
     this.video = video;
     this.willPublish = publish;
     this.facingMode = 'user';
     this.iceServers = [];
-    this.cb = { onPeerStream, onPeerLeft, onPeerMedia };
+    this.cb = { onPeerStream, onPeerLeft, onPeerMedia, onPeerJoined };
     this.device = null;
     this.sendTransport = null;
     this.recvTransport = null;
@@ -63,6 +63,11 @@ export class RtcCall {
     // 2. Eventos de la sala (suscribirse antes de unirse para no perder producers)
     this.unsubs.push(
       onRtc('rtc:newProducer', (p) => { if (p.roomId === this.roomId) this.consume(p.producerId, p.userId, p.name).catch(e => console.warn('[RtcCall] consume:', e.message)); }),
+      onRtc('rtc:peerJoined', (p) => {
+        if (p.roomId !== this.roomId || !p.peer?.userId) return;
+        this.ensurePeer(p.peer.userId, p.peer.name);
+        this.cb.onPeerJoined?.(p.peer.userId, { name: p.peer.name });
+      }),
       onRtc('rtc:peerLeft', (p) => { if (p.roomId === this.roomId) this.removePeer(p.userId); }),
       onRtc('rtc:consumerClosed', (p) => { if (p.roomId === this.roomId) this.dropConsumer(p.producerId); }),
       onRtc('rtc:consumerPaused', (p) => { if (p.roomId === this.roomId) this.emitMedia(p.producerId, true); }),
@@ -85,6 +90,7 @@ export class RtcCall {
     // 5. Recibir a quien ya estaba en la sala
     for (const peer of j.peers) {
       this.ensurePeer(peer.userId, peer.name);
+      this.cb.onPeerJoined?.(peer.userId, { name: peer.name });
       for (const pr of peer.producers) await this.consume(pr.id, peer.userId, peer.name);
     }
   }
@@ -179,6 +185,21 @@ export class RtcCall {
     this.producers = {};
     this.stopLocal();
     this.localStream = null;
+  }
+
+  /** Encender la cámara en una llamada que empezó solo con voz. Devuelve el nuevo stream local. */
+  async enableVideo() {
+    if (this.producers.video) { await this.setCamera(true); return this.localStream; }
+    if (!this.sendTransport) return this.localStream;
+    const s = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: this.facingMode, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } },
+    });
+    const track = s.getVideoTracks()[0];
+    this.producers.video = await this.sendTransport.produce({
+      track, encodings: [{ maxBitrate: 900_000 }], codecOptions: { videoGoogleStartBitrate: 600 },
+    });
+    this.localStream = new MediaStream([...(this.localStream?.getAudioTracks() || []), track]);
+    return this.localStream;
   }
 
   /** Cambiar entre cámara frontal y trasera. Devuelve el nuevo stream local. */

@@ -315,6 +315,12 @@ app.post('/rtc/internal/karaoke/:id/unqueue', internalAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+/** Backend → RTC: quién está en una sala (llamadas de grupo: saber si siguen en curso) */
+app.get('/rtc/internal/rooms/:roomId', internalAuth, (req, res) => {
+  const room = rooms.get(req.params.roomId);
+  res.json({ exists: !!room, peers: room ? [...room.peers.values()].map(p => ({ userId: p.userId, name: p.name })) : [] });
+});
+
 /** Backend → RTC: emitir un evento a un usuario. Header x-internal-secret. */
 app.post('/rtc/internal/emit', (req, res) => {
   const hdr = req.get('x-internal-secret') || '';

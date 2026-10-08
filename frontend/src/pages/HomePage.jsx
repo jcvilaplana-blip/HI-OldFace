@@ -12,6 +12,8 @@ import PopupMenu from '../components/PopupMenu.jsx';
 import ChatList from '../components/ChatList.jsx';
 import BottomNav from '../components/BottomNav.jsx';
 import Avatar from '../components/Avatar.jsx';
+import GroupsBar from '../components/GroupsBar.jsx';
+import { GroupCreateSheet } from '../components/GroupSheets.jsx';
 
 const BRAND   = '#3D5A80';
 const APP_URL = 'https://oldface.app';
@@ -39,6 +41,7 @@ export default function HomePage() {
   const [searchParams] = useSearchParams();
   const [showMenu,        setShowMenu]        = useState(false);
   const [showGroupCreate, setShowGroupCreate] = useState(false);
+  const [groupsKey,       setGroupsKey]       = useState(0);   // recargar el renglón de grupos
   const [showSearch,      setShowSearch]      = useState(false);
   const [searchQuery,     setSearchQuery]     = useState('');
   const searchInputRef = React.useRef(null);
@@ -189,6 +192,7 @@ export default function HomePage() {
       <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', background: T.bgMain }}>
         {activeTab === 'chats'     && <>
           <StoriesBar user={user} T={T} isDark={isDark} />
+          <GroupsBar key={groupsKey} user={user} T={T} isDark={isDark} />
           <ChatList chats={searchQuery.trim()
             ? chats.filter(c => c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase()))
             : chats
@@ -231,15 +235,16 @@ export default function HomePage() {
         />
       )}
       {showGroupCreate && (
-        <GroupCreateModal
+        <GroupCreateSheet
           user={user}
           T={T}
           isDark={isDark}
           onClose={() => setShowGroupCreate(false)}
-          onCreated={(chatId, groupName) => {
+          onCreated={(g) => {
             setShowGroupCreate(false);
             fetchChats(user.id);
-            navigate(`/chat/${chatId}`, { state: { chat: { id: chatId, name: groupName, isGroup: true } } });
+            setGroupsKey(k => k + 1);
+            navigate(`/chat/${g.chatId}`, { state: { chat: { id: g.chatId, name: g.name, avatar: g.avatar || null, isGroup: true, groupId: g.id } } });
           }}
         />
       )}
@@ -994,182 +999,6 @@ function ActionBtn({ onClick, children, T }) {
     <button onClick={onClick} style={{ width: 34, height: 34, borderRadius: '50%', background: T.accentDim, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {children}
     </button>
-  );
-}
-
-// ══ Modal CREAR GRUPO ════════════════════════════════════════════════════════
-function GroupCreateModal({ user, T, isDark, onClose, onCreated }) {
-  const { contacts, loading: contactsLoading, loadContacts } = useContacts();
-  const [groupName,  setGroupName]  = React.useState('');
-  const [selected,   setSelected]   = React.useState(new Set());
-  const [creating,   setCreating]   = React.useState(false);
-  const [error,      setError]      = React.useState('');
-
-  React.useEffect(() => { loadContacts(); }, []);
-
-  const oldFaceContacts = contacts.filter(c => c.usesOldFace && toUserId(c.phone) !== user?.id);
-
-  const toggle = (contactId) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(contactId) ? next.delete(contactId) : next.add(contactId);
-      return next;
-    });
-  };
-
-  const handleCreate = async () => {
-    if (!groupName.trim()) { setError('El nombre del grupo es obligatorio'); return; }
-    if (selected.size === 0) { setError('Selecciona al menos un participante'); return; }
-    setError('');
-    setCreating(true);
-    try {
-      const res = await fetch(`${BACKEND_HOME}/groups`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          adminId: user.id,
-          name: groupName.trim(),
-          members: [...selected],
-        }),
-      });
-      if (res.ok) {
-        const group = await res.json();
-        onCreated(`group_${group.id}`, group.name);
-      } else {
-        setError('No se pudo crear el grupo. Inténtalo de nuevo.');
-      }
-    } catch {
-      setError('Error de conexión. Inténtalo de nuevo.');
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(0,0,0,0.65)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}>
-      <div style={{
-        background: isDark ? '#0a1929' : 'white',
-        borderRadius: '24px 24px 0 0',
-        width: '100%',
-        maxHeight: '88vh',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}>
-        {/* Header */}
-        <div style={{ padding: '20px 20px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-          <div>
-            <p style={{ fontSize: 18, fontWeight: 900, color: T.textPrimary, margin: 0 }}>Nuevo grupo</p>
-            <p style={{ fontSize: 12, color: T.textSecondary, margin: '2px 0 0', fontWeight: 500 }}>
-              {selected.size > 0 ? `${selected.size} participante${selected.size !== 1 ? 's' : ''} seleccionado${selected.size !== 1 ? 's' : ''}` : 'Selecciona participantes'}
-            </p>
-          </div>
-          <button onClick={onClose} style={{ background: isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9', border: 'none', borderRadius: '50%', width: 34, height: 34, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: T.textSecondary }}>
-            ×
-          </button>
-        </div>
-
-        {/* Nombre del grupo */}
-        <div style={{ padding: '14px 20px 8px', flexShrink: 0 }}>
-          <input
-            value={groupName}
-            onChange={e => { setGroupName(e.target.value); setError(''); }}
-            placeholder="Nombre del grupo"
-            maxLength={50}
-            style={{
-              width: '100%', padding: '12px 14px', borderRadius: 14,
-              border: `1.5px solid ${error && !groupName.trim() ? '#ef4444' : T.borderStrong}`,
-              fontSize: 15, fontWeight: 600, outline: 'none',
-              background: T.bgInput, color: T.textPrimary, boxSizing: 'border-box',
-              fontFamily: 'inherit',
-            }}
-          />
-        </div>
-
-        {/* Lista de contactos */}
-        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-          {contactsLoading ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, gap: 10 }}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', border: `3px solid ${T.border}`, borderTopColor: BRAND, animation: 'spin 0.8s linear infinite' }} />
-              <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-              <span style={{ fontSize: 13, color: T.textSecondary }}>Cargando contactos...</span>
-            </div>
-          ) : oldFaceContacts.length === 0 ? (
-            <div style={{ padding: '32px 24px', textAlign: 'center' }}>
-              <p style={{ fontSize: 14, color: T.textSecondary, margin: 0 }}>No hay contactos en OldFace para añadir al grupo</p>
-            </div>
-          ) : (
-            <>
-              <div style={{ padding: '8px 20px 4px' }}>
-                <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, letterSpacing: '0.5px', margin: 0 }}>CONTACTOS EN OLDFACE</p>
-              </div>
-              {oldFaceContacts.map(c => {
-                const cId = toUserId(c.phone);
-                const isSelected = selected.has(cId);
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => toggle(cId)}
-                    style={{
-                      width: '100%', display: 'flex', alignItems: 'center', gap: 14,
-                      padding: '11px 20px', background: isSelected ? (isDark ? 'rgba(61,90,128,0.2)' : '#E3EDF2') : 'transparent',
-                      border: 'none', cursor: 'pointer', textAlign: 'left',
-                      borderBottom: `1px solid ${T.border}`,
-                    }}
-                  >
-                    {/* Checkbox circle */}
-                    <div style={{
-                      width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
-                      border: `2px solid ${isSelected ? BRAND : T.borderStrong}`,
-                      background: isSelected ? BRAND : 'transparent',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'all 0.15s',
-                    }}>
-                      {isSelected && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M20 6L9 17l-5-5"/>
-                        </svg>
-                      )}
-                    </div>
-                    {/* Avatar */}
-                    <div style={{ width: 42, height: 42, borderRadius: '50%', background: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <span style={{ color: 'white', fontWeight: 900, fontSize: 17 }}>{c.name[0]?.toUpperCase()}</span>
-                    </div>
-                    {/* Info */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 14, fontWeight: 700, color: T.textPrimary, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</p>
-                      <p style={{ fontSize: 11, color: BRAND, margin: 0, fontWeight: 600 }}>● En OldFace</p>
-                    </div>
-                  </button>
-                );
-              })}
-            </>
-          )}
-        </div>
-
-        {/* Error */}
-        {error && (
-          <p style={{ fontSize: 12, color: '#ef4444', margin: 0, padding: '6px 20px', flexShrink: 0, fontWeight: 600 }}>{error}</p>
-        )}
-
-        {/* Botón crear */}
-        <div style={{ padding: '14px 20px', paddingBottom: 'max(14px, env(safe-area-inset-bottom, 14px))', flexShrink: 0, borderTop: `1px solid ${T.border}` }}>
-          <button
-            onClick={handleCreate}
-            disabled={creating || !groupName.trim() || selected.size === 0}
-            style={{
-              width: '100%', padding: '14px', borderRadius: 16,
-              background: BRAND, border: 'none', cursor: 'pointer',
-              color: 'white', fontWeight: 800, fontSize: 15,
-              opacity: (creating || !groupName.trim() || selected.size === 0) ? 0.5 : 1,
-              transition: 'opacity 0.15s',
-            }}
-          >
-            {creating ? 'Creando grupo...' : `Crear grupo${selected.size > 0 ? ` (${selected.size + 1})` : ''}`}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

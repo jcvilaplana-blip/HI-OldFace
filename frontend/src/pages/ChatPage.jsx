@@ -18,6 +18,8 @@ import { useCallStore }  from '../store/callStore';
 import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 import { useGeolocation } from '../hooks/useGeolocation';
 import Avatar from '../components/Avatar.jsx';
+import { GroupInfoSheet } from '../components/GroupSheets.jsx';
+import { groupIdFromChatId, fetchGroupCall } from '../utils/groupsApi';
 import { renderMapSnapshot, createChatMap, messageLatLng } from '../utils/chatMap';
 import { startLiveShare, stopLiveShare, isSharingLive, onLiveSharesChange } from '../utils/liveLocation';
 
@@ -74,7 +76,7 @@ export default function ChatPage() {
   const { messages, addMessage, loadMessages, persistMessage, createOrGetChat, markAsRead, updateMessageStatus, deleteMessage, deleteMessages, deleteMessagesScoped, editMessage, setMessageFlags } = useChatStore();
   const { getCurrentPosition, formatLocationMessage } = useGeolocation();
 
-  const { sendVideoCall, sendVoiceCall } = useCallStore();
+  const { sendVideoCall, sendVoiceCall, startGroupCall } = useCallStore();
   const { isDark } = useThemeStore();
   const T = isDark ? DARK : LIGHT;
 
@@ -108,6 +110,9 @@ export default function ChatPage() {
   const [flashId, setFlashId] = useState(null);             // mensaje resaltado un momento (al saltar a él)
   const [pinIdx, setPinIdx] = useState(0);
   const [showChatMenu, setShowChatMenu] = useState(false);  // ⋮ de la cabecera
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [groupMeta, setGroupMeta] = useState(null);         // { name, avatar } tras cambiarlos en "Info del grupo"
+  const [groupCall, setGroupCall] = useState(null);         // llamada de grupo en curso (para "Unirse")
   const [showStarred, setShowStarred] = useState(false);
   const [showBgSheet, setShowBgSheet] = useState(false);
   const [chatBg, setChatBg] = useState(() => readChatBg(routeChatId));
@@ -150,6 +155,18 @@ export default function ChatPage() {
   }, [routeChatId, user?.id, isComposite]);
 
   const chatMessages = messages[msgChatId] || [];
+  const groupId = isGroup ? (state?.chat?.groupId || groupIdFromChatId(msgChatId)) : null;
+  const headerName   = groupMeta?.name || chat.name;
+  const headerAvatar = groupMeta ? groupMeta.avatar : chat.avatar;
+
+  // Grupo: ¿hay una llamada en curso? → barra "Unirse"
+  useEffect(() => {
+    if (!groupId || !user?.id) return;
+    const check = () => fetchGroupCall(groupId, user.id).then(setGroupCall).catch(() => {});
+    check();
+    const iv = setInterval(check, 10_000);
+    return () => clearInterval(iv);
+  }, [groupId, user?.id]);
 
   // ── Cargar historial + memberNames de grupos ──────────────────────────────
   useEffect(() => {
@@ -747,18 +764,18 @@ export default function ChatPage() {
 
         {/* Avatar con click para ver foto */}
         <div style={{ position: 'relative', cursor: 'pointer' }}
-          onClick={() => chat.avatar && setExpandedPhoto(chat.avatar)}>
-          <Avatar name={chat.name} src={chat.avatar || null} size="md" />
+          onClick={() => (isGroup ? setShowGroupInfo(true) : chat.avatar && setExpandedPhoto(chat.avatar))}>
+          <Avatar name={headerName} src={headerAvatar || null} size="md" />
           {chat.online && (
             <span style={{ position: 'absolute', bottom: 0, right: 0, width: 12, height: 12, background: '#4ade80', borderRadius: '50%', border: `2px solid ${T.bgSurface}` }} />
           )}
         </div>
 
-        <div style={{ flex: 1 }}>
-          <p style={{ fontWeight: 700, fontSize: 15, color: T.textPrimary, margin: 0, lineHeight: 1.2 }}>{chat.name}</p>
+        <div style={{ flex: 1, minWidth: 0, cursor: isGroup ? 'pointer' : 'default' }} onClick={() => isGroup && setShowGroupInfo(true)}>
+          <p style={{ fontWeight: 700, fontSize: 15, color: T.textPrimary, margin: 0, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{headerName}</p>
           <p style={{ fontSize: 11, color: isGroup ? T.textMuted : (presenceInfo.online ? BRAND : T.textMuted), margin: 0 }}>
             {isGroup
-              ? 'Grupo'
+              ? (Object.keys(memberNames).length ? `Grupo · ${Object.keys(memberNames).length} miembros` : 'Grupo')
               : presenceInfo.online
                 ? '● en línea'
                 : presenceInfo.lastSeen
@@ -767,6 +784,20 @@ export default function ChatPage() {
           </p>
         </div>
 
+        {isGroup && groupId && <>
+          <button onClick={() => startGroupCall(groupId, headerName, 'video')} aria-label="Videollamada de grupo"
+            style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="18" height="18" fill="none" stroke={T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+              <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </button>
+          <button onClick={() => startGroupCall(groupId, headerName, 'voice')} aria-label="Llamada de grupo"
+            style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="18" height="18" fill="none" stroke={T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+              <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z" />
+            </svg>
+          </button>
+        </>}
         {!isGroup && <>
           <button onClick={() => sendVideoCall(participantId, chat.name)}
             style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -789,7 +820,8 @@ export default function ChatPage() {
           {showChatMenu && (
             <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 0, top: 42, zIndex: 60, background: T.bgSurface, border: `1px solid ${T.border}`,
                                                           borderRadius: 14, boxShadow: '0 6px 24px rgba(0,0,0,0.2)', padding: 6, minWidth: 210 }}>
-              {[[`Mensajes destacados${starredMsgs.length ? ` (${starredMsgs.length})` : ''}`, () => setShowStarred(true)],
+              {[...(isGroup && groupId ? [['Info del grupo', () => setShowGroupInfo(true)]] : []),
+                [`Mensajes destacados${starredMsgs.length ? ` (${starredMsgs.length})` : ''}`, () => setShowStarred(true)],
                 ['Fondo del chat', () => setShowBgSheet(true)]].map(([label, fn]) => (
                 <button key={label} onClick={() => { setShowChatMenu(false); fn(); }}
                   style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '11px 14px', borderRadius: 10, cursor: 'pointer', color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
@@ -800,6 +832,19 @@ export default function ChatPage() {
           )}
         </div>
       </div>}
+
+      {/* Grupo: llamada en curso → unirse */}
+      {!selectedIds && groupId && groupCall && (
+        <button onClick={() => startGroupCall(groupId, headerName, groupCall.callType)}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: '#16a34a', border: 'none', padding: '9px 14px',
+                   cursor: 'pointer', textAlign: 'left', flexShrink: 0 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
+          <span style={{ flex: 1, minWidth: 0, color: 'white', fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {groupCall.callType === 'video' ? 'Videollamada' : 'Llamada'} en curso{groupCall.peers?.length ? ` · ${groupCall.peers.length} dentro` : ''}
+          </span>
+          <span style={{ background: 'white', color: '#16a34a', fontWeight: 900, fontSize: 12, borderRadius: 14, padding: '5px 12px' }}>Unirse</span>
+        </button>
+      )}
 
       {/* 12. Mensajes fijados (arriba, para todos). Tocar → ir al mensaje; con varios, va pasando de uno a otro */}
       {!selectedIds && pinned.length > 0 && (() => {
@@ -1298,6 +1343,12 @@ export default function ChatPage() {
 
       {/* Fondo del chat */}
       {showBgSheet && <BackgroundSheet T={T} current={chatBg} onClose={() => setShowBgSheet(false)} onApply={applyBg} />}
+      {showGroupInfo && groupId && (
+        <GroupInfoSheet user={user} T={T} isDark={isDark} groupId={groupId}
+          onClose={() => setShowGroupInfo(false)}
+          onChanged={(g) => { setGroupMeta({ name: g.name, avatar: g.avatar || null }); setMemberNames(g.memberNames || {}); }}
+          onLeft={() => { setShowGroupInfo(false); navigate('/', { replace: true }); }} />
+      )}
 
       {/* Crear sticker a partir de una foto */}
       {stickerSrc && <StickerEditor T={T} src={stickerSrc} onCancel={() => setStickerSrc(null)} onSave={saveSticker} />}

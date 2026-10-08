@@ -597,7 +597,7 @@ router.get('/chats', (req, res) => {
             if (u) enriched[memberId] = u.name;
           }
         }
-        return { ...c, memberNames: enriched };
+        return { ...c, name: group?.name || c.name, avatar: group?.avatar || null, memberNames: enriched };
       }
       // Chat 1-a-1: nombre y avatar del otro participante
       const otherId = c.participants.find(p => p !== userId);
@@ -827,6 +827,21 @@ router.post('/messages', async (req, res) => {
 
   // ── Enviar push FCM al destinatario ─────────────────────────────────────
   // chatId tiene formato: chat_userA_userB — extraer el ID que no es el remitente
+  // Grupo: aviso a cada miembro con el nombre del grupo y de quien escribe
+  const groupChat = chatStore2.get(chatId);
+  if (groupChat?.isGroup) {
+    const gName = groupStore.get(groupChat.groupId)?.name || groupChat.name || 'Grupo';
+    const who = senderUser?.name || 'Alguien';
+    const what = type === 'audio' ? '🎤 Nota de voz' : type === 'location' || type === 'live_location' ? '📍 Ubicación'
+               : type === 'image' ? '📷 Foto' : type === 'video' ? '🎥 Vídeo' : type === 'sticker' ? '🌟 Sticker'
+               : text.length > 80 ? text.slice(0, 80) + '…' : text;
+    for (const to of groupChat.participants || []) {
+      const tok = to !== senderId && fcmStore.get(to);
+      if (tok) sendFCMPush(tok, gName, `${who}: ${what}`, { chatId, senderId }).catch(() => {});
+    }
+    return res.json(publicMsg(msg));
+  }
+
   try {
     const withoutPrefix = chatId.replace(/^chat_/, '');
     const parts = withoutPrefix.split(/_(?=user_)/);
@@ -1083,6 +1098,47 @@ router.delete('/stories/:storyId', (req, res) => {
 // ════════════════════════════════════════════════════════════════
 //  GRUPOS
 // ════════════════════════════════════════════════════════════════
+// El chat de un grupo es `group_<groupId>` (y groupId ya empieza por "group_").
+// Cualquier miembro puede añadir a otros; solo el administrador puede expulsar.
+
+const groupChatId = (g) => `group_${g.id}`;
+const isGroupMember = (g, userId) => !!g && !!userId && g.members.includes(userId);
+
+/** Foto del grupo: imagen comprimida en base64 (como los avatares) o URL de un archivo subido */
+function validGroupAvatar(a) {
+  if (typeof a !== 'string') return false;
+  if (a.startsWith('data:image/')) return a.length <= 200_000;
+  return /^https?:\/\/\S+$/.test(a) && a.length < 500;
+}
+
+/** Copia los miembros/nombre/foto del grupo a su chat */
+function syncGroupChat(g) {
+  const chatId = groupChatId(g);
+  const chat = chatStore2.get(chatId) || {
+    id: chatId, isGroup: true, groupId: g.id, createdAt: g.createdAt, lastMessage: '', lastTime: Date.now(),
+  };
+  chat.participants = [...g.members];
+  chat.name = g.name;
+  chat.avatar = g.avatar || null;
+  chatStore2.set(chatId, chat);
+  saveChats();
+}
+
+function refreshMemberNames(g) {
+  const names = {};
+  for (const id of g.members) names[id] = findUserById(id)?.name || g.memberNames?.[id] || id;
+  g.memberNames = names;
+}
+
+/** Datos del grupo que ve la app (con la llamada en curso, si la hay) */
+function groupPublic(g) {
+  const call = groupCalls.get(g.id);
+  return {
+    ...g,
+    chatId: groupChatId(g),
+    activeCall: call ? { roomId: call.roomId, callType: call.callType, startedBy: call.startedBy, startedAt: call.startedAt } : null,
+  };
+}
 
 /** GET /groups?userId= — grupos en los que participa el usuario */
 router.get('/groups', (req, res) => {
@@ -1090,101 +1146,248 @@ router.get('/groups', (req, res) => {
   if (!userId) return res.status(400).json({ error: 'userId requerido' });
   const userGroups = [...groupStore.values()]
     .filter(g => g.members.includes(userId))
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+    .sort((a, b) => (chatStore2.get(groupChatId(b))?.lastTime || b.updatedAt) - (chatStore2.get(groupChatId(a))?.lastTime || a.updatedAt))
+    .map(groupPublic);
   return res.json({ groups: userGroups });
 });
 
-/** POST /groups — crea un grupo nuevo */
-router.post('/groups', (req, res) => {
-  const { adminId, name, members } = req.body || {};
-  if (!adminId || !name || !Array.isArray(members) || members.length < 1)
-    return res.status(400).json({ error: 'adminId, name y members[] son requeridos' });
+/** GET /groups/:groupId?userId= — un grupo (solo para sus miembros) */
+router.get('/groups/:groupId', (req, res) => {
+  const g = groupStore.get(req.params.groupId);
+  if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
+  if (!isGroupMember(g, req.query.userId)) return res.status(403).json({ error: 'No perteneces a este grupo' });
+  refreshMemberNames(g);
+  return res.json(groupPublic(g));
+});
 
-  const allMembers = [...new Set([adminId, ...members])];
-  // Buscar nombres de los miembros
-  const memberNames = {};
-  for (const u of userStore.values()) {
-    if (allMembers.includes(u.userId)) memberNames[u.userId] = u.name;
-  }
+/** POST /groups — crea un grupo nuevo { adminId, name, members[], avatar? } */
+router.post('/groups', (req, res) => {
+  const { adminId, name, members, avatar } = req.body || {};
+  const cleanName = String(name || '').trim().slice(0, 50);
+  if (!adminId || !cleanName || !Array.isArray(members) || members.length < 1)
+    return res.status(400).json({ error: 'adminId, name y members[] son requeridos' });
+  if (!findUserById(adminId)) return res.status(401).json({ error: 'Usuario no válido' });
+
+  const allMembers = [...new Set([adminId, ...members.filter(m => typeof m === 'string' && findUserById(m))])];
+  if (allMembers.length < 2) return res.status(400).json({ error: 'Ninguno de los participantes está en OldFace' });
 
   const group = {
     id:          `group_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    name,
+    name:        cleanName,
     adminId,
     members:     allMembers,
-    memberNames,
-    avatar:      null,
+    memberNames: {},
+    avatar:      validGroupAvatar(avatar) ? avatar : null,
     createdAt:   Date.now(),
     updatedAt:   Date.now(),
-    lastMessage: '',
-    lastTime:    Date.now(),
   };
+  refreshMemberNames(group);
   groupStore.set(group.id, group);
   saveGroups();
+  syncGroupChat(group);   // el chat del grupo vive en chatStore2 para unificar la lectura de mensajes
+  for (const m of allMembers) if (m !== adminId) rtcEmit(m, 'chat:update', { chatId: groupChatId(group), reason: 'group' });
 
-  // Crear el chat del grupo en chatStore2 para unificar la lectura de mensajes
-  const chatId = `group_${group.id}`;
-  if (!chatStore2.has(chatId)) {
-    chatStore2.set(chatId, {
-      id: chatId, participants: allMembers, name,
-      isGroup: true, groupId: group.id,
-      createdAt: Date.now(), lastMessage: '', lastTime: Date.now(),
-    });
-    saveChats();
-  }
-
-  return res.status(201).json(group);
+  return res.status(201).json(groupPublic(group));
 });
 
-/** PUT /groups/:groupId — actualiza nombre/avatar del grupo */
+/** PUT /groups/:groupId — { userId, name?, avatar? } cambia nombre y/o foto (cualquier miembro) */
 router.put('/groups/:groupId', (req, res) => {
   const g = groupStore.get(req.params.groupId);
   if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
-  const { name, avatar } = req.body || {};
-  if (name)   g.name   = name;
-  if (avatar) g.avatar = avatar;
+  const { userId, name, avatar } = req.body || {};
+  if (!isGroupMember(g, userId)) return res.status(403).json({ error: 'No perteneces a este grupo' });
+  const cleanName = typeof name === 'string' ? name.trim().slice(0, 50) : '';
+  if (cleanName) g.name = cleanName;
+  if (avatar === null) g.avatar = null;
+  else if (avatar !== undefined) {
+    if (!validGroupAvatar(avatar)) return res.status(400).json({ error: 'Imagen no válida o demasiado grande' });
+    g.avatar = avatar;
+  }
   g.updatedAt = Date.now();
   groupStore.set(g.id, g);
   saveGroups();
-  return res.json(g);
+  syncGroupChat(g);
+  return res.json(groupPublic(g));
 });
 
-/** POST /groups/:groupId/members — añade miembro al grupo */
+/** POST /groups/:groupId/members — { requesterId, userIds[] } añade miembros (cualquier miembro puede) */
 router.post('/groups/:groupId/members', (req, res) => {
   const g = groupStore.get(req.params.groupId);
   if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
-  const { userId, adminId } = req.body || {};
-  if (g.adminId !== adminId) return res.status(403).json({ error: 'Solo el admin puede añadir miembros' });
-  if (!g.members.includes(userId)) {
-    g.members.push(userId);
-    const u = [...userStore.values()].find(u => u.userId === userId);
-    if (u) g.memberNames[userId] = u.name;
+  const body = req.body || {};
+  const requesterId = body.requesterId || body.adminId;
+  if (!isGroupMember(g, requesterId)) return res.status(403).json({ error: 'No perteneces a este grupo' });
+  const ids = [...new Set((Array.isArray(body.userIds) ? body.userIds : [body.userId])
+    .filter(id => typeof id === 'string' && findUserById(id) && !g.members.includes(id)))];
+  if (ids.length) {
+    g.members.push(...ids);
+    refreshMemberNames(g);
     g.updatedAt = Date.now();
     groupStore.set(g.id, g);
     saveGroups();
-    // Actualizar chat participantes
-    const chatId = `group_${g.id}`;
-    const chat = chatStore2.get(chatId);
-    if (chat) { chat.participants = g.members; chatStore2.set(chatId, chat); saveChats(); }
+    syncGroupChat(g);
+    for (const m of ids) rtcEmit(m, 'chat:update', { chatId: groupChatId(g), reason: 'group' });
   }
-  return res.json(g);
+  return res.json({ ...groupPublic(g), added: ids.length });
 });
 
-/** DELETE /groups/:groupId/members/:userId — sale o expulsa a un miembro */
+/** DELETE /groups/:groupId/members/:userId — { requesterId } salir del grupo o expulsar (solo el administrador) */
 router.delete('/groups/:groupId/members/:userId', (req, res) => {
   const g = groupStore.get(req.params.groupId);
   if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
-  const { requesterId } = req.body || {};
+  const requesterId = req.body?.requesterId || req.query.requesterId;
   const targetId = req.params.userId;
-  if (targetId !== requesterId && g.adminId !== requesterId)
-    return res.status(403).json({ error: 'Sin permisos' });
+  if (!isGroupMember(g, requesterId) || (targetId !== requesterId && g.adminId !== requesterId))
+    return res.status(403).json({ error: 'Solo el administrador puede quitar miembros' });
   g.members = g.members.filter(m => m !== targetId);
-  delete g.memberNames[targetId];
+  if (g.members.length === 0) {
+    // Se fue el último: el grupo desaparece
+    groupStore.delete(g.id);
+    groupCalls.delete(g.id);
+    chatStore2.delete(groupChatId(g));
+    messageStore.delete(groupChatId(g));
+    saveGroups(); saveChats(); saveMessages();
+    return res.json({ success: true, deleted: true });
+  }
+  if (g.adminId === targetId) g.adminId = g.members[0];   // el administrador se fue → pasa al siguiente
+  refreshMemberNames(g);
   g.updatedAt = Date.now();
   groupStore.set(g.id, g);
   saveGroups();
-  return res.json({ success: true });
+  syncGroupChat(g);
+  return res.json({ success: true, group: groupPublic(g) });
 });
+
+// ── Llamadas de grupo ────────────────────────────────────────────────
+// La sala de medios es `gcall__<groupId>__<inicio>`: así la app reconoce una llamada de grupo solo por el roomId
+// (también cuando llega por la pantalla de llamada nativa de Android, que solo conserva el roomId).
+// Cada uno entra y sale cuando quiere; la llamada sigue mientras quede alguien en la sala.
+/** groupId → { roomId, callType, startedBy, startedAt, invited:Set } */
+const groupCalls = new Map();
+const GROUP_CALL_RING_MS = 60_000;   // lo que suena en los móviles; antes de eso no se da la llamada por vacía
+
+/** Quién está en una sala del servidor RTC (null si no se puede saber) */
+async function rtcRoomPeers(roomId) {
+  const url = process.env.RTC_INTERNAL_URL, secret = process.env.RTC_SECRET;
+  if (!url || !secret) return null;
+  try {
+    const r = await fetch(`${url}/rtc/internal/rooms/${encodeURIComponent(roomId)}`, {
+      headers: { 'x-internal-secret': secret }, signal: AbortSignal.timeout(3000),
+    });
+    if (!r.ok) return null;
+    return (await r.json()).peers || [];
+  } catch { return null; }
+}
+
+/** Llamada en curso del grupo, comprobando que de verdad queda alguien en la sala */
+async function activeGroupCall(groupId) {
+  const call = groupCalls.get(groupId);
+  if (!call) return null;
+  const peers = await rtcRoomPeers(call.roomId);
+  const age = Date.now() - call.startedAt;
+  const empty = peers ? peers.length === 0 : age > 3 * 3600_000;
+  if (empty && age > GROUP_CALL_RING_MS) {
+    if (groupCalls.get(groupId) === call) groupCalls.delete(groupId);
+    return null;
+  }
+  return { ...call, peers: peers || [] };
+}
+
+/** Hacer sonar la llamada en los móviles de `userIds` (señal en vivo + aviso push, como una llamada normal) */
+function ringGroupCall(g, call, fromId, userIds) {
+  const fromName = findUserById(fromId)?.name || fromId;
+  for (const to of userIds) {
+    if (!to || to === fromId) continue;
+    call.invited.add(to);
+    rtcEmit(to, 'signal', {
+      from: fromId, fromName, type: 'call_invite', ts: Date.now(),
+      payload: { callType: call.callType, callerName: fromName, roomId: call.roomId, groupId: g.id, groupName: g.name },
+    });
+    const fcmToken = fcmStore.get(to);
+    if (fcmToken) {
+      sendFCMData(fcmToken, {
+        type: 'call', callType: call.callType, callerId: fromId,
+        // La pantalla nativa solo muestra este nombre: grupo + quién llama
+        callerName: `${g.name} · ${fromName}`, calleeId: to,
+        roomId: call.roomId, groupId: g.id, groupName: g.name, ts: Date.now(),
+      }).catch(() => {});
+    }
+  }
+}
+
+/** Dejar de hacer sonar (la llamada terminó sin que contestaran) */
+function stopRingingGroupCall(call, fromId) {
+  for (const to of call.invited) {
+    if (to === fromId) continue;
+    rtcEmit(to, 'signal', { from: fromId, type: 'call_cancel', ts: Date.now(), payload: { roomId: call.roomId } });
+    const fcmToken = fcmStore.get(to);
+    if (fcmToken) sendFCMData(fcmToken, { type: 'call_cancel', callerId: fromId, ts: Date.now() }).catch(() => {});
+  }
+}
+
+/** GET /groups/:groupId/call?userId= — llamada en curso (o null) con quién está dentro */
+router.get('/groups/:groupId/call', async (req, res) => {
+  const g = groupStore.get(req.params.groupId);
+  if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
+  if (!isGroupMember(g, req.query.userId)) return res.status(403).json({ error: 'No perteneces a este grupo' });
+  const call = await activeGroupCall(g.id);
+  if (!call) return res.json({ call: null });
+  return res.json({ call: { roomId: call.roomId, callType: call.callType, startedBy: call.startedBy, startedAt: call.startedAt,
+                            peers: call.peers.map(p => ({ userId: p.userId, name: g.memberNames?.[p.userId] || p.name })) } });
+});
+
+/**
+ * POST /groups/:groupId/call — { userId, callType: 'voice'|'video' }
+ * Si ya hay una llamada en curso se devuelve esa (para unirse); si no, se crea y suena en los móviles del resto.
+ */
+router.post('/groups/:groupId/call', async (req, res) => {
+  const g = groupStore.get(req.params.groupId);
+  if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
+  const { userId, callType } = req.body || {};
+  if (!isGroupMember(g, userId)) return res.status(403).json({ error: 'No perteneces a este grupo' });
+  const existing = await activeGroupCall(g.id);
+  if (existing) return res.json({ roomId: existing.roomId, callType: existing.callType, groupName: g.name, joined: true });
+  const call = {
+    roomId: `gcall__${g.id}__${Date.now()}`,
+    callType: callType === 'video' ? 'video' : 'voice',
+    startedBy: userId, startedAt: Date.now(), invited: new Set(),
+  };
+  groupCalls.set(g.id, call);
+  ringGroupCall(g, call, userId, g.members);
+  return res.json({ roomId: call.roomId, callType: call.callType, groupName: g.name, joined: false });
+});
+
+/** POST /groups/:groupId/call/invite — { userId, inviteeIds[] } avisar a más gente durante la llamada */
+router.post('/groups/:groupId/call/invite', (req, res) => {
+  const g = groupStore.get(req.params.groupId);
+  if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
+  const { userId, inviteeIds } = req.body || {};
+  if (!isGroupMember(g, userId)) return res.status(403).json({ error: 'No perteneces a este grupo' });
+  const call = groupCalls.get(g.id);
+  if (!call) return res.status(404).json({ error: 'La llamada ya terminó' });
+  const ids = (Array.isArray(inviteeIds) ? inviteeIds : []).filter(id => typeof id === 'string' && findUserById(id)).slice(0, 50);
+  ringGroupCall(g, call, userId, ids);
+  return res.json({ success: true, invited: ids.length });
+});
+
+/** POST /groups/:groupId/call/leave — { userId } salgo yo; si no queda nadie, la llamada termina y deja de sonar */
+router.post('/groups/:groupId/call/leave', async (req, res) => {
+  const g = groupStore.get(req.params.groupId);
+  const { userId } = req.body || {};
+  const call = g ? groupCalls.get(g.id) : null;
+  if (!call || !isGroupMember(g, userId)) return res.json({ ended: false });
+  const peers = await rtcRoomPeers(call.roomId);
+  const others = (peers || []).filter(p => p.userId !== userId);
+  if (peers && others.length === 0) {
+    if (groupCalls.get(g.id) === call) groupCalls.delete(g.id);
+    stopRingingGroupCall(call, userId);
+    return res.json({ ended: true });
+  }
+  return res.json({ ended: false, remaining: others.length });
+});
+
+// Limpieza: llamadas que se quedaron vacías (p. ej. la app se cerró sin avisar)
+setInterval(() => { for (const id of [...groupCalls.keys()]) activeGroupCall(id).catch(() => {}); }, 30_000).unref?.();
 
 // ════════════════════════════════════════════════════════════════
 //  REGISTRO DE LLAMADAS

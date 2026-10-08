@@ -11,6 +11,7 @@
 import { create } from 'zustand';
 import { playMessageSound } from '../utils/sounds.js';
 import { connectRtc, ensureRtcConnected, sendSignal, isRtcConnected } from '../utils/rtcClient.js';
+import { groupIdFromRoom, startGroupCallApi } from '../utils/groupsApi.js';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -63,6 +64,7 @@ export const useCallStore = create((set, get) => ({
   callRejected:   false,  // VideoCallPage/CallPage lo escucha para salir
   callEnded:      false,  // la otra parte colgó → pages salen
   pendingFCMCall: null,   // { callType, callerId, callerName, roomId } desde FCM tap
+  activeGroupRoom: null,  // sala de la llamada de grupo en la que estoy (GroupCallPage)
 
   setCallError: (msg) => {
     set({ callError: msg });
@@ -71,8 +73,12 @@ export const useCallStore = create((set, get) => ({
 
   // ── Llamada entrante: muestra el modal Aceptar/Rechazar (App.jsx) ─────────
   // Se usa tanto para señales en vivo como al tocar la notificación push.
-  showIncomingCall: ({ callerId, callerName, callType, roomId }) => {
+  // Llamada de grupo: la reconoce el roomId (gcall__<groupId>__…) aunque no venga groupId (aviso push / pantalla nativa).
+  showIncomingCall: ({ callerId, callerName, callType, roomId, groupId, groupName }) => {
     const type = callType || 'video';
+    const gid = groupId || groupIdFromRoom(roomId);
+    // Ya estoy dentro de esa llamada de grupo (p. ej. me invitan otra vez) → nada que mostrar
+    if (gid && roomId && get().activeGroupRoom === roomId) return;
     set({
       incomingCall: {
         callType:   type,
@@ -80,6 +86,8 @@ export const useCallStore = create((set, get) => ({
         callerName: callerName || callerId,
         isVideo:    type === 'video',
         roomId:     roomId || null,
+        groupId:    gid || null,
+        groupName:  groupName || (gid ? String(callerName || '').split(' · ')[0] : null),
       },
     });
     // Sin respuesta en 60 s → llamada perdida, se cierra el modal
@@ -97,14 +105,17 @@ export const useCallStore = create((set, get) => ({
       if (age > 30000) { console.log('[Señal] call_invite obsoleto ignorado (age:', age, 'ms)'); return; }
       if (nativeHandlesCall()) return;
       console.log('[Señal] Llamada entrante de:', from, payload);
-      get().showIncomingCall({ callerId: from, callerName: payload.callerName || fromName, callType: payload.callType, roomId: payload.roomId });
+      get().showIncomingCall({ callerId: from, callerName: payload.callerName || fromName, callType: payload.callType, roomId: payload.roomId,
+                               groupId: payload.groupId, groupName: payload.groupName });
     }
-    else if (type === 'call_reject') set({ callRejected: true });
+    // En una llamada de grupo, que alguien rechace o cuelgue no afecta a los demás
+    else if (type === 'call_reject') { if (!get().activeGroupRoom) set({ callRejected: true }); }
     else if (type === 'call_cancel' || type === 'call_end') {
       // Si aún está sonando (no se ha aceptado), solo se cierra el modal.
       // No marcar callEnded: quedaría activo y cerraría la SIGUIENTE llamada al abrirse.
-      if (get().incomingCall?.callerId === from) { set({ incomingCall: null }); return; }
-      if (type === 'call_end') set({ callEnded: true });
+      const ic = get().incomingCall;
+      if (ic && (ic.callerId === from || (payload.roomId && ic.roomId === payload.roomId))) { set({ incomingCall: null }); return; }
+      if (type === 'call_end' && !get().activeGroupRoom) set({ callEnded: true });
     }
     // call_accept: no requiere acción (la sala ya está abierta)
   },
@@ -218,17 +229,37 @@ export const useCallStore = create((set, get) => ({
 
   clearPendingCall: () => set({ pendingCallOut: null }),
 
+  /** Llamada de grupo: la crea (o se une a la que ya está en curso) y AppShell abre GroupCallPage */
+  startGroupCall: async (groupId, groupName, callType = 'voice') => {
+    if (!(await get()._ensureConnected())) {
+      get().setCallError('Sin conexión — espera un momento e inténtalo de nuevo');
+      return;
+    }
+    try {
+      const { useAuthStore } = await import('./authStore');
+      const user = useAuthStore.getState().user;
+      const r = await startGroupCallApi(groupId, user.id, callType);
+      set({ pendingCallOut: { groupId, groupName: r.groupName || groupName, callType: r.callType, roomId: r.roomId, joined: r.joined } });
+    } catch (err) {
+      get().setCallError(err.message || 'No se pudo iniciar la llamada');
+    }
+  },
+
+  setActiveGroupRoom: (roomId) => set({ activeGroupRoom: roomId || null }),
+
   // ── Aceptar llamada entrante ──────────────────────────────────────────────
   acceptCall: () => {
     const { incomingCall } = get();
     if (!incomingCall) return;
-    if (incomingCall.callerId) get().sendCallSignal(incomingCall.callerId, 'call_accept');
+    if (incomingCall.callerId && !incomingCall.groupId) get().sendCallSignal(incomingCall.callerId, 'call_accept');
     set({
       callAccepted: {
         callerId:   incomingCall.callerId,
         callerName: incomingCall.callerName,
         callType:   incomingCall.callType,
         roomId:     incomingCall.roomId || null,
+        groupId:    incomingCall.groupId || null,
+        groupName:  incomingCall.groupName || null,
       },
       incomingCall: null,
     });
@@ -240,7 +271,8 @@ export const useCallStore = create((set, get) => ({
   rejectCall: () => {
     const { incomingCall } = get();
     if (!incomingCall) return;
-    if (incomingCall.callerId) get().sendCallSignal(incomingCall.callerId, 'call_reject');
+    // Grupo: rechazar solo cierra el aviso (la llamada sigue para los demás)
+    if (incomingCall.callerId && !incomingCall.groupId) get().sendCallSignal(incomingCall.callerId, 'call_reject');
     set({ incomingCall: null });
   },
 

@@ -13,6 +13,8 @@ import HomePage      from './pages/HomePage.jsx';
 import ChatPage      from './pages/ChatPage.jsx';
 import CallPage      from './pages/CallPage.jsx';
 import VideoCallPage from './pages/VideoCallPage.jsx';
+import GroupCallPage from './pages/GroupCallPage.jsx';
+import { groupIdFromRoom } from './utils/groupsApi';
 import ContactsPage  from './pages/ContactsPage.jsx';
 import SettingsPage  from './pages/SettingsPage.jsx';
 import DirectoPage     from './pages/DirectoPage.jsx';
@@ -409,7 +411,8 @@ export default function AppRoot() {
                   const st = useCallStore.getState();
                   if (st.incomingCall?.callerId === data.callerId) return;   // ya llegó por el socket
                   st.showIncomingCall({ callerId: data.callerId, callerName: data.callerName,
-                                        callType: data.callType, roomId: data.roomId || null });
+                                        callType: data.callType, roomId: data.roomId || null,
+                                        groupId: data.groupId || null, groupName: data.groupName || null });
                 }).catch(() => {});
               }
             });
@@ -521,8 +524,12 @@ function AppShell() {
   // ── Navegar a call room cuando el usuario inicia una llamada ─────────────
   useEffect(() => {
     if (!pendingCallOut) return;
-    const { calleeId, calleeName, callType, roomId } = pendingCallOut;
+    const { calleeId, calleeName, callType, roomId, groupId, groupName } = pendingCallOut;
     clearPendingCall();
+    if (groupId) {
+      navigate(`/group-call/${encodeURIComponent(groupId)}`, { state: { roomId, callType, groupName, isIncoming: !!pendingCallOut.joined } });
+      return;
+    }
     const path = callType === 'video' ? 'video-call' : 'call';
     navigate(`/${path}/${calleeId}`, { state: { chat: { name: calleeName }, isIncoming: false, roomId } });
   }, [pendingCallOut]);
@@ -532,6 +539,13 @@ function AppShell() {
     if (!callAccepted) return;
     const { callerId, callerName, callType, roomId } = callAccepted;
     clearCallAccepted();
+    // Llamada de grupo (también si se contestó en la pantalla nativa: solo trae el roomId)
+    const groupId = callAccepted.groupId || groupIdFromRoom(roomId);
+    if (groupId) {
+      const groupName = callAccepted.groupName || String(callerName || '').split(' · ')[0];
+      navigate(`/group-call/${encodeURIComponent(groupId)}`, { state: { roomId, callType, groupName, isIncoming: true } });
+      return;
+    }
     const path = callType === 'video' ? 'video-call' : 'call';
     navigate(`/${path}/${callerId}`, { state: { chat: { name: callerName }, isIncoming: true, roomId } });
   }, [callAccepted]);
@@ -554,7 +568,7 @@ function AppShell() {
       try { call = JSON.parse(window.OldFaceCalls.takePendingCall() || 'null'); } catch { /* nada */ }
       if (!call || call.action !== 'accept' || !call.callerId) return;
       if (Date.now() - (call.at || 0) > 60000) return;   // contestada hace demasiado
-      useCallStore.getState().sendCallSignal(call.callerId, 'call_accept');
+      if (!groupIdFromRoom(call.roomId)) useCallStore.getState().sendCallSignal(call.callerId, 'call_accept');
       useCallStore.setState({
         incomingCall: null,
         callAccepted: { callerId: call.callerId, callerName: call.callerName || call.callerId,
@@ -716,6 +730,7 @@ function AppShell() {
         <Route path="/taxi" element={<ProtectedRoute><React.Suspense fallback={<div style={{ position: 'fixed', inset: 0, background: '#f1f5f9' }} />}><TaxiPage /></React.Suspense></ProtectedRoute>} />
         <Route path="/video-call/:userId" element={<ProtectedRoute><VideoCallPage /></ProtectedRoute>} />
         <Route path="/call/:userId"        element={<ProtectedRoute><CallPage /></ProtectedRoute>} />
+        <Route path="/group-call/:groupId" element={<ProtectedRoute><GroupCallPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
@@ -863,7 +878,7 @@ function IncomingCallModal({ call, onAccept, onReject }) {
             position: 'relative',
           }}>
             <span style={{ fontSize: 40, fontWeight: 900, color: 'white' }}>
-              {(call.callerName?.[0] || '?').toUpperCase()}
+              {((call.groupId ? call.groupName : call.callerName)?.[0] || '?').toUpperCase()}
             </span>
           </div>
         </div>
@@ -875,13 +890,20 @@ function IncomingCallModal({ call, onAccept, onReject }) {
           margin: '0 0 8px',
           textTransform: 'uppercase',
         }}>
-          {isVideo ? '📹 Videollamada entrante' : '📞 Llamada de voz'}
+          {call.groupId
+            ? (isVideo ? 'Videollamada de grupo' : 'Llamada de grupo')
+            : (isVideo ? '📹 Videollamada entrante' : '📞 Llamada de voz')}
         </p>
 
-        {/* Nombre */}
+        {/* Nombre (en grupo: el grupo y quién llama) */}
         <p style={{ fontSize: 24, fontWeight: 900, color: 'white', margin: '0 0 4px' }}>
-          {call.callerName || '?'}
+          {call.groupId ? (call.groupName || 'Grupo') : (call.callerName || '?')}
         </p>
+        {call.groupId && (
+          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)', margin: '0 0 6px', fontWeight: 600 }}>
+            {String(call.callerName || '').split(' · ').pop()} te llama
+          </p>
+        )}
 
         {/* Countdown */}
         <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', margin: '0 0 36px' }}>
