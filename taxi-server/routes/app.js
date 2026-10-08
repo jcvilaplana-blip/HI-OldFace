@@ -467,9 +467,46 @@ support.post('/tickets/:id/messages', (req, res) => {
   res.status(201).json({ success: true });
 });
 
+// ── Mensajes entre cliente y conductor durante el viaje ─────────────────────
+const tripChat = express.Router();
+tripChat.use((req, res, next) => (req.taxiRole ? requireRole(req.taxiRole)(req, res, next) : next(err(403, 'Primero elige cliente o conductor'))));
+const CHAT_OPEN = ['accepted', 'arrived', 'started'];
+/** El viaje si soy su cliente o su conductor */
+function chatBooking(req) {
+  const b = get('SELECT id, code, status, customer_id, driver_id FROM bookings WHERE code = ?', String(req.params.code));
+  const mine = b && (req.taxiRole === 'driver' ? b.driver_id === req.me.id : b.customer_id === req.me.id);
+  if (!mine || !b.driver_id) throw err(404, 'Viaje no encontrado');
+  return b;
+}
+tripChat.get('/:code', (req, res) => {
+  const b = chatBooking(req);
+  // al abrir el chat, lo del otro queda leído
+  run('UPDATE trip_messages SET read_at = ? WHERE booking_id = ? AND sender_type != ? AND read_at IS NULL', now(), b.id, req.taxiRole);
+  res.json({ open: CHAT_OPEN.includes(b.status),
+             messages: all('SELECT id, sender_type, message, created_at, read_at FROM trip_messages WHERE booking_id = ? ORDER BY id', b.id) });
+});
+tripChat.get('/:code/unread', (req, res) => {
+  const b = chatBooking(req);
+  res.json({ unread: get('SELECT count(*) n FROM trip_messages WHERE booking_id = ? AND sender_type != ? AND read_at IS NULL', b.id, req.taxiRole).n });
+});
+tripChat.post('/:code', (req, res) => {
+  const b = chatBooking(req);
+  if (!CHAT_OPEN.includes(b.status)) throw err(409, 'El viaje ya ha terminado');
+  const message = String(req.body?.message || '').trim().slice(0, 1000);
+  if (!message) throw err(400, 'Escribe un mensaje');
+  const t = now();
+  const { lastInsertRowid } = run('INSERT INTO trip_messages (booking_id, sender_type, message, created_at) VALUES (?,?,?,?)', b.id, req.taxiRole, message, t);
+  const msg = { id: Number(lastInsertRowid), sender_type: req.taxiRole, message, created_at: t, read_at: null };
+  const payload = { code: b.code, message: msg, from: req.me.name || '' };
+  if (req.taxiRole === 'driver') rt.toCustomer(b.customer_id, 'trip:message', payload);
+  else rt.toDriver(b.driver_id, 'trip:message', payload);
+  res.status(201).json({ message: msg });
+});
+
 router.use('/customer', customer);
 router.use('/driver', driver);
 router.use('/support', support);
+router.use('/trip-chat', tripChat);
 
 // Errores en JSON
 router.use((e, _req, res, _next) => {

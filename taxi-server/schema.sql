@@ -433,6 +433,16 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   message     TEXT NOT NULL,
   created_at  INTEGER
 );
+-- Mensajes entre cliente y conductor durante un viaje
+CREATE TABLE IF NOT EXISTS trip_messages (
+  id          INTEGER PRIMARY KEY,
+  booking_id  INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+  sender_type TEXT NOT NULL,                     -- customer | driver
+  message     TEXT NOT NULL,
+  created_at  INTEGER,
+  read_at     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_trip_messages_booking ON trip_messages(booking_id);
 
 -- ── Contenido de la app ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS banners (

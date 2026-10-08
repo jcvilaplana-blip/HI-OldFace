@@ -114,8 +114,12 @@ app.options('*', cors());
 app.use(express.json({ limit: '20mb' }));
 
 // ── Rate limiting básico por IP ───────────────────────────────────
+// Detrás de nginx/Apache/Passenger: la IP real viene en X-Forwarded-For (sin esto todos compartían el mismo cupo)
+app.set('trust proxy', true);
 const rateMap = new Map();
-function rateLimit(ip, max = 60, windowMs = 60_000) {
+// Peticiones ligeras y frecuentes de la propia app que no cuentan para el límite (si fallan, se pierden avisos)
+const RATE_FREE = /^\/(api\/)?(health|presence|register-fcm-token|messages\/[^/]+\/mark-read)\b/;
+function rateLimit(ip, max = 300, windowMs = 60_000) {
   const now = Date.now();
   const entry = rateMap.get(ip) || { count: 0, start: now };
   if (now - entry.start > windowMs) { entry.count = 0; entry.start = now; }
@@ -124,6 +128,7 @@ function rateLimit(ip, max = 60, windowMs = 60_000) {
   return entry.count > max;
 }
 app.use((req, res, next) => {
+  if (req.method === 'OPTIONS' || RATE_FREE.test(req.path)) return next();
   const ip = req.ip || req.socket?.remoteAddress;
   if (rateLimit(ip)) return res.status(429).json({ error: 'Demasiadas solicitudes' });
   next();
@@ -679,10 +684,17 @@ router.get('/files/:filename', (req, res) => {
   res.sendFile(filePath);
 });
 
-/** GET /messages/:chatId */
+/** Texto de la vista previa del chat (lista de chats) */
+function chatPreviewText(type, text) {
+  return type === 'audio' ? '🎤 Nota de voz' : type === 'location' ? '📍 Ubicación'
+       : type === 'live_location' ? '📍 Ubicación en tiempo real' : type === 'image' ? '📷 Foto'
+       : type === 'video' ? '🎥 Vídeo' : type === 'sticker' ? '🌟 Sticker' : text;
+}
+
+/** GET /messages/:chatId (los eliminados para todos antiguos tampoco se devuelven) */
 router.get('/messages/:chatId', (req, res) => {
-  const list = messageStore.get(req.params.chatId) || [];
   const uid = req.query.userId;
+  const list = (messageStore.get(req.params.chatId) || []).filter(m => !m.deleted);
   return res.json({ messages: uid ? list.filter(m => !(m.hiddenFor || []).includes(uid)) : list });
 });
 
@@ -702,14 +714,22 @@ router.delete('/messages/:chatId/:messageId', (req, res) => {
     return res.json({ ok: true });
   }
   if (scope === 'all') {
+    // Para todos: se borra sin dejar rastro ("Se eliminó este mensaje" ya no se muestra)
     const m = msgs[idx];
     if (!userId || m.senderId !== userId) return res.status(403).json({ error: 'Solo quien lo envió puede eliminarlo para todos' });
-    Object.assign(m, { type: 'deleted', text: 'Se eliminó este mensaje', url: null, fileName: null, replyTo: null,
-                       live: null, pinned: false, pinnedAt: null, deleted: true, deletedAt: Date.now() });
-    delete m.duration;
+    msgs.splice(idx, 1);
+    for (const x of msgs) if (x.replyTo?.id === messageId) x.replyTo = null;   // tampoco queda citado en las respuestas
+    messageStore.set(chatId, msgs);
     saveMessages();
+    if (idx === msgs.length && chatStore2.has(chatId)) {   // era el último → vista previa del anterior
+      const c = chatStore2.get(chatId);
+      const prev = [...msgs].reverse().find(x => !x.deleted);
+      c.lastMessage = prev ? chatPreviewText(prev.type, prev.text) : '';
+      chatStore2.set(chatId, c);
+      saveChats();
+    }
     notifyChatUpdate(chatId, userId, 'deleted');
-    return res.json({ ok: true, message: m });
+    return res.json({ ok: true });
   }
   msgs.splice(idx, 1);
   messageStore.set(chatId, msgs);
@@ -744,9 +764,7 @@ router.post('/messages', async (req, res) => {
 
   if (chatStore2.has(chatId)) {
     const c = chatStore2.get(chatId);
-    c.lastMessage = type === 'audio' ? '🎤 Nota de voz' : type === 'location' ? '📍 Ubicación'
-                  : type === 'live_location' ? '📍 Ubicación en tiempo real' : type === 'image' ? '📷 Foto'
-                  : type === 'video' ? '🎥 Vídeo' : type === 'sticker' ? '🌟 Sticker' : text;
+    c.lastMessage = chatPreviewText(type, text);
     c.lastTime = Date.now();
     chatStore2.set(chatId, c);
     saveChats();

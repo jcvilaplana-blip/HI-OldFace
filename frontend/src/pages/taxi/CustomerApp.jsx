@@ -11,6 +11,7 @@ import { taxiApi, taxiSocket, tx, money, decodePolyline, currentPosition, taxiUr
 import { BRAND, C, Btn, Sheet, Spinner, Toast, Stars, Tabs, inputStyle } from './ui.jsx';
 import TaxiMap from './TaxiMap.jsx';
 import CardPay from './CardPay.jsx';
+import { TripChatButton } from './TripChat.jsx';
 import { TripsTab, WalletTab, ProfileTab } from './CustomerTabs.jsx';
 
 const ACTIVE = ['searching', 'accepted', 'arrived', 'started'];
@@ -176,11 +177,35 @@ function RideHome({ boot, notify, onExit }) {
     pinTimer.current = setTimeout(async () => setPinPlace(await reverse(lat, lng)), 350);
   }, [step, reverse]);
 
+  // Recorrido del conductor durante el viaje (línea gris de por dónde ha ido) — se reinicia en cada viaje
+  const [trail, setTrail] = useState([]);
+  useEffect(() => { setTrail([]); }, [booking?.code, booking?.status === 'started']); // eslint-disable-line
+  useEffect(() => {
+    if (booking?.status !== 'started' || !driverPos) return;
+    setTrail(t => {
+      const last = t[t.length - 1];
+      if (last && km({ lat: last[1], lng: last[0] }, driverPos) < 0.01) return t;   // menos de 10 m: nada
+      return [...t, [driverPos.lng, driverPos.lat]].slice(-3000);
+    });
+  }, [booking?.status, driverPos?.lat, driverPos?.lng]); // eslint-disable-line
+
+  // Mientras viene a recogerme: ruta del conductor hasta el punto de recogida (se recalcula si se mueve > 300 m)
+  const [toPickup, setToPickup] = useState(null);       // { code, from, line }
+  useEffect(() => {
+    if (booking?.status !== 'accepted' || !driverPos) { if (toPickup) setToPickup(null); return; }
+    if (toPickup?.code === booking.code && km(toPickup.from, driverPos) < 0.3) return;
+    const from = { lat: driverPos.lat, lng: driverPos.lng };
+    taxiApi('/maps/route', { method: 'POST', body: { points: [from, { lat: booking.pickup_lat, lng: booking.pickup_lng }] } })
+      .then(({ route }) => setToPickup({ code: booking.code, from, line: decodePolyline(route.shape) }))
+      .catch(() => setToPickup({ code: booking.code, from, line: null }));
+  }, [booking?.code, booking?.status, driverPos?.lat, driverPos?.lng]); // eslint-disable-line
+
   const routeLine = useMemo(() => {
+    if (step === 'trip' && booking?.status === 'accepted' && toPickup?.code === booking.code && toPickup.line) return toPickup.line;
     if (step === 'trip' && booking?.route_shape) return decodePolyline(booking.route_shape);
     if (step === 'quote' && quote?.route?.shape) return decodePolyline(quote.route.shape);
     return null;
-  }, [step, booking?.route_shape, quote?.route?.shape]);
+  }, [step, booking?.code, booking?.status, booking?.route_shape, quote?.route?.shape, toPickup]);
 
   const inTrip = step === 'trip' && booking;
   const showPick = inTrip ? { lat: booking.pickup_lat, lng: booking.pickup_lng } : pickup;
@@ -195,6 +220,7 @@ function RideHome({ boot, notify, onExit }) {
     <div style={{ position: 'absolute', inset: 0 }}>
       <TaxiMap config={settings.map} lang={lang} center={center} pickup={showPick} dropoff={showDrop}
                driver={inTrip && booking.driver ? driverPos : null} route={routeLine} centerPin={step === 'pick'}
+               trail={inTrip && booking.status === 'started' ? trail : null} follow={inTrip && booking.status === 'started'}
                onCenterChange={onCenterChange} fit={fit} padding={{ top: 70, bottom: Math.round(window.innerHeight * (step === 'quote' ? 0.62 : 0.45)) }} />
 
       {/* Botones flotantes */}
@@ -497,6 +523,7 @@ function TripPanel({ booking: b, settings, driverPos, notify, reload, onCall, on
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <TripChatButton code={b.code} role="customer" otherName={b.driver?.name} style={{ width: 48, height: 'auto', minHeight: 44, borderRadius: 14 }} />
         <Btn variant="soft" onClick={onCall} style={{ flex: 1, padding: '12px 6px', fontSize: 14 }}>📞 {tx('Llamar')}</Btn>
         <Btn variant="soft" onClick={() => shareTrip(b)} style={{ flex: 1, padding: '12px 6px', fontSize: 14 }}>🔗 {tx('Compartir')}</Btn>
         {b.status === 'started' && <Btn variant="danger" onClick={() => { window.location.href = 'tel:112'; }} style={{ flex: 1, padding: '12px 6px', fontSize: 14 }}>🆘 SOS</Btn>}

@@ -36,13 +36,16 @@ function forDriver(driverId, event, p = {}) {
     send(uid(), null, null, { type: 'taxi_offer_cancel', code: p.code }, true);
   } else if (event === 'booking:update' && p.status === 'cancelled' && p.cancelledBy === 'customer') {
     send(uid(), APP, 'El cliente ha cancelado el viaje', { type: 'taxi_trip', code: p.code });
+  } else if (event === 'trip:message') {
+    send(uid(), `💬 ${p.from || 'Cliente'}`, p.message?.message || '', { type: 'taxi_trip', code: p.code });
   }
 }
 
 function forCustomer(customerId, event, p = {}) {
+  const uid = () => get('SELECT user_id FROM customers WHERE id = ?', customerId)?.user_id;
+  if (event === 'trip:message') return send(uid(), `💬 ${p.from || 'Tu conductor'}`, p.message?.message || '', { type: 'taxi_trip', code: p.code });
   if (event !== 'booking:update' || !p.message || p.cancelledBy === 'customer') return;
-  const uid = get('SELECT user_id FROM customers WHERE id = ?', customerId)?.user_id;
-  send(uid, APP, p.message, { type: 'taxi_trip', code: p.code });
+  send(uid(), APP, p.message, { type: 'taxi_trip', code: p.code });
 }
 
 module.exports = { forDriver, forCustomer };

@@ -222,20 +222,17 @@ export const useChatStore = create((set, get) => ({
   },
 
   /**
-   * Eliminar mensajes: scope 'me' (solo desaparecen para mí) o 'all' (para todos: queda "Se eliminó este
-   * mensaje"; solo los míos).
+   * Eliminar mensajes: scope 'me' (solo desaparecen para mí) o 'all' (para todos, sin dejar rastro; solo los míos).
    */
   deleteMessagesScoped: async (chatId, messageIds, scope, userId) => {
     const ids = new Set(messageIds);
     await Promise.all([...ids].map(id =>
       fetch(`${BACKEND}/messages/${encodeURIComponent(chatId)}/${encodeURIComponent(id)}?scope=${scope}&userId=${encodeURIComponent(userId)}`,
             { method: 'DELETE' }).catch(() => {})));
+    // 'all' tampoco deja rastro: desaparece y se quita la cita de las respuestas
     set((state) => ({
-      messages: { ...state.messages, [chatId]: scope === 'me'
-        ? (state.messages[chatId] || []).filter(m => !ids.has(m.id))
-        : (state.messages[chatId] || []).map(m => ids.has(m.id)
-            ? { ...m, type: 'deleted', text: 'Se eliminó este mensaje', url: null, deleted: true, pinned: false, live: null, replyTo: null }
-            : m) },
+      messages: { ...state.messages, [chatId]: (state.messages[chatId] || []).filter(m => !ids.has(m.id))
+        .map(m => scope === 'all' && m.replyTo && ids.has(m.replyTo.id) ? { ...m, replyTo: null } : m) },
     }));
   },
 

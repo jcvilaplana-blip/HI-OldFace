@@ -144,10 +144,26 @@ try {
   ok('código incorrecto → 400', (await req('POST', `/api/app/driver/bookings/${code}/start`, { otp: '0000' }, D1)).s === 400);
   ok('empezar con el código del cliente', (await req('POST', `/api/app/driver/bookings/${code}/start`, { otp: cb.start_otp }, D1)).d.booking.status === 'started');
   ok('el cliente ya no puede cancelar un viaje en curso (409)', (await req('POST', `/api/app/customer/bookings/${code}/cancel`, null, C)).s === 409);
+
+  // ── Mensajes entre cliente y conductor durante el viaje ──
+  const toDriver = waitEvent(s1, 'trip:message');
+  const sent = await req('POST', `/api/app/trip-chat/${code}`, { message: 'Ya estoy en el coche, ¿vamos por la M-30?' }, C);
+  ok('el cliente escribe al conductor en pleno viaje', sent.s === 201 && sent.d.message.sender_type === 'customer', sent);
+  ok('…y le llega al conductor al instante', (await toDriver)?.message?.message === 'Ya estoy en el coche, ¿vamos por la M-30?');
+  ok('el conductor tiene 1 mensaje sin leer', (await req('GET', `/api/app/trip-chat/${code}/unread`, null, D1)).d.unread === 1);
+  const toCustomer = waitEvent(sc, 'trip:message');
+  await req('POST', `/api/app/trip-chat/${code}`, { message: 'Sí, perfecto' }, D1);
+  ok('el conductor contesta y le llega al cliente', (await toCustomer)?.message?.sender_type === 'driver');
+  const hist = (await req('GET', `/api/app/trip-chat/${code}`, null, C)).d;
+  ok('historial con los 2 mensajes en orden y el del conductor ya leído', hist.open && hist.messages.length === 2 && hist.messages[0].sender_type === 'customer' && hist.messages[1].read_at > 0, hist);
+  ok('otro conductor no puede leer ese chat (404)', (await req('GET', `/api/app/trip-chat/${code}`, null, D2)).s === 404);
+  ok('mensaje vacío → 400', (await req('POST', `/api/app/trip-chat/${code}`, { message: '  ' }, C)).s === 400);
+
   const done = waitEvent(sc, 'booking:update', p => p.status === 'completed');
   const fin = (await req('POST', `/api/app/driver/bookings/${code}/complete`, null, D1)).d.booking;
   ok('viaje completado y cobrado en efectivo', fin.status === 'completed' && fin.payment_status === 'paid', fin);
   ok('el cliente recibe "viaje finalizado"', !!(await done));
+  ok('con el viaje terminado ya no se pueden enviar mensajes (409)', (await req('POST', `/api/app/trip-chat/${code}`, { message: 'hola' }, C)).s === 409);
   const expectCommission = Math.round((fin.total_amount - fin.tax_amount) * 0.15 * 100) / 100;
   ok(`comisión 15 % (${fin.commission_amount} €) y ganancia del conductor (${fin.driver_earning} €)`,
      fin.commission_amount === expectCommission && Math.abs(fin.total_amount - fin.tax_amount - fin.commission_amount - fin.driver_earning) < 0.011, fin);

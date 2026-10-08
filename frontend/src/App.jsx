@@ -374,11 +374,16 @@ export default function AppRoot() {
                 const { useAuthStore } = await import('./store/authStore');
                 const userId = useAuthStore.getState().user?.id;
                 if (userId && fcmToken) {
-                  await fetch(`${BACKEND_PUSH}/register-fcm-token`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, token: fcmToken }),
-                  });
+                  // Si falla (sin red, servidor ocupado) se reintenta: sin el token guardado no llegan los avisos
+                  for (let i = 0; i < 5; i++) {
+                    const ok = await fetch(`${BACKEND_PUSH}/register-fcm-token`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ userId, token: fcmToken }),
+                    }).then(r => r.ok).catch(() => false);
+                    if (ok) break;
+                    await new Promise(r => setTimeout(r, 5000 * (i + 1)));
+                  }
                 }
               } catch { /* silent */ }
             });

@@ -5,6 +5,7 @@
  * Props: config {tiles, assets} · lang · center {lat,lng} · pickup · dropoff · driver {lat,lng,heading}
  *        route [[lng,lat]…] · centerPin (elegir punto moviendo el mapa) · onCenterChange(lat,lng)
  *        fit (cambia → encuadra ruta/marcadores) · padding {top,bottom}
+ *        trail [[lng,lat]…] recorrido ya hecho por el conductor · follow (el mapa sigue al taxi)
  */
 import React, { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
@@ -31,7 +32,7 @@ function markerEl(kind) {
   return el;
 }
 
-export default function TaxiMap({ config, lang = 'es', center, pickup, dropoff, driver, route, centerPin, onCenterChange, fit, padding }) {
+export default function TaxiMap({ config, lang = 'es', center, pickup, dropoff, driver, route, trail, follow, centerPin, onCenterChange, fit, padding }) {
   const box = useRef(null);
   const map = useRef(null);
   const marks = useRef({});
@@ -96,6 +97,39 @@ export default function TaxiMap({ config, lang = 'es', center, pickup, dropoff, 
     };
     if (m.isStyleLoaded()) draw(); else m.once('load', draw);
   }, [route]);
+
+  // Recorrido ya hecho por el conductor (por debajo de la ruta pendiente, en gris)
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const draw = () => {
+      const data = { type: 'Feature', geometry: { type: 'LineString', coordinates: trail?.length > 1 ? trail : [] } };
+      if (m.getSource('trail')) m.getSource('trail').setData(data);
+      else {
+        m.addSource('trail', { type: 'geojson', data });
+        const before = m.getLayer('route-casing') ? 'route-casing' : undefined;
+        m.addLayer({ id: 'trail-casing', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 8 } }, before);
+        m.addLayer({ id: 'trail', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#8A9BB0', 'line-width': 4.5 } }, before);
+      }
+    };
+    if (m.isStyleLoaded()) draw(); else m.once('load', draw);
+  }, [trail]);
+
+  // Seguir al taxi: centra el mapa en él al moverse (salvo si la persona acaba de mover el mapa a mano)
+  const touchedAt = useRef(0);
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const mark = (e) => { if (e.originalEvent) touchedAt.current = Date.now(); };
+    m.on('dragstart', mark); m.on('zoomstart', mark);
+    return () => { m.off('dragstart', mark); m.off('zoomstart', mark); };
+  }, [config?.tiles, config?.assets, lang]);
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !follow || !driver || !Number.isFinite(driver.lat) || Date.now() - touchedAt.current < 20000) return;
+    m.easeTo({ center: [driver.lng, driver.lat], duration: 900,
+               padding: { top: padding?.top ?? 60, bottom: padding?.bottom ?? 60, left: 0, right: 0 } });
+  }, [follow, driver?.lat, driver?.lng]); // eslint-disable-line
 
   // Encuadrar ruta y marcadores
   useEffect(() => {

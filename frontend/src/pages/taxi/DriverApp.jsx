@@ -13,6 +13,7 @@ import { taxiApi, taxiSocket, tx, money, decodePolyline, currentPosition, trackD
 import { playMessageSound } from '../../utils/sounds';
 import { BRAND, C, Header, Btn, Card, Sheet, Spinner, Center, Toast, Stars, Tabs, inputStyle } from './ui.jsx';
 import TaxiMap from './TaxiMap.jsx';
+import { TripChatButton } from './TripChat.jsx';
 import { EarningsTab, DriverTripsTab, AccountTab } from './DriverTabs.jsx';
 
 const GREEN = '#16a34a';
@@ -526,6 +527,7 @@ function TripPanel({ trip: t, settings, cur, pickupRoute, busy, notify, onCall, 
           <p style={{ margin: 0, fontWeight: 900 }}>{c.name}</p>
           <p style={{ margin: 0, fontSize: 13, color: C.muted }}>★ {Number(c.rating || 5).toFixed(1)} · {money(t.total_amount ?? t.estimated_fare, curT)} · {tx(PAY[t.payment_method] || t.payment_method)}</p>
         </div>
+        <TripChatButton code={t.code} role="driver" otherName={c.name} />
         <button onClick={onCall} aria-label={tx('Llamar')} title={tx('Llamar')} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: '#D5E6F0', fontSize: 20, cursor: 'pointer', flexShrink: 0 }}>📞</button>
         <button onClick={() => openNavigation(target.lat, target.lng, target.address)} aria-label={tx('Navegar')} title={tx('Navegar')} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: BRAND, color: 'white', fontSize: 20, cursor: 'pointer', flexShrink: 0 }}>🧭</button>
       </div>

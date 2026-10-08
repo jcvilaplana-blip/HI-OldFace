@@ -217,8 +217,13 @@ export default function ChatPage() {
   };
   const pinned = chatMessages.filter(m => m.pinned && !m.deleted).sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0));
   const starredMsgs = chatMessages.filter(m => m.starred && !m.deleted);
-  const makeReply = (m) => ({ id: m.id, text: m.text, type: m.type || 'text', isMine: m.isMine,
-                              senderName: m.isMine ? 'Tú' : (memberNames[m.sender] || chat.name || participantId) });
+  // url solo para la miniatura de fotos/vídeos/stickers (las data: grandes no, para no inflar el mensaje)
+  const makeReply = (m) => {
+    const t = m.type || 'text';
+    const url = ['image', 'video', 'sticker'].includes(t) && m.url && (!m.url.startsWith('data:') || m.url.length < 150000) ? m.url : null;
+    return { id: m.id, text: m.text, type: t, isMine: m.isMine, url, fileName: m.fileName || null,
+             senderName: m.isMine ? 'Tú' : (memberNames[m.sender] || chat.name || participantId) };
+  };
   const canEdit = (m) => m.isMine && (m.type || 'text') === 'text' && !m.deleted && m.status !== 'sending'
                          && (!m.createdAt || Date.now() - m.createdAt < 15 * 60 * 1000);
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -335,6 +340,59 @@ export default function ChatPage() {
     } catch { /* se ve igual en este envío */ }
     if (andSend) sendSticker(url);
   };
+  /** Sticker recibido (o propio) → a mi colección (se ve en todos mis móviles, va en la cuenta) */
+  const addToMyStickers = async (url) => {
+    try {
+      const r = await fetch(`${CHAT_BACKEND}/stickers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: user.id, url }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      setStickers(d.stickers);
+      showToast('Sticker añadido a tus stickers');
+    } catch { showToast('No se pudo añadir el sticker'); }
+  };
+  /**
+   * Foto, vídeo o sticker → galería del móvil (Imágenes/OldFace o Películas/OldFace).
+   * Android 10+: nativo (window.OldFaceMedia, sin permisos). Si no: hoja "Compartir/Guardar en…" o descarga del navegador.
+   */
+  const saveMediaToPhone = async (msg) => {
+    const kind = msg.type === 'video' ? 'video' : msg.type === 'sticker' ? 'sticker' : 'image';
+    const what = kind === 'video' ? 'el vídeo' : kind === 'sticker' ? 'el sticker' : 'la foto';
+    const url = msg.url && !/^(https?|data|blob):/.test(msg.url) ? new URL(msg.url, CHAT_BACKEND).href : msg.url;
+    if (!url) return;
+    const dataMime = url.match(/^data:([^;,]+)/)?.[1];
+    const ext = (dataMime || '').split('/')[1]?.replace('jpeg', 'jpg').replace('quicktime', 'mov')
+             || url.split('?')[0].match(/\.(\w{2,4})$/)?.[1]?.toLowerCase()
+             || (kind === 'video' ? 'mp4' : kind === 'sticker' ? 'png' : 'jpg');
+    const mime = dataMime || (kind === 'video' ? `video/${ext === 'mov' ? 'quicktime' : ext}` : `image/${ext === 'jpg' ? 'jpeg' : ext}`);
+    const fileName = `OldFace_${kind === 'video' ? 'VID' : kind === 'sticker' ? 'STK' : 'IMG'}_${Date.now()}.${ext}`;
+    const native = window.OldFaceMedia;
+    try {
+      if (native && /^https?:/.test(url) && native.download(url, fileName, mime)) {
+        showToast(`Descargando ${what}… la verás en la galería (carpeta OldFace)`);
+        return;
+      }
+      const blob = await fetch(url).then(r => { if (!r.ok) throw new Error(); return r.blob(); });
+      if (!window.Capacitor?.isNativePlatform?.()) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = fileName; a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        return;
+      }
+      const base64 = await new Promise((resolve, reject) => {
+        const rd = new FileReader();
+        rd.onload = () => resolve(rd.result.split(',')[1]); rd.onerror = reject; rd.readAsDataURL(blob);
+      });
+      if (native?.saveBase64(base64, fileName, mime)) { showToast(`Guardado en la galería (carpeta OldFace)`); return; }
+      const { Filesystem, Directory } = await import('@capacitor/filesystem');
+      const { Share } = await import('@capacitor/share');
+      await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache, recursive: true });
+      const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache });
+      await Share.share({ files: [uri], title: fileName, dialogTitle: `Guardar ${what} en el móvil` });
+    } catch { showToast(`No se pudo guardar ${what}`); }
+  };
+  const [toast, setToast] = useState(null);
+  const showToast = (t) => { setToast(t); setTimeout(() => setToast(x => (x === t ? null : x)), 2200); };
+
   const removeSticker = async (url) => {
     if (!window.confirm('¿Quitar este sticker de tu colección?')) return;
     setStickers(list => (list || []).filter(u => u !== url));
@@ -573,12 +631,16 @@ export default function ChatPage() {
     reader.readAsDataURL(blob);
   };
 
+  // En el móvil Enter = nueva línea (se envía con el botón); con teclado físico Enter envía y Mayús+Enter salta de línea
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !IS_TOUCH) {
       e.preventDefault();
       sendMessage();
     }
   };
+  // Enviar sin que el campo pierda el foco → el teclado no se baja
+  const keepKeyboard = (e) => e.preventDefault();
+  const sendKeepingKeyboard = (e) => { e.preventDefault(); sendMessage(); inputRef.current?.focus(); };
 
   const fmtTime = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
@@ -668,11 +730,11 @@ export default function ChatPage() {
           {showChatMenu && (
             <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 0, top: 42, zIndex: 60, background: T.bgSurface, border: `1px solid ${T.border}`,
                                                           borderRadius: 14, boxShadow: '0 6px 24px rgba(0,0,0,0.2)', padding: 6, minWidth: 210 }}>
-              {[['⭐', `Mensajes destacados${starredMsgs.length ? ` (${starredMsgs.length})` : ''}`, () => setShowStarred(true)],
-                ['🖼️', 'Fondo del chat', () => setShowBgSheet(true)]].map(([icon, label, fn]) => (
+              {[[`Mensajes destacados${starredMsgs.length ? ` (${starredMsgs.length})` : ''}`, () => setShowStarred(true)],
+                ['Fondo del chat', () => setShowBgSheet(true)]].map(([label, fn]) => (
                 <button key={label} onClick={() => { setShowChatMenu(false); fn(); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', padding: '11px 12px', borderRadius: 10, cursor: 'pointer', color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
-                  <span style={{ fontSize: 17 }}>{icon}</span>{label}
+                  style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '11px 14px', borderRadius: 10, cursor: 'pointer', color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
+                  {label}
                 </button>
               ))}
             </div>
@@ -726,13 +788,7 @@ export default function ChatPage() {
             onLongPress={(m) => setActionMsg(m)}
             onMediaLoad={onMediaLoad}
             flash={flashId === msg.id}
-            onReply={(m) => setReplyTo({
-              id:         m.id,
-              text:       m.text,
-              type:       m.type || 'text',
-              senderName: m.isMine ? 'Tú' : (chat.name || participantId),
-              isMine:     m.isMine,
-            })}
+            onJumpReply={jumpTo}
             onExpandPhoto={(src) => setExpandedPhoto(src)}
             onViewDoc={(docMsg) => {
               const docName = docMsg.fileName
@@ -802,36 +858,23 @@ export default function ChatPage() {
       {/* Barra de respuesta */}
       {replyTo && (
         <div style={{
-          background: isDark ? '#0a1628' : '#f0f4ff',
-          borderTop: `2px solid ${BRAND}`,
-          padding: '8px 12px',
-          display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+          background: T.bgSurface, borderTop: `1px solid ${T.border}`, flexShrink: 0,
+          padding: '8px 10px 2px', boxShadow: '0 -4px 14px rgba(0,0,0,0.06)',
         }}>
-          <div style={{ width: 3, height: 44, background: BRAND, borderRadius: 4, flexShrink: 0 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, margin: '0 0 2px' }}>
-              {replyTo.senderName}
-            </p>
-            <p style={{ fontSize: 12, color: T.textSecondary, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {replyTo.type === 'location' ? '📍 Ubicación'
-               : replyTo.type === 'audio' ? '🎤 Nota de voz'
-               : replyTo.type === 'image' && !replyTo.url ? '🖼️ Imagen'
-               : replyTo.type === 'video' && !replyTo.url ? '🎥 Video'
-               : (replyTo.type === 'image' || replyTo.type === 'video') ? replyTo.text
-               : replyTo.text?.length > 60 ? replyTo.text.slice(0, 60) + '…' : replyTo.text}
-            </p>
+          <p style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '0 4px 6px', fontSize: 12, fontWeight: 700, color: T.textMuted }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-2"/></svg>
+            Respondiendo a {replyTo.isMine ? 'tu mensaje' : replyTo.senderName}
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ReplyQuote reply={replyTo} where="bar" isDark={isDark} onClick={replyTo.id ? () => jumpTo(replyTo.id) : undefined} />
+            <button onClick={() => setReplyTo(null)} aria-label="Cancelar respuesta"
+              style={{ width: 32, height: 32, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', flexShrink: 0,
+                       display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
           </div>
-          {/* Thumbnail cuando se responde a un mensaje con imagen/vídeo */}
-          {replyTo.url && (replyTo.type === 'image' || replyTo.type === 'video') && (
-            replyTo.type === 'video'
-              ? <video src={replyTo.url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} muted />
-              : <img    src={replyTo.url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
-          )}
-          <button onClick={() => setReplyTo(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0 }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6L6 18M6 6l12 12"/>
-            </svg>
-          </button>
         </div>
       )}
 
@@ -1116,6 +1159,7 @@ export default function ChatPage() {
               onKeyDown={handleKeyDown}
               onFocus={() => setShowEmojiPicker(false)}
               placeholder="Mensaje..."
+              enterKeyHint={IS_TOUCH ? 'enter' : 'send'}
               rows={1}
               style={{ width: '100%', resize: 'none', outline: 'none', fontSize: 14, fontWeight: 500, color: T.textPrimary, background: 'transparent', lineHeight: 1.5, overflowY: 'auto', overflowX: 'hidden', padding: '3px 0' }}
             />
@@ -1141,7 +1185,7 @@ export default function ChatPage() {
             </button>
           </>
         ) : text.trim() ? (
-          <button onClick={sendMessage} disabled={sending}
+          <button onMouseDown={keepKeyboard} onTouchEnd={sendKeepingKeyboard} onClick={sendKeepingKeyboard} disabled={sending} aria-label="Enviar"
             style={{ width: 40, height: 40, borderRadius: '50%', background: BRAND, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: sending ? 0.7 : 1 }}>
             <svg width="18" height="18" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ transform: 'translateX(1px)' }}>
               <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -1167,7 +1211,15 @@ export default function ChatPage() {
           onStar={() => setMessageFlags(msgChatId, actionMsg.id, user.id, { starred: !actionMsg.starred })}
           onForward={() => { setSelectedIds(new Set([actionMsg.id])); setShowForward(true); }}
           onSelect={() => toggleSelect(actionMsg.id)}
-          onDelete={() => setDeleteTarget([actionMsg])} />
+          onDelete={() => setDeleteTarget([actionMsg])}
+          onAddSticker={() => addToMyStickers(actionMsg.url)}
+          onSaveMedia={() => saveMediaToPhone(actionMsg)} />
+      )}
+
+      {toast && (
+        <div style={{ position: 'fixed', left: '50%', bottom: 'calc(90px + env(safe-area-inset-bottom, 0px))', transform: 'translateX(-50%)', zIndex: 1100,
+                      background: '#293241', color: 'white', padding: '10px 18px', borderRadius: 20, fontSize: 14, fontWeight: 600,
+                      boxShadow: '0 4px 16px rgba(0,0,0,0.25)', maxWidth: '86vw', textAlign: 'center' }}>{toast}</div>
       )}
 
       {/* Eliminar: para mí / para todos */}
@@ -1406,20 +1458,21 @@ export default function ChatPage() {
           onClick={() => setExpandedPhoto(null)}
         >
           {expandedPhoto?.type === 'video' ? (
-            <video
-              src={expandedPhoto.src}
-              controls
-              autoPlay
-              playsInline
-              onClick={e => e.stopPropagation()}
-              style={{ maxWidth: '96vw', maxHeight: '96vh', borderRadius: 12, outline: 'none' }}
-            />
+            <FullVideo src={expandedPhoto.src} />
           ) : (
             <img
               src={typeof expandedPhoto === 'string' ? expandedPhoto : expandedPhoto.src}
               style={{ width: '100vw', maxHeight: '100vh', objectFit: 'contain' }}
             />
           )}
+          <button aria-label="Descargar" title="Descargar"
+            onClick={(e) => { e.stopPropagation(); const isVid = expandedPhoto?.type === 'video';
+                              saveMediaToPhone({ type: isVid ? 'video' : 'image', url: typeof expandedPhoto === 'string' ? expandedPhoto : expandedPhoto.src }); }}
+            style={{ position: 'absolute', top: 20, right: 72, width: 40, height: 40, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1.5px solid rgba(255,255,255,0.3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+            </svg>
+          </button>
           <button
             onClick={() => setExpandedPhoto(null)}
             style={{ position: 'absolute', top: 20, right: 20, width: 40, height: 40, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1.5px solid rgba(255,255,255,0.3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1430,6 +1483,32 @@ export default function ChatPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Vídeo a pantalla completa con velocidad 1× / 1,5× / 2× ─────────────────
+function FullVideo({ src }) {
+  const ref = useRef(null);
+  const [speed, setSpeed] = useState(1);
+  const cycle = (e) => {
+    e.stopPropagation();
+    const next = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
+    setSpeed(next);
+    if (ref.current) ref.current.playbackRate = next;
+  };
+  return (
+    <>
+      <video ref={ref} src={src} controls autoPlay playsInline
+        onLoadedMetadata={e => { e.target.playbackRate = speed; }}
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth: '96vw', maxHeight: '96vh', borderRadius: 12, outline: 'none' }} />
+      <button onClick={cycle} aria-label={`Velocidad ${speedLabel(speed)}`}
+        style={{ position: 'absolute', top: 20, left: 20, minWidth: 54, height: 40, borderRadius: 20, padding: '0 12px', cursor: 'pointer',
+                 background: speed !== 1 ? 'white' : 'rgba(0,0,0,0.5)', color: speed !== 1 ? '#293241' : 'white',
+                 border: '1.5px solid rgba(255,255,255,0.3)', fontSize: 15, fontWeight: 800 }}>
+        {speedLabel(speed)}
+      </button>
+    </>
   );
 }
 
@@ -1463,12 +1542,20 @@ function AudioPlayer({ src, isMine, isDark, knownDuration }) {
     return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   };
 
+  const [speed, setSpeed] = useState(1);
+  const cycleSpeed = () => {
+    const next = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
+    setSpeed(next);
+    if (audioRef.current) audioRef.current.playbackRate = next;
+  };
+
   const toggle = () => {
     const audio = audioRef.current;
     if (!audio) return;
     if (playing) { audio.pause(); setPlaying(false); return; }
     if (playingAudio && playingAudio !== audio) playingAudio.pause();   // para la que estaba sonando
     playingAudio = audio;
+    audio.playbackRate = speed;
     audio.play().then(() => setPlaying(true)).catch(() => {});
   };
 
@@ -1534,12 +1621,19 @@ function AudioPlayer({ src, isMine, isDark, knownDuration }) {
         </span>
       </div>
 
-      <svg width="14" height="14" fill="none" stroke={micColor} strokeWidth="2" viewBox="0 0 24 24">
-        <path d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
+      {/* Velocidad: 1× → 1,5× → 2× */}
+      <button onClick={(e) => { e.stopPropagation(); cycleSpeed(); }} aria-label={`Velocidad ${speedLabel(speed)}`}
+        style={{ flexShrink: 0, minWidth: 38, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', padding: '0 7px',
+                 background: speed !== 1 ? micColor : (sentDark ? 'rgba(255,255,255,0.18)' : 'rgba(61,90,128,0.14)'),
+                 color: speed !== 1 ? (sentDark ? '#293241' : 'white') : micColor, fontSize: 12, fontWeight: 800 }}>
+        {speedLabel(speed)}
+      </button>
     </div>
   );
 }
+
+const SPEEDS = [1, 1.5, 2];
+const speedLabel = (s) => `${String(s).replace('.', ',')}×`;
 
 function VideoThumb({ src, onClick }) {
   const [thumb, setThumb] = useState(null);
@@ -1588,7 +1682,7 @@ function VideoThumb({ src, onClick }) {
 }
 
 function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames = {}, onExpandPhoto, onViewDoc,
-                         selectionMode, selected, onToggleSelect, onOpenMap, onLongPress, onMediaLoad, flash }) {
+                         selectionMode, selected, onToggleSelect, onOpenMap, onLongPress, onMediaLoad, flash, onJumpReply }) {
   const isLocation = msg.type === 'location' || msg.type === 'live_location';
   const isAudio    = msg.type === 'audio';
   const isImage    = msg.type === 'image';
@@ -1638,32 +1732,9 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
 
         {/* Cita del mensaje al que se responde */}
         {msg.replyTo && !isDeleted && (
-          <div style={{
-            borderLeft: `3px solid ${msg.isMine ? 'rgba(255,255,255,0.6)' : '#3D5A80'}`,
-            background: 'rgba(0,0,0,0.28)',
-            borderRadius: '0 6px 6px 0', padding: '4px 8px',
-            margin: '0 0 6px',
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 12, fontWeight: 800, color: msg.isMine ? 'rgba(255,255,255,0.9)' : '#3D5A80', margin: '0 0 2px' }}>
-                {msg.replyTo.senderName}
-              </p>
-              <p style={{ fontSize: 12, color: msg.isMine ? 'rgba(255,255,255,0.75)' : T.textMuted, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
-                {msg.replyTo.type === 'location' ? '📍 Ubicación'
-                 : msg.replyTo.type === 'audio' ? '🎤 Nota de voz'
-                 : msg.replyTo.type === 'image' && !msg.replyTo.url ? '🖼️ Imagen'
-                 : msg.replyTo.type === 'video' && !msg.replyTo.url ? '🎥 Video'
-                 : (msg.replyTo.type === 'image' || msg.replyTo.type === 'video') ? msg.replyTo.text
-                 : msg.replyTo.text?.length > 55 ? msg.replyTo.text.slice(0, 55) + '…' : msg.replyTo.text}
-              </p>
-            </div>
-            {/* Thumbnail del estado — solo cuando hay imagen o vídeo */}
-            {msg.replyTo.url && (msg.replyTo.type === 'image' || msg.replyTo.type === 'video') && (
-              msg.replyTo.type === 'video'
-                ? <video src={msg.replyTo.url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} muted />
-                : <img    src={msg.replyTo.url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
-            )}
+          <div style={{ margin: isWide ? '0 0 6px' : '-3px -8px 7px', minWidth: 170 }}>
+            <ReplyQuote reply={msg.replyTo} where={msg.isMine ? 'sent' : 'recv'} isDark={isDark}
+              onClick={msg.replyTo.id ? (e) => { e.stopPropagation(); onJumpReply?.(msg.replyTo.id); } : undefined} />
           </div>
         )}
 
@@ -1973,6 +2044,68 @@ function ForwardSheet({ T, user, currentChatId, msgs, onClose, onDone }) {
   );
 }
 
+const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+
+// ── Cita de respuesta (dentro de la burbuja y en la barra de escribir) ─────
+const REPLY_ICONS = {
+  image:    'M4 5h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zm0 11l5-5 4 4 3-3 4 4M15.5 9.5h.01',
+  video:    'M15 10l4.55-2.07A1 1 0 0121 8.87v6.26a1 1 0 01-1.45.9L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z',
+  audio:    'M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3zM5 11a7 7 0 0014 0M12 18v3',
+  location: 'M12 21s-7-6.2-7-11.5A7 7 0 0112 2.5a7 7 0 017 7C19 14.8 12 21 12 21zM12 12a2.5 2.5 0 100-5 2.5 2.5 0 000 5z',
+  document: 'M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5',
+  sticker:  'M12 3a9 9 0 100 18 9 9 0 000-18zM8.5 14.5s1.3 2 3.5 2 3.5-2 3.5-2M9 9.5h.01M15 9.5h.01',
+  contact:  'M12 12a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0',
+};
+REPLY_ICONS.live_location = REPLY_ICONS.location;
+const REPLY_LABELS = { image: 'Foto', video: 'Vídeo', audio: 'Nota de voz', location: 'Ubicación', live_location: 'Ubicación en tiempo real',
+                       document: 'Documento', sticker: 'Sticker', contact: 'Contacto' };
+
+/** Colores de la cita según dónde se pinta: 'sent' / 'recv' (burbujas) o 'bar' (barra de escribir) */
+function replyColors(where, isDark) {
+  if (isDark) return {
+    bg: where === 'sent' ? 'rgba(255,255,255,0.12)' : where === 'recv' ? 'rgba(0,0,0,0.22)' : 'rgba(152,193,217,0.12)',
+    bar: '#98C1D9', name: '#98C1D9', text: 'rgba(224,251,252,0.85)',
+  };
+  return { bg: where === 'sent' ? 'rgba(255,255,255,0.7)' : '#EEF3F7', bar: '#3D5A80', name: '#3D5A80', text: '#4b5563' };
+}
+
+function ReplyQuote({ reply, where, isDark, onClick, children }) {
+  const c = replyColors(where, isDark);
+  const t = reply.type || 'text';
+  const icon = REPLY_ICONS[t];
+  const label = t === 'document' ? (reply.fileName || REPLY_LABELS.document)
+              : (t === 'image' || t === 'video') && reply.text && !/^\[/.test(reply.text) ? reply.text
+              : REPLY_LABELS[t] || reply.text || '';
+  const thumb = reply.url && (t === 'image' || t === 'video' || t === 'sticker') ? reply.url : null;
+  return (
+    <div onClick={onClick} style={{
+      display: 'flex', alignItems: 'stretch', gap: 8, background: c.bg, borderRadius: 10, overflow: 'hidden',
+      cursor: onClick ? 'pointer' : 'default', minWidth: 0, flex: where === 'bar' ? 1 : undefined,
+    }}>
+      <span style={{ width: 4, background: c.bar, flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0, padding: '7px 4px 7px 0' }}>
+        <p style={{ fontSize: 13, fontWeight: 800, color: c.name, margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {reply.senderName}
+        </p>
+        <p style={{ fontSize: 13, lineHeight: 1.35, color: c.text, margin: 0, display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+          {icon && (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <path d={icon} />
+            </svg>
+          )}
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }}>
+            {label}
+          </span>
+        </p>
+      </div>
+      {thumb && (t === 'video'
+        ? <video src={thumb} muted style={{ width: 52, height: 52, objectFit: 'cover', flexShrink: 0, alignSelf: 'center', borderRadius: 6, marginRight: 4 }} />
+        : <img src={thumb} alt="" style={{ width: 52, height: 52, objectFit: 'cover', flexShrink: 0, alignSelf: 'center', borderRadius: 6, marginRight: 4 }} />)}
+      {children}
+    </div>
+  );
+}
+
 // ── Vista previa corta de un mensaje (fijados, destacados) ─────────────────
 function msgPreview(m) {
   const t = m.type || 'text';
@@ -2027,7 +2160,7 @@ function BackgroundSheet({ T, current, onClose, onApply }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 950, background: 'rgba(10,13,37,0.55)', display: 'flex', alignItems: 'flex-end' }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.bgSurface, width: '100%', borderRadius: '22px 22px 0 0', padding: '18px', paddingBottom: 'max(18px, env(safe-area-inset-bottom, 18px))' }}>
-        <p style={{ margin: '0 0 12px', fontWeight: 900, fontSize: 18, color: T.textPrimary }}>🖼️ Fondo del chat</p>
+        <p style={{ margin: '0 0 12px', fontWeight: 900, fontSize: 18, color: T.textPrimary }}>Fondo del chat</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))', gap: 10 }}>
           {BG_PRESETS.map(([name, css]) => {
             const on = (current?.css || null) === css;
@@ -2056,28 +2189,32 @@ function BackgroundSheet({ T, current, onClose, onApply }) {
 }
 
 // ── Menú de un mensaje (pulsación larga) ───────────────────────────────────
-function MessageActions({ T, msg, canEdit, onClose, onReply, onCopy, onEdit, onPin, onStar, onForward, onSelect, onDelete }) {
+function MessageActions({ T, msg, canEdit, onClose, onReply, onCopy, onEdit, onPin, onStar, onForward, onSelect, onDelete, onAddSticker, onSaveMedia }) {
   const deleted = msg.deleted || msg.type === 'deleted';
   const local = msg.status === 'sending' || msg.status === 'error';
+  const sticker = msg.type === 'sticker' && !deleted && !local && /^https?:/.test(msg.url || '');
+  const media = ['image', 'video', 'sticker'].includes(msg.type) && !deleted && !local && !!msg.url;
   const items = [
-    !deleted && !local && ['↩️', 'Responder', onReply],
-    !deleted && (msg.type || 'text') === 'text' && ['📋', 'Copiar', onCopy],
-    canEdit && ['✏️', 'Editar', onEdit],
-    !deleted && !local && ['📌', msg.pinned ? 'Dejar de fijar' : 'Fijar', onPin],
-    !deleted && !local && ['⭐', msg.starred ? 'Quitar destacado' : 'Destacar', onStar],
-    !deleted && !local && ['➡️', 'Reenviar', onForward],
-    ['☑️', 'Seleccionar varios', onSelect],
-    ['🗑️', 'Eliminar', onDelete, true],
+    !deleted && !local && ['Responder', onReply],
+    sticker && !msg.isMine && ['Añadir a mis stickers', onAddSticker],
+    media && [msg.type === 'video' ? 'Descargar vídeo' : msg.type === 'sticker' ? 'Guardar en el móvil' : 'Descargar foto', onSaveMedia],
+    !deleted && (msg.type || 'text') === 'text' && ['Copiar', onCopy],
+    canEdit && ['Editar', onEdit],
+    !deleted && !local && [msg.pinned ? 'Dejar de fijar' : 'Fijar', onPin],
+    !deleted && !local && [msg.starred ? 'Quitar destacado' : 'Destacar', onStar],
+    !deleted && !local && ['Reenviar', onForward],
+    ['Seleccionar varios', onSelect],
+    ['Eliminar', onDelete, true],
   ].filter(Boolean);
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 940, background: 'rgba(10,13,37,0.45)', display: 'flex', alignItems: 'flex-end' }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.bgSurface, width: '100%', borderRadius: '22px 22px 0 0', padding: '10px 10px', paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))' }}>
         <p style={{ margin: '4px 12px 8px', fontSize: 13, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msgPreview(msg)}</p>
-        {items.map(([icon, label, fn, danger]) => (
+        {items.map(([label, fn, danger]) => (
           <button key={label} onClick={() => { onClose(); fn(); }}
-            style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', background: 'none', border: 'none', padding: '13px 14px', borderRadius: 12, cursor: 'pointer',
+            style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '13px 16px', borderRadius: 12, cursor: 'pointer',
                      color: danger ? '#dc2626' : T.textPrimary, fontSize: 15, fontWeight: 700, textAlign: 'left' }}>
-            <span style={{ fontSize: 18, width: 24, textAlign: 'center' }}>{icon}</span>{label}
+            {label}
           </button>
         ))}
       </div>
@@ -2116,7 +2253,7 @@ function StarredSheet({ T, msgs, onClose, onPick, onUnstar }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 950, background: 'rgba(10,13,37,0.55)', display: 'flex', alignItems: 'flex-end' }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.bgSurface, width: '100%', maxHeight: '80dvh', borderRadius: '22px 22px 0 0', display: 'flex', flexDirection: 'column',
                                                       paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))' }}>
-        <p style={{ margin: 0, padding: '18px 18px 10px', fontWeight: 900, fontSize: 18, color: T.textPrimary }}>⭐ Mensajes destacados</p>
+        <p style={{ margin: 0, padding: '18px 18px 10px', fontWeight: 900, fontSize: 18, color: T.textPrimary }}>Mensajes destacados</p>
         <div style={{ overflowY: 'auto', padding: '0 10px' }}>
           {msgs.length === 0 && <p style={{ textAlign: 'center', color: T.textMuted, fontSize: 13, padding: '16px 20px 24px' }}>
             Aún no hay mensajes destacados. Mantén pulsado un mensaje y elige «Destacar».</p>}
