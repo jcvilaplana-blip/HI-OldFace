@@ -26,7 +26,7 @@ function useTripMessages(code, onMsg) {
   }, [code]);
 }
 
-export function TripChatButton({ code, role, otherName, style }) {
+export function TripChatButton({ code, role, otherName, style, label }) {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const openRef = useRef(open); openRef.current = open;
