@@ -31,7 +31,7 @@ function toUserId(phone) {
 }
 
 /** Personas que se pueden añadir: contactos con OldFace + chats 1 a 1 */
-function useCandidates(myId) {
+export function useCandidates(myId) {
   const { contacts, loading, loadContacts } = useContacts();
   const { chats } = useChatStore();
   useEffect(() => { loadContacts(); }, []); // eslint-disable-line
@@ -55,7 +55,7 @@ function useCandidates(myId) {
 }
 
 // ── Piezas comunes ───────────────────────────────────────────────────────────
-function Sheet({ T, isDark, title, subtitle, onClose, onBack, children, footer, z = 500 }) {
+export function Sheet({ T, isDark, title, subtitle, onClose, onBack, children, footer, z = 500 }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: z, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end' }}>
       <div onClick={e => e.stopPropagation()}
@@ -88,7 +88,7 @@ function Sheet({ T, isDark, title, subtitle, onClose, onBack, children, footer, 
   );
 }
 
-function PrimaryBtn({ children, disabled, onClick, danger }) {
+export function PrimaryBtn({ children, disabled, onClick, danger }) {
   return (
     <button onClick={onClick} disabled={disabled}
       style={{ width: '100%', padding: 14, borderRadius: 16, border: 'none', cursor: disabled ? 'default' : 'pointer',
@@ -109,7 +109,7 @@ function Spinner({ T, text }) {
 }
 
 /** Lista con casillas para elegir personas */
-function PeoplePicker({ T, isDark, people, selected, onToggle, loading, emptyText }) {
+export function PeoplePicker({ T, isDark, people, selected, onToggle, loading, emptyText }) {
   const [filter, setFilter] = useState('');
   if (loading && people.length === 0) return <Spinner T={T} text="Cargando contactos..." />;
   const shown = filter.trim() ? people.filter(p => p.name.toLowerCase().includes(filter.trim().toLowerCase())) : people;

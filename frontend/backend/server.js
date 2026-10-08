@@ -1045,44 +1045,179 @@ router.post('/messages/:chatId/mark-read', (req, res) => {
 // ════════════════════════════════════════════════════════════════
 //  ESTADOS (STORIES) — 24 horas
 // ════════════════════════════════════════════════════════════════
+// Cada estado guarda a quién se le muestra (`allowed`, calculado al publicar):
+//   contacts → mis contactos · except → mis contactos menos `userIds` · only → solo `userIds`.
+// "Mis contactos" = los contactos de la agenda que usan OldFace (los manda la app) + con quien tengo chat o grupo.
+// Fotos y vídeos se suben antes con /chat/upload; aquí solo se guarda su URL.
 
-/** GET /stories — devuelve los estados activos (no expirados) */
-router.get('/stories', (_req, res) => {
-  const now     = Date.now();
-  const active  = storiesList.filter(s => s.expiresAt > now);
-  // Limpiar expirados en memoria
-  if (active.length !== storiesList.length) { storiesList = active; saveStories(); }
-  return res.json({ stories: active });
+const STORY_TTL_MS = 24 * 60 * 60 * 1000;
+const STORY_LIMITS = { total: 20, video: 5, image: 15 };
+const STORY_MODES = ['contacts', 'except', 'only'];
+const storyPrivacyStore = new Map(Object.entries(loadJSON('story_privacy.json', {})));   // userId → { mode, userIds }
+const saveStoryPrivacy = () => saveJSON('story_privacy.json', Object.fromEntries(storyPrivacyStore));
+
+/** Personas con las que el usuario tiene chat o comparte grupo */
+function storyContactsOf(userId) {
+  const set = new Set();
+  for (const c of chatStore2.values()) {
+    if (!c.participants?.includes(userId)) continue;
+    for (const p of c.participants) if (p !== userId) set.add(p);
+  }
+  return set;
+}
+
+function cleanStoryPrivacy(p) {
+  const mode = STORY_MODES.includes(p?.mode) ? p.mode : 'contacts';
+  const userIds = mode === 'contacts' ? []
+    : [...new Set((Array.isArray(p?.userIds) ? p.userIds : []).filter(id => typeof id === 'string' && findUserById(id)))].slice(0, 500);
+  return { mode, userIds };
+}
+
+function storyAudience(userId, privacy, contactIds = []) {
+  if (privacy.mode === 'only') return privacy.userIds.filter(id => id !== userId);
+  const base = storyContactsOf(userId);
+  for (const id of (Array.isArray(contactIds) ? contactIds.slice(0, 3000) : [])) {
+    if (typeof id === 'string' && id !== userId && findUserById(id)) base.add(id);
+  }
+  if (privacy.mode === 'except') for (const id of privacy.userIds) base.delete(id);
+  return [...base];
+}
+
+/** Estados antiguos (sin `allowed`) los veían todos: se respeta hasta que caduquen */
+const canSeeStory = (s, viewerId) => s.userId === viewerId || !s.allowed || (!!viewerId && s.allowed.includes(viewerId));
+
+const STORY_FILE_RE = /\/files\/([\w.-]+)$/;
+/** Archivos de estados borrados/caducados: se eliminan más tarde si ningún mensaje los usa (respuestas a estados) */
+const storyFileTrash = new Map();   // nombre de archivo → cuándo se dejó de usar
+function trashStoryFile(story) {
+  const m = String(story?.content || '').match(STORY_FILE_RE);
+  if (m) storyFileTrash.set(m[1], Date.now());
+}
+function sweepStoryFiles() {
+  if (!storyFileTrash.size) return;
+  const live = new Set(storiesList.map(s => String(s.content || '').match(STORY_FILE_RE)?.[1]).filter(Boolean));
+  const referenced = (name) => {
+    const tail = `/files/${name}`;
+    for (const list of messageStore.values()) {
+      for (const m of list) if (String(m.url || '').endsWith(tail) || String(m.replyTo?.url || '').endsWith(tail)) return true;
+    }
+    return false;
+  };
+  for (const [name, at] of storyFileTrash) {
+    if (Date.now() - at < 60 * 60 * 1000) continue;            // margen de una hora
+    storyFileTrash.delete(name);
+    if (live.has(name) || referenced(name)) continue;
+    try { fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(name))); } catch { /* ya no estaba */ }
+  }
+}
+
+function pruneStories() {
+  const now = Date.now();
+  const expired = storiesList.filter(s => s.expiresAt <= now);
+  if (!expired.length) return;
+  expired.forEach(trashStoryFile);
+  storiesList = storiesList.filter(s => s.expiresAt > now);
+  saveStories();
+}
+setInterval(() => { pruneStories(); sweepStoryFiles(); }, 10 * 60 * 1000).unref?.();
+
+/** Lo que ve cada uno: el autor, todo (quién lo vio y con quién lo compartió); los demás, solo si ya lo vieron */
+function storyFor(s, viewerId) {
+  const { allowed, viewers = [], privacy, ...rest } = s;
+  if (s.userId === viewerId) return { ...rest, viewers, privacy: privacy || null, audienceCount: allowed ? allowed.length : null };
+  return { ...rest, seen: viewers.includes(viewerId) };
+}
+
+/** GET /stories?userId= — estados activos que puede ver el usuario + nombre y foto de sus autores */
+router.get('/stories', (req, res) => {
+  pruneStories();
+  const viewerId = req.query.userId || null;
+  const visible = storiesList.filter(s => canSeeStory(s, viewerId));
+  const authors = {};
+  for (const s of visible) {
+    if (authors[s.userId]) continue;
+    const u = findUserById(s.userId);
+    authors[s.userId] = { name: u?.name || s.userName, avatar: u?.avatar || null };
+  }
+  return res.json({ stories: visible.map(s => storyFor(s, viewerId)), authors, limits: STORY_LIMITS });
 });
 
-/** POST /stories — crea un nuevo estado */
+/** GET /stories/privacy?userId= — privacidad habitual del usuario para sus estados */
+router.get('/stories/privacy', (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ error: 'userId requerido' });
+  return res.json(cleanStoryPrivacy(storyPrivacyStore.get(userId)));
+});
+
+/** PUT /stories/privacy — { userId, mode, userIds } guardar la privacidad habitual */
+router.put('/stories/privacy', (req, res) => {
+  const { userId } = req.body || {};
+  if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  const p = cleanStoryPrivacy(req.body);
+  storyPrivacyStore.set(userId, p);
+  saveStoryPrivacy();
+  return res.json(p);
+});
+
+/**
+ * POST /stories — { userId, userName, mediaType: text|image|video, content, bgColor, privacy?, contactIds? }
+ * Máximo 20 estados activos: hasta 15 fotos y 5 vídeos. Sin `privacy` se usa la habitual del usuario.
+ */
 router.post('/stories', (req, res) => {
-  const { userId, userName, mediaType, content, bgColor } = req.body || {};
+  const { userId, userName, content, bgColor, contactIds } = req.body || {};
+  const mediaType = ['image', 'video'].includes(req.body?.mediaType) ? req.body.mediaType : 'text';
   if (!userId || !content) return res.status(400).json({ error: 'userId y content requeridos' });
+  const author = findUserById(userId);
+  if (!author) return res.status(401).json({ error: 'Usuario no válido' });
+  if (mediaType === 'text' && String(content).length > 700) return res.status(400).json({ error: 'Texto demasiado largo' });
+  if (mediaType !== 'text' && !STORY_FILE_RE.test(String(content)) && !String(content).startsWith(`data:${mediaType}/`))
+    return res.status(400).json({ error: 'Archivo no válido' });
+
+  pruneStories();
+  const mine = storiesList.filter(s => s.userId === userId);
+  if (mine.length >= STORY_LIMITS.total)
+    return res.status(409).json({ error: `Ya tienes ${STORY_LIMITS.total} estados publicados (el máximo)` });
+  if (mediaType === 'video' && mine.filter(s => s.mediaType === 'video').length >= STORY_LIMITS.video)
+    return res.status(409).json({ error: `Máximo ${STORY_LIMITS.video} vídeos en tus estados` });
+  if (mediaType === 'image' && mine.filter(s => s.mediaType === 'image').length >= STORY_LIMITS.image)
+    return res.status(409).json({ error: `Máximo ${STORY_LIMITS.image} fotos en tus estados` });
+
+  const privacy = cleanStoryPrivacy(req.body?.privacy || storyPrivacyStore.get(userId));
+  if (privacy.mode === 'only' && privacy.userIds.length === 0)
+    return res.status(400).json({ error: 'Elige al menos una persona para compartir' });
   const story = {
     id:        `story_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    userId, userName: userName || userId,
-    mediaType: mediaType || 'text',
+    userId, userName: author.name || userName || userId,
+    mediaType,
     content,
-    bgColor:   bgColor || '#3D5A80',
+    bgColor:   typeof bgColor === 'string' ? bgColor.slice(0, 20) : '#3D5A80',
     createdAt: Date.now(),
-    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+    expiresAt: Date.now() + STORY_TTL_MS,
     viewers:   [],
+    privacy,
+    allowed:   storyAudience(userId, privacy, contactIds),
   };
   storiesList.unshift(story);
   saveStories();
-  return res.status(201).json(story);
+  return res.status(201).json(storyFor(story, userId));
 });
 
 /** POST /stories/:storyId/view — registra que un usuario vio un estado */
 router.post('/stories/:storyId/view', (req, res) => {
   const { viewerId } = req.body || {};
   const story = storiesList.find(s => s.id === req.params.storyId);
-  if (story && viewerId && !story.viewers.includes(viewerId)) {
+  if (story && viewerId && viewerId !== story.userId && canSeeStory(story, viewerId) && !story.viewers.includes(viewerId)) {
     story.viewers.push(viewerId);
     saveStories();
   }
   return res.json({ success: true });
+});
+
+/** GET /stories/:storyId/viewers?userId= — quién vio mi estado (solo el autor) */
+router.get('/stories/:storyId/viewers', (req, res) => {
+  const story = storiesList.find(s => s.id === req.params.storyId);
+  if (!story || story.userId !== req.query.userId) return res.status(404).json({ error: 'Estado no encontrado' });
+  return res.json({ viewers: story.viewers.map(id => ({ userId: id, name: findUserById(id)?.name || id })) });
 });
 
 /** DELETE /stories/:storyId — elimina un estado (solo el creador) */
@@ -1090,6 +1225,7 @@ router.delete('/stories/:storyId', (req, res) => {
   const { userId } = req.body || {};
   const idx = storiesList.findIndex(s => s.id === req.params.storyId && s.userId === userId);
   if (idx === -1) return res.status(404).json({ error: 'Estado no encontrado o sin permisos' });
+  trashStoryFile(storiesList[idx]);
   storiesList.splice(idx, 1);
   saveStories();
   return res.json({ success: true });
