@@ -170,7 +170,12 @@ function cancelByCustomer(customerId, code, reason) {
   const out = tx(() => {
     const b = get('SELECT * FROM bookings WHERE code = ? AND customer_id = ?', code, customerId);
     if (!b) throw err(404, 'Viaje no encontrado');
-    if (!['awaiting_payment', 'searching', 'accepted', 'arrived'].includes(b.status)) throw err(409, b.status === 'started' ? 'El viaje ya ha empezado' : 'Este viaje ya no se puede cancelar');
+    // El cliente solo puede cancelar mientras se busca conductor: en cuanto uno acepta y va de camino, ya no
+    if (!['awaiting_payment', 'searching'].includes(b.status)) {
+      throw err(409, b.status === 'started' ? 'El viaje ya ha empezado'
+                   : ['accepted', 'arrived'].includes(b.status) ? 'Tu conductor ya va de camino: el viaje ya no se puede cancelar'
+                   : 'Este viaje ya no se puede cancelar');
+    }
     const fee = cancelFee(b);
     if (fee > 0) {
       // Con tarjeta de crédito el gasto se cobra de la reserva de la tarjeta (después de la transacción); si no, del monedero

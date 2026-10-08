@@ -45,10 +45,11 @@ export function TripChatButton({ code, role, otherName, style }) {
     <>
       <button onClick={() => { setOpen(true); setUnread(0); }} aria-label={tx('Mensajes')} title={tx('Mensajes')}
         style={{ position: 'relative', width: 44, height: 44, borderRadius: '50%', border: 'none', background: '#D5E6F0', cursor: 'pointer', flexShrink: 0,
-                 display: 'flex', alignItems: 'center', justifyContent: 'center', ...style }}>
-        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, ...style }}>
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
           <path d="M21 12a8 8 0 01-11.6 7.1L4 20.5l1.4-4.7A8 8 0 1121 12z" />
         </svg>
+        {label && <span style={{ color: BRAND, fontWeight: 800, fontSize: 14 }}>{label}</span>}
         {unread > 0 && (
           <span style={{ position: 'absolute', top: -3, right: -3, minWidth: 20, height: 20, borderRadius: 10, background: C.danger, color: 'white',
                          fontSize: 11, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px', border: '2px solid white' }}>

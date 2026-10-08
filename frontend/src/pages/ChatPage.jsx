@@ -203,7 +203,14 @@ export default function ChatPage() {
     isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 120;
     const top = scrollTop > 400, bottom = scrollHeight - scrollTop - clientHeight > 400;
     setScrollBtns(b => (b.top === top && b.bottom === bottom ? b : { top, bottom }));
+    // Los botones ↑ ↓ solo se ven mientras se desplaza el chat (y un momento después): así no tapan mensajes
+    setScrollBtnsVisible(true);
+    clearTimeout(scrollBtnsTimer.current);
+    scrollBtnsTimer.current = setTimeout(() => setScrollBtnsVisible(false), 2500);
   }, []);
+  const [scrollBtnsVisible, setScrollBtnsVisible] = useState(false);
+  const scrollBtnsTimer = useRef(null);
+  useEffect(() => () => clearTimeout(scrollBtnsTimer.current), []);
   const scrollToTop = () => scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   // Las fotos cambian de alto al cargar: si se estaba abajo del todo, seguir abajo (antes el último quedaba tapado)
   const onMediaLoad = useCallback(() => {
@@ -870,16 +877,18 @@ export default function ChatPage() {
       {/* Ir al principio / al último mensaje */}
       {(scrollBtns.top || scrollBtns.bottom) && (
         <div style={{ position: 'relative', height: 0, zIndex: 20 }}>
-          <div style={{ position: 'absolute', right: 12, bottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ position: 'absolute', right: 10, bottom: 24, display: 'flex', flexDirection: 'column', gap: 8,
+                        opacity: scrollBtnsVisible ? 0.92 : 0, transform: scrollBtnsVisible ? 'none' : 'translateX(12px)',
+                        transition: 'opacity 0.3s, transform 0.3s', pointerEvents: scrollBtnsVisible ? 'auto' : 'none' }}>
             {scrollBtns.top && (
               <button onClick={scrollToTop} aria-label="Ir al principio del chat" title="Ir al principio del chat"
-                style={{ width: 40, height: 40, borderRadius: '50%', background: T.bgSurface, border: `1px solid ${T.border}`, boxShadow: '0 2px 10px rgba(0,0,0,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgSurface, border: `1px solid ${T.border}`, boxShadow: '0 2px 10px rgba(0,0,0,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4h14"/><path d="M12 20V9"/><path d="M6 14l6-6 6 6"/></svg>
               </button>
             )}
             {scrollBtns.bottom && (
               <button onClick={scrollToBottom} aria-label="Ir al último mensaje" title="Ir al último mensaje"
-                style={{ width: 40, height: 40, borderRadius: '50%', background: T.bgSurface, border: `1px solid ${T.border}`, boxShadow: '0 2px 10px rgba(0,0,0,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgSurface, border: `1px solid ${T.border}`, boxShadow: '0 2px 10px rgba(0,0,0,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 20h14"/><path d="M12 4v11"/><path d="M6 10l6 6 6-6"/></svg>
               </button>
             )}

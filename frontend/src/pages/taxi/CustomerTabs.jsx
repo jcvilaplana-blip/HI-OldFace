@@ -207,7 +207,7 @@ export function ProfileTab({ boot, notify, reload, onExit }) {
   const item = (key, icon, label, onClick) => (
     <button key={key} onClick={onClick || (() => setSub(key))} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '14px 4px', background: 'none', border: 'none',
       borderBottom: `1px solid ${C.line}`, cursor: 'pointer', textAlign: 'left', fontSize: 15, fontWeight: 700, color: C.text }}>
-      <span style={{ fontSize: 20, width: 28, textAlign: 'center' }}>{icon}</span><span style={{ flex: 1 }}>{label}</span><span style={{ color: '#94a3b8' }}>›</span>
+      <span style={{ flex: 1, paddingLeft: 8 }}>{label}</span><span style={{ color: '#94a3b8' }}>›</span>
     </button>
   );
 

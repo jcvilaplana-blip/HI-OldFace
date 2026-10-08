@@ -523,12 +523,15 @@ function TripPanel({ booking: b, settings, driverPos, notify, reload, onCall, on
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-        <TripChatButton code={b.code} role="customer" otherName={b.driver?.name} style={{ width: 48, height: 'auto', minHeight: 44, borderRadius: 14 }} />
+        <TripChatButton code={b.code} role="customer" otherName={b.driver?.name} label={tx('Mensaje')}
+          style={{ flex: 1.6, width: 'auto', height: 'auto', minHeight: 44, borderRadius: 14 }} />
         <Btn variant="soft" onClick={onCall} style={{ flex: 1, padding: '12px 6px', fontSize: 14 }}>📞 {tx('Llamar')}</Btn>
-        <Btn variant="soft" onClick={() => shareTrip(b)} style={{ flex: 1, padding: '12px 6px', fontSize: 14 }}>🔗 {tx('Compartir')}</Btn>
+        <Btn variant="soft" onClick={() => shareTrip(b)} style={{ flex: '0 0 48px', padding: '12px 0', fontSize: 16 }}>
+          <span role="img" aria-label={tx('Compartir')} title={tx('Compartir')}>🔗</span>
+        </Btn>
         {b.status === 'started' && <Btn variant="danger" onClick={() => { window.location.href = 'tel:112'; }} style={{ flex: 1, padding: '12px 6px', fontSize: 14 }}>🆘 SOS</Btn>}
       </div>
-      {b.status !== 'started' && cancel}
+      {/* Con el conductor ya en camino el cliente no puede cancelar (solo mientras se busca conductor) */}
       <p style={{ textAlign: 'center', color: C.muted, fontSize: 13, margin: '12px 0 0' }}>{money(b.estimated_fare, cur)} · {payLabel}</p>
     </Sheet>
   );

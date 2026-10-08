@@ -126,6 +126,8 @@ try {
   ok('el cliente recibe "va de camino" al instante', !!(await accepted));
   const cb = (await req('GET', `/api/app/customer/bookings/${code}`, null, C)).d.booking;
   ok('el cliente ve conductor, coche y su código de 4 cifras', cb.driver.name === 'Pedro Conductor' && cb.vehicle.plate === '1234ABC' && /^\d{4}$/.test(cb.start_otp), cb);
+  const noCancel = await req('POST', `/api/app/customer/bookings/${code}/cancel`, { reason: 'prueba' }, C);
+  ok('con el conductor en camino el cliente ya NO puede cancelar (409)', noCancel.s === 409 && /va de camino/.test(noCancel.d.error), noCancel);
 
   // ── Seguimiento en directo ──
   const loc = waitEvent(sc, 'trip:location');
