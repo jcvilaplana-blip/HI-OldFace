@@ -119,7 +119,7 @@ export const useCallStore = create((set, get) => ({
   // ── Mensaje de chat entregado por el servidor RTC ─────────────────────────
   _handleChatPush: (user, msg) => {
     if (!msg?.chatId || msg.senderId === user.id) return;
-    import('./chatStore').then(({ useChatStore }) => {
+    import('./chatStore').then(({ useChatStore, msgTime }) => {
       const { addMessage, createOrGetChat, fetchChats } = useChatStore.getState();
       const existing = useChatStore.getState().messages[msg.chatId] || [];
       if (!existing.some(m => m.id === msg.id)) {
@@ -127,13 +127,16 @@ export const useCallStore = create((set, get) => ({
           id:       msg.id,
           text:     msg.text,
           sender:   msg.senderId,
-          time:     msg.time,
+          time:     msgTime(msg),
+          createdAt: msg.createdAt || null,
           type:     msg.type || 'text',
           url:      msg.url || null,
           replyTo:  msg.replyTo || null,
           fileName: msg.fileName || null,
           duration: msg.duration || null,
           live:     msg.live || null,
+          viewOnce: !!msg.viewOnce,
+          opened:   false,
           status:   'received',
           isMine:   false,
         });

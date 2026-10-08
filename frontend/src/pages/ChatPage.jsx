@@ -220,8 +220,8 @@ export default function ChatPage() {
   // url solo para la miniatura de fotos/vídeos/stickers (las data: grandes no, para no inflar el mensaje)
   const makeReply = (m) => {
     const t = m.type || 'text';
-    const url = ['image', 'video', 'sticker'].includes(t) && m.url && (!m.url.startsWith('data:') || m.url.length < 150000) ? m.url : null;
-    return { id: m.id, text: m.text, type: t, isMine: m.isMine, url, fileName: m.fileName || null,
+    const url = !m.viewOnce && ['image', 'video', 'sticker'].includes(t) && m.url && (!m.url.startsWith('data:') || m.url.length < 150000) ? m.url : null;
+    return { id: m.id, text: m.text, type: t, isMine: m.isMine, url, fileName: m.fileName || null, viewOnce: !!m.viewOnce,
              senderName: m.isMine ? 'Tú' : (memberNames[m.sender] || chat.name || participantId) };
   };
   const canEdit = (m) => m.isMine && (m.type || 'text') === 'text' && !m.deleted && m.status !== 'sending'
@@ -476,8 +476,39 @@ export default function ChatPage() {
     }
   };
 
+  // ── Vista previa antes de enviar una foto o un vídeo (con la opción "ver una vez") ──
+  const [pendingMedia, setPendingMedia] = useState(null);   // { file, src, isVideo }
+  const pickMedia = (file) => {
+    if (!file) return;
+    setShowAttachMenu(false); setShowCameraMenu(false);
+    setPendingMedia({ file, src: URL.createObjectURL(file), isVideo: file.type.startsWith('video/') });
+  };
+  const closePendingMedia = () => { if (pendingMedia) URL.revokeObjectURL(pendingMedia.src); setPendingMedia(null); };
+
+  // Mientras se ve algo de "ver una vez", el móvil no deja hacer capturas ni grabar la pantalla (Android)
+  useEffect(() => {
+    if (!expandedPhoto?.viewOnce) return;
+    try { window.OldFaceMedia?.setSecure?.(true); } catch { /* APK antiguo */ }
+    return () => { try { window.OldFaceMedia?.setSecure?.(false); } catch { /* APK antiguo */ } };
+  }, [expandedPhoto]);
+
+  /** Ver una vez (lo recibido): pide la foto/vídeo al servidor (solo la primera vez) y la abre a pantalla completa */
+  const openViewOnce = async (m) => {
+    if (m.isMine || m.opened) return;
+    try {
+      const res = await fetch(`${CHAT_BACKEND}/messages/${encodeURIComponent(msgChatId)}/${encodeURIComponent(m.id)}/open`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: user.id }),
+      });
+      const d = await res.json().catch(() => ({}));
+      patchLocal(m.id, { opened: true });
+      if (!res.ok) { showToast(d.error || 'No se pudo abrir'); return; }
+      const src = /^https?:/.test(d.url) ? d.url : new URL(d.url, CHAT_BACKEND).href;
+      setExpandedPhoto({ type: d.type === 'video' ? 'video' : 'image', src, viewOnce: true });
+    } catch { showToast('Sin conexión: inténtalo de nuevo'); }
+  };
+
   // ── Enviar imagen o video ─────────────────────────────────────────────────
-  const sendMediaFile = async (file) => {
+  const sendMediaFile = async (file, { viewOnce = false } = {}) => {
     if (!file) return;
     setShowAttachMenu(false);
     const isVideo = file.type.startsWith('video/');
@@ -512,6 +543,20 @@ export default function ChatPage() {
       };
       reader.readAsDataURL(file);
     });
+
+    if (viewOnce) {
+      // Ver una vez: siempre se sube al servidor (así se puede borrar cuando se haya visto); quien lo envía no lo ve
+      const localId = `media_${Date.now()}`;
+      const type = isVideo ? 'video' : 'image', text = isVideo ? '[Video]' : '[Imagen]';
+      addMessage(msgChatId, { id: localId, type, text, url: null, viewOnce: true, opened: false, sender: user.id,
+                              time: nowTime(), createdAt: Date.now(), status: 'sending', isMine: true, replyTo: currentReply || null });
+      setReplyTo(null);
+      const blob = isVideo ? file : await fetch(await processFile()).then(r => r.blob());
+      const url = await uploadChatFile(blob, user.id);
+      if (!url) { updateMessageStatus(msgChatId, localId, 'error'); alert(`No se pudo enviar ${isVideo ? 'el vídeo' : 'la foto'}. Inténtalo de nuevo.`); return; }
+      await persistMessage(msgChatId, user.id, text, type, url, currentReply, null, { viewOnce: true });
+      return;
+    }
 
     if (isVideo) {
       // Vídeo: se ve al instante desde el móvil y se sube en binario (sin pasar a base64)
@@ -789,6 +834,7 @@ export default function ChatPage() {
             onMediaLoad={onMediaLoad}
             flash={flashId === msg.id}
             onJumpReply={jumpTo}
+            onOpenViewOnce={openViewOnce}
             onExpandPhoto={(src) => setExpandedPhoto(src)}
             onViewDoc={(docMsg) => {
               const docName = docMsg.fileName
@@ -1022,11 +1068,11 @@ export default function ChatPage() {
 
         {/* Inputs ocultos */}
         <input ref={cameraPhotoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
-          onChange={e => { sendMediaFile(e.target.files?.[0]); e.target.value = ''; }} />
+          onChange={e => { pickMedia(e.target.files?.[0]); e.target.value = ''; }} />
         <input ref={cameraVideoRef} type="file" accept="video/*" capture="environment" style={{ display: 'none' }}
-          onChange={e => { sendMediaFile(e.target.files?.[0]); e.target.value = ''; }} />
+          onChange={e => { pickMedia(e.target.files?.[0]); e.target.value = ''; }} />
         <input ref={galleryInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }}
-          onChange={e => { sendMediaFile(e.target.files?.[0]); e.target.value = ''; }} />
+          onChange={e => { pickMedia(e.target.files?.[0]); e.target.value = ''; }} />
         <input ref={docInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar" style={{ display: 'none' }}
           onChange={e => {
             const file = e.target.files?.[0];
@@ -1458,21 +1504,28 @@ export default function ChatPage() {
           onClick={() => setExpandedPhoto(null)}
         >
           {expandedPhoto?.type === 'video' ? (
-            <FullVideo src={expandedPhoto.src} />
+            <FullVideo src={expandedPhoto.src} viewOnce={!!expandedPhoto.viewOnce} />
           ) : (
             <img
               src={typeof expandedPhoto === 'string' ? expandedPhoto : expandedPhoto.src}
-              style={{ width: '100vw', maxHeight: '100vh', objectFit: 'contain' }}
+              onContextMenu={expandedPhoto?.viewOnce ? (e) => e.preventDefault() : undefined}
+              style={{ width: '100vw', maxHeight: '100vh', objectFit: 'contain', ...(expandedPhoto?.viewOnce ? { userSelect: 'none', WebkitTouchCallout: 'none', pointerEvents: 'none' } : {}) }}
             />
           )}
-          <button aria-label="Descargar" title="Descargar"
+          {expandedPhoto?.viewOnce && (
+            <span style={{ position: 'absolute', bottom: 'calc(24px + env(safe-area-inset-bottom, 0px))', left: '50%', transform: 'translateX(-50%)', color: 'white',
+                           background: 'rgba(0,0,0,0.55)', padding: '8px 16px', borderRadius: 18, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', pointerEvents: 'none' }}>
+              Ver una vez · al cerrar ya no se podrá volver a ver
+            </span>
+          )}
+          {!expandedPhoto?.viewOnce && <button aria-label="Descargar" title="Descargar"
             onClick={(e) => { e.stopPropagation(); const isVid = expandedPhoto?.type === 'video';
                               saveMediaToPhone({ type: isVid ? 'video' : 'image', url: typeof expandedPhoto === 'string' ? expandedPhoto : expandedPhoto.src }); }}
             style={{ position: 'absolute', top: 20, right: 72, width: 40, height: 40, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1.5px solid rgba(255,255,255,0.3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
             </svg>
-          </button>
+          </button>}
           <button
             onClick={() => setExpandedPhoto(null)}
             style={{ position: 'absolute', top: 20, right: 20, width: 40, height: 40, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1.5px solid rgba(255,255,255,0.3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1482,12 +1535,82 @@ export default function ChatPage() {
           </button>
         </div>
       )}
+
+      {/* Vista previa antes de enviar una foto o un vídeo */}
+      {pendingMedia && (
+        <MediaPreview media={pendingMedia} onCancel={closePendingMedia}
+          onSend={(viewOnce) => { const f = pendingMedia.file; closePendingMedia(); sendMediaFile(f, { viewOnce }); }} />
+      )}
+    </div>
+  );
+}
+
+// ── Burbuja de una foto/vídeo "ver una vez" ─────────────────────────────────
+function ViewOnceChip({ msg, isDark, onOpen }) {
+  const video = msg.type === 'video';
+  const what = video ? 'Vídeo' : 'Foto';
+  const canOpen = !msg.isMine && !msg.opened && msg.status !== 'sending';
+  const fg = isDark ? '#E0FBFC' : '#293241';
+  const label = msg.status === 'sending' ? 'Enviando…'
+              : msg.isMine ? (msg.opened ? `${what} · Abierta` : what)
+              : msg.opened ? 'Abierta' : what;
+  return (
+    <button onClick={canOpen ? (e) => { e.stopPropagation(); onOpen(); } : undefined} disabled={!canOpen}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', padding: '2px 0', cursor: canOpen ? 'pointer' : 'default',
+               color: fg, opacity: canOpen || msg.isMine ? 1 : 0.6, minWidth: 130 }}>
+      <span style={{ width: 30, height: 30, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 900,
+                     background: msg.opened ? 'transparent' : '#3D5A80', color: msg.opened ? fg : 'white',
+                     border: msg.opened ? `2px dashed ${isDark ? 'rgba(224,251,252,0.6)' : 'rgba(41,50,65,0.45)'}` : 'none' }}>1</span>
+      <span style={{ textAlign: 'left' }}>
+        <span style={{ display: 'block', fontSize: 15, fontWeight: 700 }}>{label}</span>
+        {canOpen && <span style={{ display: 'block', fontSize: 11, opacity: 0.7 }}>Toca para verla · solo una vez</span>}
+      </span>
+    </button>
+  );
+}
+
+// ── Vista previa de la foto o vídeo a enviar, con "ver una vez" ────────────
+function MediaPreview({ media, onCancel, onSend }) {
+  const [once, setOnce] = useState(false);
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#0A0D25', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', alignItems: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 14px 8px' }}>
+        <button onClick={onCancel} aria-label="Cancelar"
+          style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 8px' }}>
+        {media.isVideo
+          ? <video src={media.src} controls playsInline style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 12 }} />
+          : <img src={media.src} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 12 }} />}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))' }}>
+        <button onClick={() => setOnce(v => !v)} aria-pressed={once}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, background: once ? 'rgba(152,193,217,0.22)' : 'rgba(255,255,255,0.08)',
+                   border: `1.5px solid ${once ? '#98C1D9' : 'rgba(255,255,255,0.18)'}`, borderRadius: 24, padding: '8px 14px', cursor: 'pointer', color: 'white', textAlign: 'left' }}>
+          <span style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 900,
+                         background: once ? '#98C1D9' : 'transparent', color: once ? '#0A0D25' : 'white', border: once ? 'none' : '2px dashed rgba(255,255,255,0.7)' }}>1</span>
+          <span style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.25 }}>
+            {once ? 'Ver una vez: activado' : 'Ver una vez'}
+            <span style={{ display: 'block', fontSize: 11, fontWeight: 500, opacity: 0.75 }}>
+              {once ? 'Solo podrá abrirse una vez y no se podrá guardar' : 'Toca para que solo se pueda ver una vez'}
+            </span>
+          </span>
+        </button>
+        <button onClick={() => onSend(once)} aria-label="Enviar"
+          style={{ width: 54, height: 54, borderRadius: '50%', background: '#3D5A80', border: 'none', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="22" height="22" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ transform: 'translateX(1px)' }}>
+            <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }
 
 // ── Vídeo a pantalla completa con velocidad 1× / 1,5× / 2× ─────────────────
-function FullVideo({ src }) {
+function FullVideo({ src, viewOnce }) {
   const ref = useRef(null);
   const [speed, setSpeed] = useState(1);
   const cycle = (e) => {
@@ -1499,6 +1622,7 @@ function FullVideo({ src }) {
   return (
     <>
       <video ref={ref} src={src} controls autoPlay playsInline
+        {...(viewOnce ? { controlsList: 'nodownload noplaybackrate', disablePictureInPicture: true, onContextMenu: (e) => e.preventDefault() } : {})}
         onLoadedMetadata={e => { e.target.playbackRate = speed; }}
         onClick={e => e.stopPropagation()}
         style={{ maxWidth: '96vw', maxHeight: '96vh', borderRadius: 12, outline: 'none' }} />
@@ -1682,7 +1806,7 @@ function VideoThumb({ src, onClick }) {
 }
 
 function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames = {}, onExpandPhoto, onViewDoc,
-                         selectionMode, selected, onToggleSelect, onOpenMap, onLongPress, onMediaLoad, flash, onJumpReply }) {
+                         selectionMode, selected, onToggleSelect, onOpenMap, onLongPress, onMediaLoad, flash, onJumpReply, onOpenViewOnce }) {
   const isLocation = msg.type === 'location' || msg.type === 'live_location';
   const isAudio    = msg.type === 'audio';
   const isImage    = msg.type === 'image';
@@ -1700,19 +1824,34 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
   const timeColor = isDark ? '#93b8e0' : '#6b7280';
   const recvTime  = isDark ? '#3d5578' : '#9ca3af';
 
-  const startPress = () => { if (selectionMode) return; longPressRef.current = setTimeout(() => onLongPress?.(msg), 450); };
-  const isWide = isImage || isVideo || isLocation;
-  const endPress   = () => { clearTimeout(longPressRef.current); };
+  // Pulsación larga: el menú solo se abre si se mantiene el dedo quieto 0,6 s (un toque o desplazar el chat no lo abre)
+  const pressStart = useRef(null);
+  const startPress = (e) => {
+    if (selectionMode || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    pressStart.current = { x: e.clientX, y: e.clientY };
+    clearTimeout(longPressRef.current);
+    longPressRef.current = setTimeout(() => {
+      pressStart.current = null;
+      try { navigator.vibrate?.(30); } catch { /* sin vibración */ }
+      onLongPress?.(msg);
+    }, 600);
+  };
+  const movePress = (e) => {
+    const s = pressStart.current;
+    if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) > 10) endPress();
+  };
+  const isOnce = !!msg.viewOnce && (isImage || isVideo);
+  const isWide = (isImage || isVideo || isLocation) && !isOnce;
+  const endPress   = () => { clearTimeout(longPressRef.current); pressStart.current = null; };
 
   return (
     <div
       id={`msg-${msg.id}`}
-      onContextMenu={(e) => { if (!selectionMode) { e.preventDefault(); onLongPress?.(msg); } }}
+      onContextMenu={(e) => { e.preventDefault(); if (!selectionMode && !IS_TOUCH) onLongPress?.(msg); }}
       style={{ display: 'flex', justifyContent: msg.isMine ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 4, position: 'relative',
                background: selected ? 'rgba(61,90,128,0.22)' : flash ? 'rgba(255,200,0,0.28)' : 'transparent', transition: 'background 0.4s', borderRadius: 10, margin: selectionMode ? '0 -6px' : 0, padding: selectionMode ? '2px 6px' : 0 }}
       onClickCapture={selectionMode ? (e) => { e.stopPropagation(); e.preventDefault(); onToggleSelect?.(); } : undefined}
-      onTouchStart={startPress} onTouchEnd={endPress}
-      onMouseDown={startPress} onMouseUp={endPress} onMouseLeave={endPress}
+      onPointerDown={startPress} onPointerMove={movePress} onPointerUp={endPress} onPointerCancel={endPress} onPointerLeave={endPress}
     >
       <div style={{
         maxWidth: isWide ? 'min(82vw, 380px)' : isAudio ? 280 : '78%',
@@ -1741,6 +1880,8 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
         {/* Contenido del mensaje */}
         {isDeleted ? (
           <p style={{ fontSize: 14, fontStyle: 'italic', color: msg.isMine ? timeColor : recvTime, margin: 0 }}>🚫 Se eliminó este mensaje</p>
+        ) : isOnce ? (
+          <ViewOnceChip msg={msg} isDark={isDark} onOpen={() => onOpenViewOnce?.(msg)} />
         ) : isSticker ? (
           <img src={msg.url} alt="Sticker" onLoad={onMediaLoad} style={{ display: 'block', width: 150, height: 150, objectFit: 'contain' }} />
         ) : isImage ? (
@@ -1987,7 +2128,7 @@ function ForwardSheet({ T, user, currentChatId, msgs, onClose, onDone }) {
   const send = async () => {
     if (!picked.size) return;
     setBusy(true);
-    const toSend = msgs.filter(m => !m.locating && m.status !== 'error' && !m.deleted);
+    const toSend = msgs.filter(m => !m.locating && m.status !== 'error' && !m.deleted && !m.viewOnce);
     for (const chatId of picked) {
       for (const m of toSend) {
         // La ubicación en tiempo real se reenvía como ubicación fija (el último punto)
@@ -2073,7 +2214,8 @@ function ReplyQuote({ reply, where, isDark, onClick, children }) {
   const c = replyColors(where, isDark);
   const t = reply.type || 'text';
   const icon = REPLY_ICONS[t];
-  const label = t === 'document' ? (reply.fileName || REPLY_LABELS.document)
+  const label = reply.viewOnce ? `${REPLY_LABELS[t] || 'Foto'} (ver una vez)`
+              : t === 'document' ? (reply.fileName || REPLY_LABELS.document)
               : (t === 'image' || t === 'video') && reply.text && !/^\[/.test(reply.text) ? reply.text
               : REPLY_LABELS[t] || reply.text || '';
   const thumb = reply.url && (t === 'image' || t === 'video' || t === 'sticker') ? reply.url : null;
@@ -2110,6 +2252,7 @@ function ReplyQuote({ reply, where, isDark, onClick, children }) {
 function msgPreview(m) {
   const t = m.type || 'text';
   if (m.deleted || t === 'deleted') return '🚫 Se eliminó este mensaje';
+  if (m.viewOnce) return t === 'video' ? '① Vídeo (ver una vez)' : '① Foto (ver una vez)';
   return t === 'image' ? '📷 Foto' : t === 'video' ? '🎥 Vídeo' : t === 'audio' ? '🎤 Nota de voz'
        : t === 'sticker' ? '🌟 Sticker' : t === 'location' ? '📍 Ubicación' : t === 'live_location' ? '📍 Ubicación en tiempo real'
        : t === 'document' ? `📄 ${m.fileName || 'Documento'}` : t === 'contact' ? '👤 Contacto' : (m.text || '');
@@ -2193,7 +2336,7 @@ function MessageActions({ T, msg, canEdit, onClose, onReply, onCopy, onEdit, onP
   const deleted = msg.deleted || msg.type === 'deleted';
   const local = msg.status === 'sending' || msg.status === 'error';
   const sticker = msg.type === 'sticker' && !deleted && !local && /^https?:/.test(msg.url || '');
-  const media = ['image', 'video', 'sticker'].includes(msg.type) && !deleted && !local && !!msg.url;
+  const media = ['image', 'video', 'sticker'].includes(msg.type) && !deleted && !local && !!msg.url && !msg.viewOnce;
   const items = [
     !deleted && !local && ['Responder', onReply],
     sticker && !msg.isMine && ['Añadir a mis stickers', onAddSticker],
@@ -2202,7 +2345,7 @@ function MessageActions({ T, msg, canEdit, onClose, onReply, onCopy, onEdit, onP
     canEdit && ['Editar', onEdit],
     !deleted && !local && [msg.pinned ? 'Dejar de fijar' : 'Fijar', onPin],
     !deleted && !local && [msg.starred ? 'Quitar destacado' : 'Destacar', onStar],
-    !deleted && !local && ['Reenviar', onForward],
+    !deleted && !local && !msg.viewOnce && ['Reenviar', onForward],
     ['Seleccionar varios', onSelect],
     ['Eliminar', onDelete, true],
   ].filter(Boolean);

@@ -6,6 +6,11 @@ import { playMessageSound } from '../utils/sounds.js';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
+/** Hora del mensaje en la zona horaria del móvil (el servidor está en UTC; `time` solo para mensajes antiguos) */
+export const msgTime = (m) => (m?.createdAt
+  ? new Date(m.createdAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+  : m?.time || '');
+
 export const useChatStore = create((set, get) => ({
   chats: [],
   activeChat: null,
@@ -127,7 +132,7 @@ export const useChatStore = create((set, get) => ({
             id:       m.id,
             text:     m.text,
             sender:   m.senderId,
-            time:     m.time,
+            time:     msgTime(m),
             type:     m.type || 'text',
             url:      m.url || null,
             replyTo:  m.replyTo || null,
@@ -137,6 +142,8 @@ export const useChatStore = create((set, get) => ({
             createdAt: m.createdAt || null,
             editedAt: m.editedAt || null,   // "editado"
             deleted:  !!m.deleted,          // eliminado para todos
+            viewOnce: !!m.viewOnce,         // foto/vídeo "ver una vez" (sin url: se pide al abrir)
+            opened:   Array.isArray(m.openedBy) && (isMine ? m.openedBy.length > 0 : m.openedBy.includes(userId)),
             pinned:   !!m.pinned,           // fijado arriba del chat
             pinnedAt: m.pinnedAt || null,
             starred:  Array.isArray(m.starredBy) && m.starredBy.includes(userId),   // destacado por mí

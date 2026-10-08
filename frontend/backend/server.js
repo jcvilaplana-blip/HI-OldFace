@@ -691,11 +691,54 @@ function chatPreviewText(type, text) {
        : type === 'video' ? '🎥 Vídeo' : type === 'sticker' ? '🌟 Sticker' : text;
 }
 
+/** Mensaje tal como se entrega a las apps: las fotos/vídeos "ver una vez" nunca llevan su URL (se pide con /open) */
+function publicMsg(m) {
+  if (!m.viewOnce) return m;
+  const { url, ...rest } = m;
+  return rest;
+}
+
 /** GET /messages/:chatId (los eliminados para todos antiguos tampoco se devuelven) */
 router.get('/messages/:chatId', (req, res) => {
   const uid = req.query.userId;
   const list = (messageStore.get(req.params.chatId) || []).filter(m => !m.deleted);
-  return res.json({ messages: uid ? list.filter(m => !(m.hiddenFor || []).includes(uid)) : list });
+  return res.json({ messages: (uid ? list.filter(m => !(m.hiddenFor || []).includes(uid)) : list).map(publicMsg) });
+});
+
+// ── "Ver una vez" ────────────────────────────────────────────────────────────
+const VIEW_ONCE_KEEP_MS = 15 * 60 * 1000;   // tiempo para terminar de verla antes de borrar el archivo
+const viewOnceFile = (url) => path.join(UPLOADS_DIR, path.basename(String(url || '').split('?')[0]));
+/** ¿La han abierto ya todos los destinatarios? */
+const viewOnceDone = (chatId, m) => chatMembers(chatId).filter(u => u && u !== m.senderId).every(u => (m.openedBy || []).includes(u));
+/** Borra los archivos "ver una vez" que ya vio todo el mundo (pasado el margen) */
+function sweepViewOnce() {
+  let changed = false;
+  for (const list of messageStore.values()) {
+    for (const m of list) {
+      if (!m.viewOnce || !m.url || !m.allOpenedAt || Date.now() - m.allOpenedAt < VIEW_ONCE_KEEP_MS) continue;
+      try { fs.unlinkSync(viewOnceFile(m.url)); } catch { /* ya no estaba */ }
+      m.url = null; changed = true;
+    }
+  }
+  if (changed) saveMessages();
+}
+setInterval(sweepViewOnce, 5 * 60 * 1000).unref?.();
+setTimeout(sweepViewOnce, 30 * 1000).unref?.();
+
+/** POST /messages/:chatId/:messageId/open — { userId } → { url } una sola vez por destinatario */
+router.post('/messages/:chatId/:messageId/open', (req, res) => {
+  const { chatId, messageId } = req.params;
+  const { userId } = req.body || {};
+  const m = (messageStore.get(chatId) || []).find(x => x.id === messageId);
+  if (!m || !m.viewOnce) return res.status(404).json({ error: 'Mensaje no encontrado' });
+  if (!userId || !chatMembers(chatId).includes(userId)) return res.status(403).json({ error: 'No perteneces a este chat' });
+  if (m.senderId === userId) return res.status(403).json({ error: 'Las fotos y vídeos de ver una vez solo los puede abrir quien los recibe' });
+  if ((m.openedBy || []).includes(userId) || !m.url) return res.status(410).json({ error: 'Ya la abriste: solo se puede ver una vez' });
+  m.openedBy = [...(m.openedBy || []), userId];
+  if (viewOnceDone(chatId, m)) m.allOpenedAt = Date.now();
+  saveMessages();
+  notifyChatUpdate(chatId, userId, 'opened');
+  res.json({ url: m.url, type: m.type });
 });
 
 /** DELETE /messages/:chatId/:messageId — elimina un mensaje concreto */
@@ -739,21 +782,25 @@ router.delete('/messages/:chatId/:messageId', (req, res) => {
 
 /** POST /messages */
 router.post('/messages', async (req, res) => {
-  const { chatId, senderId, text, type = 'text', url, replyTo, fileName, duration, live } = req.body || {};
+  const { chatId, senderId, text, type = 'text', url, replyTo, fileName, duration, live, viewOnce } = req.body || {};
   if (!chatId || !senderId || !text) return res.status(400).json({ error: 'chatId, senderId y text son requeridos' });
+  // "Ver una vez": solo fotos y vídeos subidos al servidor (para poder borrarlos cuando se hayan visto)
+  const once = !!viewOnce && (type === 'image' || type === 'video') && /\/files\/[\w.-]+$/.test(String(url || ''));
 
   const msg = {
     id:        `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     chatId, senderId, text, type, url: url || null,
     replyTo:   replyTo || null,
     fileName:  fileName || null,
+    ...(once ? { viewOnce: true, openedBy: [] } : {}),
     ...(Number(duration) > 0 ? { duration: Math.round(Number(duration)) } : {}),
     // Ubicación en tiempo real: hasta cuándo se comparte; la posición la va actualizando quien la envía
     ...(type === 'live_location' && live ? { live: {
       lat: Number(live.lat), lng: Number(live.lng), updatedAt: Date.now(),
       until: Math.min(Number(live.until) || 0, Date.now() + 8 * 3600 * 1000), stopped: false,
     } } : {}),
-    time:      new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
+    // el VPS está en UTC: la hora se da en la de España (la app la recalcula con createdAt en la zona del móvil)
+    time:      new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' }),
     createdAt: Date.now(),
   };
 
@@ -775,7 +822,7 @@ router.post('/messages', async (req, res) => {
   const rtcRecipients = chatStore2.get(chatId)?.participants
     || chatId.replace(/^chat_/, '').split(/_(?=user_)/);
   for (const to of rtcRecipients) {
-    if (to && to !== senderId) rtcEmit(to, 'chat:message', { ...msg, senderName: senderUser?.name || null });
+    if (to && to !== senderId) rtcEmit(to, 'chat:message', { ...publicMsg(msg), senderName: senderUser?.name || null });
   }
 
   // ── Enviar push FCM al destinatario ─────────────────────────────────────
@@ -795,6 +842,7 @@ router.post('/messages', async (req, res) => {
         const notifBody = type === 'audio' ? '🎤 Te ha enviado una nota de voz'
                         : type === 'location' ? '📍 Te ha enviado su ubicación'
                         : type === 'live_location' ? '📍 Está compartiendo su ubicación en tiempo real'
+                        : once ? `① Te ha enviado ${type === 'video' ? 'un vídeo' : 'una foto'} para ver una vez`
                         : type === 'image' ? '📷 Te ha enviado una foto'
                         : type === 'video' ? '🎥 Te ha enviado un vídeo'
                         : type === 'sticker' ? '🌟 Te ha enviado un sticker'
@@ -805,7 +853,7 @@ router.post('/messages', async (req, res) => {
     }
   } catch { /* no bloquear la respuesta si falla el push */ }
 
-  return res.json(msg);
+  return res.json(publicMsg(msg));
 });
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;   // como WhatsApp: se puede editar durante 15 minutos
