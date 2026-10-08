@@ -4,6 +4,16 @@
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Mensajes del chat: la pulsación larga sobre el texto, la foto o el vídeo abre el menú del mensaje.
+   Sin esto Android empezaba a seleccionar el texto o a "arrastrar" la imagen y cancelaba la pulsación
+   (solo funcionaba en el borde de la burbuja). Copiar sigue disponible en el propio menú. */
+.of-msg, .of-msg * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
 /* ── Safe area CSS variables ────────────────────────────────────────────────
    Web: env() devuelve 0px → no hay insets.
    APK (html.cap-native): env() puede fallar en WebViews Android antiguos.

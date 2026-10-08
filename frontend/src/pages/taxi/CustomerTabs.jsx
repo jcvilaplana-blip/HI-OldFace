@@ -415,7 +415,6 @@ export function About({ boot, onBack }) {
         <p style={{ fontWeight: 900, fontSize: 20, margin: '6px 0' }}>{a.name || 'OldFace Taxi'}</p>
         {a.supportEmail && <p style={{ margin: '4px 0', color: C.muted }}>✉️ {a.supportEmail}</p>}
         {a.supportPhone && <p style={{ margin: '4px 0', color: C.muted }}>📞 {a.supportPhone}</p>}
-        <p style={{ margin: '14px 0 0', fontSize: 12, color: C.muted }}>{tx('Mapas')} © OpenStreetMap</p>
       </Card>
     </Page>
   );

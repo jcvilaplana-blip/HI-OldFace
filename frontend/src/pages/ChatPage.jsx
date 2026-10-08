@@ -216,6 +216,13 @@ export default function ChatPage() {
   const onMediaLoad = useCallback(() => {
     if (isNearBottomRef.current) messagesEndRef.current?.scrollIntoView({ block: 'end' });
   }, []);
+  // Al abrirse el teclado la pantalla se acorta: si se estaba viendo el final, seguir viendo el último mensaje
+  useEffect(() => {
+    const onResize = () => { if (isNearBottomRef.current) messagesEndRef.current?.scrollIntoView({ block: 'end' }); };
+    const vv = window.visualViewport;
+    (vv || window).addEventListener('resize', onResize);
+    return () => (vv || window).removeEventListener('resize', onResize);
+  }, []);
   /** Ir a un mensaje (fijado, destacado) y resaltarlo un momento */
   const jumpTo = (id) => {
     document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1847,7 +1854,7 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
   };
   const movePress = (e) => {
     const s = pressStart.current;
-    if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) > 10) endPress();
+    if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) > 16) endPress();   // el dedo siempre tiembla un poco
   };
   const isOnce = !!msg.viewOnce && (isImage || isVideo);
   const isWide = (isImage || isVideo || isLocation) && !isOnce;
@@ -1856,6 +1863,7 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
   return (
     <div
       id={`msg-${msg.id}`}
+      className="of-msg"
       onContextMenu={(e) => { e.preventDefault(); if (!selectionMode && !IS_TOUCH) onLongPress?.(msg); }}
       style={{ display: 'flex', justifyContent: msg.isMine ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 4, position: 'relative',
                background: selected ? 'rgba(61,90,128,0.22)' : flash ? 'rgba(255,200,0,0.28)' : 'transparent', transition: 'background 0.4s', borderRadius: 10, margin: selectionMode ? '0 -6px' : 0, padding: selectionMode ? '2px 6px' : 0 }}
