@@ -67,7 +67,11 @@ const userStore    = new Map(Object.entries(_users));
 const chatStore2   = new Map(Object.entries(_chats));
 const messageStore = new Map(Object.entries(_messages));
 const directoStore = new Map(Object.entries(_directos));
-const fcmStore     = new Map(Object.entries(_fcm));     // userId → fcmToken
+// userId → [{ token, deviceId, at }] (un usuario puede tener varios dispositivos vinculados).
+// Formato antiguo: userId → "token" — se convierte al cargar.
+const fcmStore     = new Map(Object.entries(_fcm).map(([uid, v]) => [uid,
+  Array.isArray(v) ? v : (typeof v === 'string' && v ? [{ token: v, deviceId: null, at: Date.now() }] : [])]));
+const MAX_DEVICE_TOKENS = 6;
 const callLogStore = new Map(Object.entries(_callLog)); // userId → [calls]
 let   storiesList  = Array.isArray(_stories) ? _stories : []; // array plano de stories
 const groupStore   = new Map(Object.entries(_groups));  // groupId → group
@@ -88,6 +92,85 @@ const saveChats    = () => saveJSON('chats.json',    Object.fromEntries(chatStor
 const saveMessages = () => saveJSON('messages.json', Object.fromEntries(messageStore));
 const saveDirectos = () => saveJSON('directos.json', Object.fromEntries(directoStore));
 const saveFcm      = () => saveJSON('fcm_tokens.json', Object.fromEntries(fcmStore));
+
+/** Tokens de aviso de todos los dispositivos de un usuario */
+const fcmTokensOf = (userId) => (fcmStore.get(String(userId || '')) || []).map(e => e.token).filter(Boolean);
+
+/** Guardar el token de un dispositivo (sustituye el anterior del mismo dispositivo; quita el token de otras cuentas) */
+function addFcmToken(userId, token, deviceId = null) {
+  for (const [uid, list] of fcmStore) {
+    const kept = list.filter(e => e.token !== token && !(deviceId && uid !== userId && e.deviceId === deviceId));
+    if (kept.length !== list.length) fcmStore.set(uid, kept);
+  }
+  let list = (fcmStore.get(userId) || []).filter(e => e.token !== token && !(deviceId && e.deviceId === deviceId));
+  list.push({ token, deviceId, at: Date.now() });
+  if (list.length > MAX_DEVICE_TOKENS) list = list.slice(-MAX_DEVICE_TOKENS);
+  fcmStore.set(userId, list);
+  saveFcm();
+}
+
+function removeFcmToken(token) {
+  for (const [uid, list] of fcmStore) {
+    const kept = list.filter(e => e.token !== token);
+    if (kept.length !== list.length) fcmStore.set(uid, kept);
+  }
+  saveFcm();
+}
+
+function removeDeviceTokens(userId, deviceId) {
+  const list = fcmStore.get(userId);
+  if (!list || !deviceId) return;
+  fcmStore.set(userId, list.filter(e => e.deviceId !== deviceId));
+  saveFcm();
+}
+
+// ── Preferencias de aviso por usuario (tono de mensaje) ──────────
+const prefsStore = new Map(Object.entries(loadJSON('user_prefs.json', {})));   // userId → { messageTone }
+const savePrefs  = () => saveJSON('user_prefs.json', Object.fromEntries(prefsStore));
+const MESSAGE_TONES = ['clasico', 'campana', 'burbuja', 'cristal', 'suave', 'ninguno'];
+/** Canal de Android y sonido del aviso de un mensaje según el tono que eligió el destinatario */
+function messageChannelOf(userId) {
+  const tone = prefsStore.get(userId)?.messageTone || 'clasico';
+  if (tone === 'clasico') return { channelId: 'oldface_messages', sound: 'message_sound' };
+  if (tone === 'ninguno') return { channelId: 'oldface_msg_ninguno', sound: null };
+  return { channelId: `oldface_msg_${tone}`, sound: `msg_${tone}` };
+}
+
+/** Idioma de los avisos de un usuario (el de su dispositivo; español si no se sabe) */
+const userLang = (userId) => (prefsStore.get(String(userId || ''))?.lang === 'en' ? 'en' : 'es');
+const PUSH_TEXT = {
+  es: {
+    audio: '🎤 Te ha enviado una nota de voz', location: '📍 Te ha enviado su ubicación',
+    live_location: '📍 Está compartiendo su ubicación en tiempo real', onceVideo: '① Te ha enviado un vídeo para ver una vez',
+    oncePhoto: '① Te ha enviado una foto para ver una vez', image: '📷 Te ha enviado una foto', video: '🎥 Te ha enviado un vídeo',
+    sticker: '🌟 Te ha enviado un sticker',
+    gAudio: '🎤 Nota de voz', gLocation: '📍 Ubicación', gImage: '📷 Foto', gVideo: '🎥 Vídeo', gSticker: '🌟 Sticker',
+    someone: 'Alguien', group: 'Grupo', isLive: (n) => `🔴 ${n} está en directo`, tapToWatch: 'Toca para verlo',
+  },
+  en: {
+    audio: '🎤 Sent you a voice message', location: '📍 Sent you their location',
+    live_location: '📍 Is sharing their live location', onceVideo: '① Sent you a video to view once',
+    oncePhoto: '① Sent you a photo to view once', image: '📷 Sent you a photo', video: '🎥 Sent you a video',
+    sticker: '🌟 Sent you a sticker',
+    gAudio: '🎤 Voice message', gLocation: '📍 Location', gImage: '📷 Photo', gVideo: '🎥 Video', gSticker: '🌟 Sticker',
+    someone: 'Someone', group: 'Group', isLive: (n) => `🔴 ${n} is live`, tapToWatch: 'Tap to watch',
+  },
+};
+const pushText = (userId) => PUSH_TEXT[userLang(userId)];
+
+/** Aviso con notificación a todos los dispositivos de un usuario. `message: true` → con su tono de mensaje */
+function pushToUser(userId, title, body, data = {}, { message = false } = {}) {
+  const tokens = fcmTokensOf(userId);
+  const ch = message ? messageChannelOf(userId) : { channelId: 'oldface_messages', sound: 'message_sound' };
+  return Promise.all(tokens.map(t => sendFCMPush(t, title, body, data, ch.channelId, ch.sound).catch(() => {})))
+    .then(() => tokens.length);
+}
+
+/** Aviso solo de datos (llamadas, taxi) a todos los dispositivos de un usuario */
+function dataToUser(userId, data = {}, ttlMs = 60000) {
+  const tokens = fcmTokensOf(userId);
+  return Promise.all(tokens.map(t => sendFCMData(t, data, ttlMs).catch(() => {}))).then(() => tokens.length);
+}
 const saveCallLog  = () => saveJSON('call_log.json',  Object.fromEntries(callLogStore));
 const saveStories  = () => saveJSON('stories.json',   storiesList);
 const saveGroups   = () => saveJSON('groups.json',    Object.fromEntries(groupStore));
@@ -185,7 +268,7 @@ function getFirebaseAdmin() {
  * Para obtenerlo: Firebase Console → Configuración → Cuentas de servicio
  *                 → Generar nueva clave privada → guardar como firebase-service-account.json
  */
-async function sendFCMPush(fcmToken, title, body, data = {}, channelId = 'oldface_messages') {
+async function sendFCMPush(fcmToken, title, body, data = {}, channelId = 'oldface_messages', sound = 'message_sound') {
   if (!fcmToken) return;
   const admin = getFirebaseAdmin();
   if (!admin) return;
@@ -201,7 +284,7 @@ async function sendFCMPush(fcmToken, title, body, data = {}, channelId = 'oldfac
       android: {
         priority: 'high',
         notification: {
-          sound:     'message_sound',
+          ...(sound ? { sound } : {}),
           channelId: channelId,
           priority:  'max',
         },
@@ -212,9 +295,7 @@ async function sendFCMPush(fcmToken, title, body, data = {}, channelId = 'oldfac
     // Token expirado/inválido → eliminarlo
     if (e.code === 'messaging/registration-token-not-registered' ||
         e.code === 'messaging/invalid-registration-token') {
-      for (const [uid, tok] of fcmStore.entries()) {
-        if (tok === fcmToken) { fcmStore.delete(uid); saveFcm(); break; }
-      }
+      removeFcmToken(fcmToken);
     } else {
       console.warn('[FCM] sendFCMPush error:', e.message);
     }
@@ -236,9 +317,7 @@ async function sendFCMData(fcmToken, data = {}, ttlMs = 60000) {
   } catch (e) {
     if (e.code === 'messaging/registration-token-not-registered' ||
         e.code === 'messaging/invalid-registration-token') {
-      for (const [uid, tok] of fcmStore.entries()) {
-        if (tok === fcmToken) { fcmStore.delete(uid); saveFcm(); break; }
-      }
+      removeFcmToken(fcmToken);
     } else {
       console.warn('[FCM] sendFCMData error:', e.message);
     }
@@ -364,7 +443,7 @@ router.post('/send-otp', async (req, res) => {
 
 /** POST /verify-otp */
 router.post('/verify-otp', async (req, res) => {
-  const { phone, code, name } = req.body || {};
+  const { phone, code, name, deviceId, deviceName, platform } = req.body || {};
   if (!phone || !code) return res.status(400).json({ error: 'Teléfono y código son requeridos' });
 
   const normalizedPhone = normalizePhone(phone);
@@ -399,6 +478,9 @@ router.post('/verify-otp', async (req, res) => {
   userStore.set(normalizedPhone, userData);
   saveUsers(); // ← persistir en disco
 
+  // Este dispositivo aparece en "Dispositivos vinculados" (y deja de estar revocado si lo estaba)
+  if (deviceId) touchDevice(userId, { deviceId: String(deviceId).slice(0, 64), name: deviceName, platform, via: 'login' });
+
   console.log(`✅ Usuario verificado: ${userData.name} (${normalizedPhone})`);
   return res.json({ success: true, verified: true, userId, user: userData, rtcToken: signRtcToken(userId) });
 });
@@ -430,9 +512,14 @@ function notifyChatUpdate(chatId, exceptUserId, reason) {
 
 /** POST /rtc-token — token para el servidor RTC (sesiones iniciadas antes de existir rtcToken) */
 router.post('/rtc-token', (req, res) => {
-  const { userId } = req.body || {};
+  const { userId, deviceId } = req.body || {};
   if (!userId || ![...userStore.values()].some(u => u.userId === userId))
     return res.status(404).json({ error: 'Usuario no encontrado' });
+  // Con dispositivos registrados, solo uno de ellos puede renovar el token (si no, cualquiera que supiera el
+  // userId podría sacar un token y vincular su ordenador a esa cuenta). Cuentas sin dispositivos: como antes.
+  const devs = deviceStore.get(userId) || [];
+  if (devs.length && (!deviceId || !devs.some(d => d.deviceId === deviceId) || revokedStore.has(deviceId)))
+    return res.status(401).json({ error: 'Sesión no válida en este dispositivo. Vuelve a entrar.' });
   const token = signRtcToken(userId);
   if (!token) return res.status(503).json({ error: 'RTC no configurado' });
   return res.json({ token });
@@ -495,11 +582,144 @@ router.get('/find-user-by-id', (req, res) => {
 
 /** POST /register-fcm-token — Guarda el token FCM del dispositivo para un usuario */
 router.post('/register-fcm-token', (req, res) => {
-  const { userId, token } = req.body || {};
+  const { userId, token, deviceId } = req.body || {};
   if (!userId || !token) return res.status(400).json({ error: 'userId y token son requeridos' });
-  fcmStore.set(userId, token);
-  saveFcm();
+  addFcmToken(String(userId), String(token), deviceId ? String(deviceId).slice(0, 64) : null);
   return res.json({ success: true });
+});
+
+/** POST /user/prefs — tono de mensaje del usuario (para el sonido de los avisos con la app cerrada) */
+router.post('/user/prefs', (req, res) => {
+  const { userId, messageTone, lang } = req.body || {};
+  if (!userId || (messageTone !== undefined && !MESSAGE_TONES.includes(messageTone)) || (lang !== undefined && !['es', 'en'].includes(lang)))
+    return res.status(400).json({ error: 'datos no válidos' });
+  const patch = {};
+  if (messageTone !== undefined) patch.messageTone = messageTone;
+  if (lang !== undefined) patch.lang = lang;   // idioma del dispositivo: los avisos se redactan en él
+  prefsStore.set(String(userId), { ...(prefsStore.get(String(userId)) || {}), ...patch });
+  savePrefs();
+  return res.json({ success: true });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  DISPOSITIVOS VINCULADOS — ordenador o tablet en la misma cuenta (QR + código, como WhatsApp Web)
+//    1. El dispositivo nuevo pide un código: POST /link/start → muestra QR "oldface-link:<código>" y el código.
+//    2. En el móvil (sesión iniciada): Ajustes → Dispositivos vinculados → escanear o escribir → POST /link/approve.
+//    3. El nuevo pregunta cada 2 s GET /link/status/:linkId → recibe la sesión una sola vez.
+//  Cada dispositivo tiene un deviceId propio (lo genera la app); "Cerrar sesión" en otro lo revoca.
+// ════════════════════════════════════════════════════════════════
+const _devices = loadJSON('devices.json', { byUser: {}, revoked: {} });
+const deviceStore  = new Map(Object.entries(_devices.byUser || {}));   // userId → [{ deviceId, name, platform, linkedAt, lastSeen, via }]
+const revokedStore = new Map(Object.entries(_devices.revoked || {}));  // deviceId → { userId, at }
+const saveDevices  = () => saveJSON('devices.json', { byUser: Object.fromEntries(deviceStore), revoked: Object.fromEntries(revokedStore) });
+const linkStore    = new Map();   // linkId → { code, name, platform, expiresAt, status, userId, deviceId }
+const LINK_TTL_MS  = 3 * 60_000;
+const LINK_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // sin 0/O ni 1/I para no confundirse al escribirlo
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, l] of linkStore) if (l.expiresAt + 60_000 < now) linkStore.delete(id);
+}, 60_000);
+
+/** Comprueba un token del servidor RTC (`<userId>.<exp>.<firma>`) y que sea de ese usuario */
+function verifyRtcToken(token, userId) {
+  const secret = process.env.RTC_SECRET;
+  if (!secret || typeof token !== 'string') return false;
+  const i = token.lastIndexOf('.'), j = token.lastIndexOf('.', i - 1);
+  if (i < 0 || j < 0) return false;
+  const uid = token.slice(0, j), exp = Number(token.slice(j + 1, i)), sig = token.slice(i + 1);
+  if (uid !== userId || !(exp > Date.now() / 1000)) return false;
+  const good = crypto.createHmac('sha256', secret).update(`${uid}.${exp}`).digest('base64url');
+  return sig.length === good.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good));
+}
+const bearer = (req) => (req.get('authorization') || '').replace(/^Bearer\s+/i, '') || req.body?.rtcToken || '';
+
+const cleanName = (s, def) => String(s || def).replace(/[\u0000-\u001f]/g, '').trim().slice(0, 60) || def;
+const cleanPlatform = (p) => (['android', 'ios', 'web', 'desktop'].includes(p) ? p : 'web');
+
+/** Alta o actualización de un dispositivo de un usuario (también al entrar con el código por email) */
+function touchDevice(userId, { deviceId, name, platform, via }) {
+  if (!userId || !deviceId) return;
+  revokedStore.delete(deviceId);
+  const list = deviceStore.get(userId) || [];
+  const d = list.find(x => x.deviceId === deviceId);
+  if (d) Object.assign(d, { name: cleanName(name, d.name), platform: cleanPlatform(platform || d.platform), lastSeen: Date.now() });
+  else list.push({ deviceId, name: cleanName(name, 'Dispositivo'), platform: cleanPlatform(platform), linkedAt: Date.now(), lastSeen: Date.now(), via: via || 'login' });
+  deviceStore.set(userId, list);
+  saveDevices();
+}
+
+/** POST /link/start { deviceName, platform } — el dispositivo nuevo pide un código para vincularse */
+router.post('/link/start', (req, res) => {
+  const { deviceName, platform } = req.body || {};
+  let code;
+  do {
+    code = Array.from(crypto.randomBytes(8), b => LINK_ALPHABET[b % LINK_ALPHABET.length]).join('');
+  } while ([...linkStore.values()].some(l => l.code === code));
+  const linkId = crypto.randomBytes(18).toString('base64url');
+  const expiresAt = Date.now() + LINK_TTL_MS;
+  linkStore.set(linkId, { code, name: cleanName(deviceName, 'Ordenador'), platform: cleanPlatform(platform), expiresAt, status: 'pending' });
+  res.json({ linkId, code, expiresAt });
+});
+
+/** GET /link/status/:linkId — el dispositivo nuevo pregunta si ya lo han aprobado (la sesión se entrega una vez) */
+router.get('/link/status/:linkId', (req, res) => {
+  const l = linkStore.get(req.params.linkId);
+  if (!l || (l.status === 'pending' && l.expiresAt < Date.now())) return res.json({ status: 'expired' });
+  if (l.status !== 'approved') return res.json({ status: 'pending', expiresAt: l.expiresAt });
+  linkStore.delete(req.params.linkId);
+  const u = findUserById(l.userId);
+  res.json({
+    status: 'approved', deviceId: l.deviceId, rtcToken: signRtcToken(l.userId),
+    user: { userId: l.userId, name: u?.name || 'Usuario', phone: u?.phone || '', avatar: u?.avatar || null, status: u?.status || null },
+  });
+});
+
+/** POST /link/approve { userId, rtcToken, code } — el móvil con la sesión iniciada aprueba el código */
+router.post('/link/approve', (req, res) => {
+  const { userId, code } = req.body || {};
+  if (!userId || !verifyRtcToken(bearer(req), userId)) return res.status(401).json({ error: 'Sesión no válida. Vuelve a entrar en OldFace.' });
+  const wanted = String(code || '').toUpperCase().replace(/^OLDFACE-LINK:/, '').replace(/[^A-Z0-9]/g, '');
+  const entry = [...linkStore.entries()].find(([, l]) => l.code === wanted && l.status === 'pending');
+  if (!entry || entry[1].expiresAt < Date.now()) return res.status(404).json({ error: 'Código no válido o caducado. Genera uno nuevo en el otro dispositivo.' });
+  const [, l] = entry;
+  l.status = 'approved';
+  l.userId = userId;
+  l.deviceId = `dev_${crypto.randomBytes(12).toString('base64url')}`;
+  touchDevice(userId, { deviceId: l.deviceId, name: l.name, platform: l.platform, via: 'link' });
+  res.json({ success: true, deviceName: l.name });
+});
+
+/** GET /devices/:userId — dispositivos con la sesión iniciada (Authorization: Bearer <rtcToken>) */
+router.get('/devices/:userId', (req, res) => {
+  const { userId } = req.params;
+  if (!verifyRtcToken(bearer(req), userId)) return res.status(401).json({ error: 'Sesión no válida' });
+  res.json({ devices: (deviceStore.get(userId) || []).slice().sort((a, b) => b.lastSeen - a.lastSeen) });
+});
+
+/** DELETE /devices/:userId/:deviceId — cerrar la sesión de otro dispositivo */
+router.delete('/devices/:userId/:deviceId', (req, res) => {
+  const { userId, deviceId } = req.params;
+  if (!verifyRtcToken(bearer(req), userId)) return res.status(401).json({ error: 'Sesión no válida' });
+  const list = deviceStore.get(userId) || [];
+  if (!list.some(d => d.deviceId === deviceId)) return res.status(404).json({ error: 'Dispositivo no encontrado' });
+  deviceStore.set(userId, list.filter(d => d.deviceId !== deviceId));
+  revokedStore.set(deviceId, { userId, at: Date.now() });
+  saveDevices();
+  removeDeviceTokens(userId, deviceId);
+  rtcEmit(userId, 'device:revoked', { deviceId });   // si está abierto, se cierra al momento
+  res.json({ success: true });
+});
+
+/** POST /devices/heartbeat { userId, deviceId, deviceName, platform } — al abrir la app; dice si se cerró su sesión */
+router.post('/devices/heartbeat', (req, res) => {
+  const { userId, deviceId, deviceName, platform } = req.body || {};
+  if (!userId || !deviceId) return res.status(400).json({ error: 'datos no válidos' });
+  if (!verifyRtcToken(bearer(req), userId)) return res.status(401).json({ error: 'Sesión no válida' });
+  const rev = revokedStore.get(String(deviceId));
+  if (rev && rev.userId === userId) return res.json({ revoked: true });
+  touchDevice(String(userId), { deviceId: String(deviceId).slice(0, 64), name: deviceName, platform });
+  res.json({ revoked: false });
 });
 
 /** POST /call-notification — Envía FCM push al destinatario cuando se inicia una llamada */
@@ -513,11 +733,10 @@ router.post('/call-notification', async (req, res) => {
     payload: { callType: callType || 'voice', callerName: callerName || callerId, roomId: roomId || null },
   });
 
-  const fcmToken = fcmStore.get(calleeId);
-  if (!fcmToken) return res.json({ success: false, reason: 'sin token FCM para el destinatario' });
+  if (!fcmTokensOf(calleeId).length) return res.json({ success: false, reason: 'sin token FCM para el destinatario' });
 
   // Solo datos: la app suena con el tono de llamada y abre la pantalla de llamada (también con la pantalla apagada)
-  await sendFCMData(fcmToken, {
+  await dataToUser(calleeId, {
     type:       'call',
     callType:   callType === 'video' ? 'video' : 'voice',
     callerId,
@@ -533,8 +752,7 @@ router.post('/call-notification', async (req, res) => {
 router.post('/call-cancel', async (req, res) => {
   const { calleeId, callerId } = req.body || {};
   if (!calleeId || !callerId) return res.status(400).json({ error: 'calleeId y callerId son requeridos' });
-  const fcmToken = fcmStore.get(calleeId);
-  if (fcmToken) await sendFCMData(fcmToken, { type: 'call_cancel', callerId, ts: Date.now() });
+  await dataToUser(calleeId, { type: 'call_cancel', callerId, ts: Date.now() });
   return res.json({ success: true });
 });
 
@@ -830,14 +1048,15 @@ router.post('/messages', async (req, res) => {
   // Grupo: aviso a cada miembro con el nombre del grupo y de quien escribe
   const groupChat = chatStore2.get(chatId);
   if (groupChat?.isGroup) {
-    const gName = groupStore.get(groupChat.groupId)?.name || groupChat.name || 'Grupo';
-    const who = senderUser?.name || 'Alguien';
-    const what = type === 'audio' ? '🎤 Nota de voz' : type === 'location' || type === 'live_location' ? '📍 Ubicación'
-               : type === 'image' ? '📷 Foto' : type === 'video' ? '🎥 Vídeo' : type === 'sticker' ? '🌟 Sticker'
-               : text.length > 80 ? text.slice(0, 80) + '…' : text;
     for (const to of groupChat.participants || []) {
-      const tok = to !== senderId && fcmStore.get(to);
-      if (tok) sendFCMPush(tok, gName, `${who}: ${what}`, { chatId, senderId }).catch(() => {});
+      if (to === senderId) continue;
+      const T = pushText(to);   // en el idioma de cada destinatario
+      const gName = groupStore.get(groupChat.groupId)?.name || groupChat.name || T.group;
+      const who = senderUser?.name || T.someone;
+      const what = type === 'audio' ? T.gAudio : type === 'location' || type === 'live_location' ? T.gLocation
+                 : type === 'image' ? T.gImage : type === 'video' ? T.gVideo : type === 'sticker' ? T.gSticker
+                 : text.length > 80 ? text.slice(0, 80) + '…' : text;
+      pushToUser(to, gName, `${who}: ${what}`, { chatId, senderId }, { message: true });
     }
     return res.json(publicMsg(msg));
   }
@@ -847,23 +1066,23 @@ router.post('/messages', async (req, res) => {
     const parts = withoutPrefix.split(/_(?=user_)/);
     const recipientId = parts.find(p => p !== senderId);
     if (recipientId) {
-      const fcmToken = fcmStore.get(recipientId);
-      if (fcmToken) {
+      if (fcmTokensOf(recipientId).length) {
         // Buscar el nombre del remitente
         let senderName = 'OldFace';
         for (const u of userStore.values()) {
           if (u.userId === senderId) { senderName = u.name; break; }
         }
-        const notifBody = type === 'audio' ? '🎤 Te ha enviado una nota de voz'
-                        : type === 'location' ? '📍 Te ha enviado su ubicación'
-                        : type === 'live_location' ? '📍 Está compartiendo su ubicación en tiempo real'
-                        : once ? `① Te ha enviado ${type === 'video' ? 'un vídeo' : 'una foto'} para ver una vez`
-                        : type === 'image' ? '📷 Te ha enviado una foto'
-                        : type === 'video' ? '🎥 Te ha enviado un vídeo'
-                        : type === 'sticker' ? '🌟 Te ha enviado un sticker'
+        const T = pushText(recipientId);   // en el idioma del destinatario
+        const notifBody = type === 'audio' ? T.audio
+                        : type === 'location' ? T.location
+                        : type === 'live_location' ? T.live_location
+                        : once ? (type === 'video' ? T.onceVideo : T.oncePhoto)
+                        : type === 'image' ? T.image
+                        : type === 'video' ? T.video
+                        : type === 'sticker' ? T.sticker
                         : text.length > 80 ? text.slice(0, 80) + '…' : text;
         // No await — responder al cliente sin esperar el push
-        sendFCMPush(fcmToken, senderName, notifBody, { chatId, senderId }).catch(() => {});
+        pushToUser(recipientId, senderName, notifBody, { chatId, senderId }, { message: true });
       }
     }
   } catch { /* no bloquear la respuesta si falla el push */ }
@@ -1439,15 +1658,12 @@ function ringGroupCall(g, call, fromId, userIds) {
       from: fromId, fromName, type: 'call_invite', ts: Date.now(),
       payload: { callType: call.callType, callerName: fromName, roomId: call.roomId, groupId: g.id, groupName: g.name },
     });
-    const fcmToken = fcmStore.get(to);
-    if (fcmToken) {
-      sendFCMData(fcmToken, {
-        type: 'call', callType: call.callType, callerId: fromId,
-        // La pantalla nativa solo muestra este nombre: grupo + quién llama
-        callerName: `${g.name} · ${fromName}`, calleeId: to,
-        roomId: call.roomId, groupId: g.id, groupName: g.name, ts: Date.now(),
-      }).catch(() => {});
-    }
+    dataToUser(to, {
+      type: 'call', callType: call.callType, callerId: fromId,
+      // La pantalla nativa solo muestra este nombre: grupo + quién llama
+      callerName: `${g.name} · ${fromName}`, calleeId: to,
+      roomId: call.roomId, groupId: g.id, groupName: g.name, ts: Date.now(),
+    });
   }
 }
 
@@ -1456,8 +1672,7 @@ function stopRingingGroupCall(call, fromId) {
   for (const to of call.invited) {
     if (to === fromId) continue;
     rtcEmit(to, 'signal', { from: fromId, type: 'call_cancel', ts: Date.now(), payload: { roomId: call.roomId } });
-    const fcmToken = fcmStore.get(to);
-    if (fcmToken) sendFCMData(fcmToken, { type: 'call_cancel', callerId: fromId, ts: Date.now() }).catch(() => {});
+    dataToUser(to, { type: 'call_cancel', callerId: fromId, ts: Date.now() });
   }
 }
 
@@ -1640,11 +1855,8 @@ function notifyLiveStarted(d) {
   for (const u of userStore.values()) {
     if (u.userId === d.creatorId) continue;
     rtcEmit(u.userId, 'live:started', { directoId: d.id, title: d.title, hostName });
-    const token = fcmStore.get(u.userId);
-    if (token) {
-      sendFCMPush(token, `🔴 ${hostName} está en directo`, d.title || 'Toca para verlo',
-        { type: 'live', directoId: d.id }).catch(() => {});
-    }
+    const T = pushText(u.userId);
+    pushToUser(u.userId, T.isLive(hostName), d.title || T.tapToWatch, { type: 'live', directoId: d.id });
   }
 }
 
@@ -2452,15 +2664,15 @@ router.post('/internal/push', async (req, res) => {
   if (!secret || hdr.length !== secret.length || !crypto.timingSafeEqual(Buffer.from(hdr), Buffer.from(secret)))
     return res.status(401).json({ error: 'unauthorized' });
   const { userId, title, body, data, dataOnly } = req.body || {};
-  const token = fcmStore.get(String(userId || ''));
-  if (!token) return res.json({ success: false, reason: 'sin token FCM' });
+  const uid = String(userId || '');
+  if (!fcmTokensOf(uid).length) return res.json({ success: false, reason: 'sin token FCM' });
   // Solo datos (ofertas de viaje del taxi): la app nativa muestra la pantalla "Nuevo servicio" aunque esté cerrada
   if (dataOnly) {
-    await sendFCMData(token, data && typeof data === 'object' ? data : {}, 60000);
+    await dataToUser(uid, data && typeof data === 'object' ? data : {}, 60000);
     return res.json({ success: true });
   }
-  await sendFCMPush(token, String(title || 'OldFace').slice(0, 120), String(body || '').slice(0, 300),
-                    data && typeof data === 'object' ? data : {});
+  await pushToUser(uid, String(title || 'OldFace').slice(0, 120), String(body || '').slice(0, 300),
+                   data && typeof data === 'object' ? data : {});
   res.json({ success: true });
 });
 

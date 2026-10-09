@@ -13,6 +13,7 @@ import TaxiMap from './TaxiMap.jsx';
 import CardPay from './CardPay.jsx';
 import { TripChatButton } from './TripChat.jsx';
 import { TripsTab, WalletTab, ProfileTab } from './CustomerTabs.jsx';
+import { tr } from '../../i18n';
 
 const ACTIVE = ['searching', 'accepted', 'arrived', 'started'];
 
@@ -28,7 +29,7 @@ export default function CustomerApp({ boot, reload, onExit }) {
 
   const tabs = [
     { key: 'home', icon: '🚕', label: tx('Inicio') },
-    { key: 'trips', icon: '🧾', label: tx('Mis viajes') },
+    { key: 'trips', icon: '🧾', label: tx(tr('Mis viajes')) },
     { key: 'wallet', icon: '👛', label: tx('Monedero') },
     { key: 'profile', icon: '👤', label: tx('Perfil') },
   ];
@@ -163,7 +164,7 @@ function RideHome({ boot, notify, onExit }) {
   const cardCancelled = async () => {
     const code = cardPay.booking.code;
     setCardPay(null);
-    try { await taxiApi(`/customer/bookings/${code}/cancel`, { method: 'POST', body: { reason: 'Pago con tarjeta no completado' } }); } catch { /* ya anulado */ }
+    try { await taxiApi(`/customer/bookings/${code}/cancel`, { method: 'POST', body: { reason: tr('Pago con tarjeta no completado') } }); } catch { /* ya anulado */ }
   };
 
   const resetRide = () => { setBooking(null); setDriverPos(null); setQuote(null); setDropoff(null); setPromo(''); setStep('idle'); if (pickup) setCenter({ lat: pickup.lat, lng: pickup.lng }); };
@@ -225,11 +226,11 @@ function RideHome({ boot, notify, onExit }) {
 
       {/* Botones flotantes */}
       <div style={{ position: 'absolute', top: 'calc(var(--sat) + 10px)', left: 12, right: 12, display: 'flex', justifyContent: 'space-between', zIndex: 3, pointerEvents: 'none' }}>
-        <RoundBtn label={tx('Volver')} onClick={goBack}>
+        <RoundBtn label={tx(tr('Volver'))} onClick={goBack}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M15 19l-7-7 7-7" /></svg>
         </RoundBtn>
         {step !== 'trip' && (
-          <RoundBtn label={tx('Mi ubicación')} onClick={locateMe}>
+          <RoundBtn label={tx(tr('Mi ubicación'))} onClick={locateMe}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.2"><circle cx="12" cy="12" r="4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
           </RoundBtn>
         )}
@@ -237,14 +238,14 @@ function RideHome({ boot, notify, onExit }) {
 
       {step === 'idle' && (
         <Sheet>
-          <p style={{ fontSize: 20, fontWeight: 900, margin: '0 0 12px' }}>{tx('¿A dónde vas?')}</p>
+          <p style={{ fontSize: 20, fontWeight: 900, margin: '0 0 12px' }}>{tx(tr('¿A dónde vas?'))}</p>
           <button onClick={() => { setPickField('dropoff'); setStep('search'); }} style={{ ...inputStyle, display: 'flex', alignItems: 'center', gap: 10, background: '#f1f5f9', border: 'none', fontWeight: 700, cursor: 'pointer', textAlign: 'left', color: C.muted, fontSize: 16, padding: '15px 14px' }}>
-            <span style={{ fontSize: 18 }}>🔍</span> {tx('Buscar destino')}
+            <span style={{ fontSize: 18 }}>🔍</span> {tx(tr('Buscar destino'))}
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, fontSize: 13, color: C.muted }}>
             <span style={{ width: 10, height: 10, borderRadius: '50%', background: C.ok, flexShrink: 0 }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pickup ? pickup.address : locFailed ? tx('Elige el punto de recogida') : tx('Buscando tu ubicación…')}</span>
-            <button onClick={() => { setPickField('pickup'); setStep('search'); }} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: BRAND, fontWeight: 800, cursor: 'pointer', flexShrink: 0 }}>{tx('Cambiar')}</button>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pickup ? pickup.address : locFailed ? tx(tr('Elige el punto de recogida')) : tx(tr('Buscando tu ubicación…'))}</span>
+            <button onClick={() => { setPickField('pickup'); setStep('search'); }} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: BRAND, fontWeight: 800, cursor: 'pointer', flexShrink: 0 }}>{tx(tr('Cambiar'))}</button>
           </div>
         </Sheet>
       )}
@@ -262,12 +263,12 @@ function RideHome({ boot, notify, onExit }) {
 
       {step === 'pick' && (
         <Sheet>
-          <p style={{ fontSize: 13, fontWeight: 800, color: C.muted, margin: '0 0 6px' }}>{pickField === 'pickup' ? tx('Punto de recogida') : tx('Destino')}</p>
-          <p style={{ fontSize: 16, fontWeight: 800, margin: '0 0 14px', minHeight: 22 }}>{pinPlace ? pinPlace.address : tx('Mueve el mapa para elegir el punto…')}</p>
+          <p style={{ fontSize: 13, fontWeight: 800, color: C.muted, margin: '0 0 6px' }}>{pickField === 'pickup' ? tx(tr('Punto de recogida')) : tx(tr('Destino'))}</p>
+          <p style={{ fontSize: 16, fontWeight: 800, margin: '0 0 14px', minHeight: 22 }}>{pinPlace ? pinPlace.address : tx(tr('Mueve el mapa para elegir el punto…'))}</p>
           <Btn disabled={!pinPlace || busy} onClick={() => {
             if (pickField === 'pickup') { setPickup(pinPlace); if (dropoff) getQuote(pinPlace, dropoff, promo); else { setPickField('dropoff'); setStep('search'); } }
             else { setDropoff(pinPlace); if (pickup) getQuote(pickup, pinPlace, promo); else { setPickField('pickup'); setStep('search'); } }
-          }}>{tx('Confirmar')}</Btn>
+          }}>{tx(tr('Confirmar'))}</Btn>
         </Sheet>
       )}
 
@@ -289,9 +290,9 @@ function RideHome({ boot, notify, onExit }) {
       )}
 
       {cardPay && (
-        <CardPay card={cardPay.card} lang={lang} title={tx('Pagar con tarjeta de crédito')}
-          note={tx('Se reserva {amount} en tu tarjeta y se cobra al terminar el viaje. Si se cancela sin gastos, la reserva se libera.', { amount: money(cardPay.booking.estimated_fare, cardPay.booking.currency) })}
-          payLabel={`${tx('Confirmar y pedir')} · ${money(cardPay.booking.estimated_fare, cardPay.booking.currency)}`}
+        <CardPay card={cardPay.card} lang={lang} title={tx(tr('Pagar con tarjeta de crédito'))}
+          note={tx(tr('Se reserva {amount} en tu tarjeta y se cobra al terminar el viaje. Si se cancela sin gastos, la reserva se libera.'), { amount: money(cardPay.booking.estimated_fare, cardPay.booking.currency) })}
+          payLabel={`${tx(tr('Confirmar y pedir'))} · ${money(cardPay.booking.estimated_fare, cardPay.booking.currency)}`}
           onPaid={cardConfirmed} onCancel={cardCancelled} />
       )}
     </div>
@@ -336,7 +337,7 @@ function SearchPanel({ lang, near, pickup, dropoff, field, setField, onPick, onM
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       {dot}
       <input ref={ref} value={q[key]} onFocus={() => setField(key)} onChange={e => search(e.target.value)}
-        placeholder={key === 'pickup' ? tx('Punto de recogida') : tx('¿A dónde vas?')}
+        placeholder={key === 'pickup' ? tx(tr('Punto de recogida')) : tx(tr('¿A dónde vas?'))}
         style={{ ...inputStyle, background: field === key ? 'white' : '#f1f5f9', borderColor: field === key ? BRAND : 'transparent' }} />
     </div>
   );
@@ -345,10 +346,10 @@ function SearchPanel({ lang, near, pickup, dropoff, field, setField, onPick, onM
     <div style={{ position: 'absolute', inset: 0, background: 'white', zIndex: 5, display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: 'calc(var(--sat) + 10px) 14px 12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <button onClick={onClose} aria-label={tx('Volver')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+          <button onClick={onClose} aria-label={tx(tr('Volver'))} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M15 19l-7-7 7-7" /></svg>
           </button>
-          <p style={{ margin: 0, fontWeight: 900, fontSize: 17 }}>{tx('Tu viaje')}</p>
+          <p style={{ margin: 0, fontWeight: 900, fontSize: 17 }}>{tx(tr('Tu viaje'))}</p>
         </div>
         <div style={{ display: 'grid', gap: 8 }}>
           {row('pickup', pickRef, <span style={{ width: 10, height: 10, borderRadius: '50%', background: C.ok, flexShrink: 0 }} />)}
@@ -356,15 +357,15 @@ function SearchPanel({ lang, near, pickup, dropoff, field, setField, onPick, onM
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {field === 'pickup' && <ListRow icon="📍" title={tx('Usar mi ubicación actual')} onClick={onMine} />}
-        <ListRow icon="🗺️" title={tx('Elegir en el mapa')} onClick={onMap} />
+        {field === 'pickup' && <ListRow icon="📍" title={tx(tr('Usar mi ubicación actual'))} onClick={onMine} />}
+        <ListRow icon="🗺️" title={tx(tr('Elegir en el mapa'))} onClick={onMap} />
         {(loading || busy) && <div style={{ display: 'flex', justifyContent: 'center', padding: 18 }}><Spinner /></div>}
         {error && <p style={{ color: C.danger, padding: '8px 18px', fontWeight: 700 }}>{error}</p>}
         {places.map((p, i) => (
           <ListRow key={i} icon="📌" title={p.name || p.address} subtitle={p.name ? p.address : p.city}
             onClick={() => onPick({ lat: p.lat, lng: p.lng, address: p.address || p.name })} />
         ))}
-        {!loading && !error && q[field].trim().length >= 2 && !places.length && <p style={{ color: C.muted, padding: '8px 18px' }}>{tx('Sin resultados')}</p>}
+        {!loading && !error && q[field].trim().length >= 2 && !places.length && <p style={{ color: C.muted, padding: '8px 18px' }}>{tx(tr('Sin resultados'))}</p>}
       </div>
     </div>
   );
@@ -390,7 +391,7 @@ function QuotePanel({ quote, settings, rideTypeId, setRideTypeId, payment, setPa
   const methods = [
     settings.payments.cash && { key: 'cash', label: tx('Efectivo'), icon: '💶' },
     settings.payments.wallet && { key: 'wallet', label: tx('Monedero'), icon: '👛' },
-    settings.payments.stripe && { key: 'stripe', label: tx('Tarjeta de crédito'), icon: '💳' },
+    settings.payments.stripe && { key: 'stripe', label: tx(tr('Tarjeta de crédito')), icon: '💳' },
   ].filter(Boolean);
   useEffect(() => { if (methods.length && !methods.some(m => m.key === payment)) setPayment(methods[0].key); }, [methods.length]); // eslint-disable-line
   const [showPromo, setShowPromo] = useState(!!promo);
@@ -402,11 +403,11 @@ function QuotePanel({ quote, settings, rideTypeId, setRideTypeId, payment, setPa
         <AddrLine dot={BRAND} square text={dropoff?.address} onClick={() => onEdit('dropoff')} />
       </div>
       <p style={{ fontSize: 12, color: C.muted, margin: '0 0 8px', fontWeight: 700 }}>
-        {quote.route.distanceKm} km · {Math.round(quote.route.durationMin)} min{quote.route.estimated ? ` · ${tx('estimado')}` : ''}
-        {quote.zone?.surge > 1 ? ` · ${tx('alta demanda')} ×${quote.zone.surge}` : ''}
+        {quote.route.distanceKm}{' '}{tr('km ·')}{' '}{Math.round(quote.route.durationMin)}{' '}{tr('min')}{quote.route.estimated ? ` · ${tx('estimado')}` : ''}
+        {quote.zone?.surge > 1 ? ` · ${tx(tr('alta demanda'))} ×${quote.zone.surge}` : ''}
       </p>
       {!quote.served ? (
-        <p style={{ background: '#fef3c7', color: '#92400e', padding: 12, borderRadius: 12, fontWeight: 700 }}>{tx('Todavía no damos servicio en esta zona')}</p>
+        <p style={{ background: '#fef3c7', color: '#92400e', padding: 12, borderRadius: 12, fontWeight: 700 }}>{tx(tr('Todavía no damos servicio en esta zona'))}</p>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8, marginBottom: 12 }}>
           {quote.options.map(o => {
@@ -417,7 +418,7 @@ function QuotePanel({ quote, settings, rideTypeId, setRideTypeId, payment, setPa
                 {o.rideType.icon ? <img src={taxiUrl(o.rideType.icon)} alt="" style={{ width: 44, height: 30, objectFit: 'contain' }} /> : <span style={{ fontSize: 26, width: 44, textAlign: 'center' }}>{rideEmoji(o.rideType.code)}</span>}
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontWeight: 900, fontSize: 16, color: C.text }}>{o.rideType.name} <span style={{ fontWeight: 600, fontSize: 12, color: C.muted }}>👤{o.rideType.seats}</span></span>
-                  <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{o.etaMin ? tx('Llega en {n} min', { n: o.etaMin }) : tx('Sin conductores cerca ahora')}</span>
+                  <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{o.etaMin ? tx(tr('Llega en {n} min'), { n: o.etaMin }) : tx(tr('Sin conductores cerca ahora'))}</span>
                 </span>
                 <span style={{ textAlign: 'right' }}>
                   <span style={{ display: 'block', fontWeight: 900, fontSize: 16, color: C.text }}>{money(o.price.total, cur)}</span>
@@ -433,18 +434,18 @@ function QuotePanel({ quote, settings, rideTypeId, setRideTypeId, payment, setPa
           <button key={m.key} onClick={() => setPayment(m.key)} style={{ padding: '8px 12px', borderRadius: 20, border: `1.5px solid ${payment === m.key ? BRAND : C.line}`,
             background: payment === m.key ? '#E3EDF2' : 'white', color: payment === m.key ? BRAND : C.text, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>{m.icon} {m.label}</button>
         ))}
-        <button onClick={() => setShowPromo(v => !v)} style={{ padding: '8px 12px', borderRadius: 20, border: `1.5px dashed ${C.line}`, background: 'white', color: C.muted, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>🏷️ {tx('Código promocional')}</button>
+        <button onClick={() => setShowPromo(v => !v)} style={{ padding: '8px 12px', borderRadius: 20, border: `1.5px dashed ${C.line}`, background: 'white', color: C.muted, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>🏷️ {tx(tr('Código promocional'))}</button>
       </div>
       {showPromo && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-          <input value={promo} onChange={e => setPromo(e.target.value.toUpperCase())} placeholder={tx('Código')} style={{ ...inputStyle, padding: '10px 12px' }} maxLength={30} />
-          <button onClick={applyPromo} disabled={!promo.trim() || busy} style={{ padding: '0 16px', borderRadius: 12, border: 'none', background: '#D5E6F0', color: BRAND, fontWeight: 800, cursor: 'pointer' }}>{tx('Aplicar')}</button>
+          <input value={promo} onChange={e => setPromo(e.target.value.toUpperCase())} placeholder={tx(tr('Código'))} style={{ ...inputStyle, padding: '10px 12px' }} maxLength={30} />
+          <button onClick={applyPromo} disabled={!promo.trim() || busy} style={{ padding: '0 16px', borderRadius: 12, border: 'none', background: '#D5E6F0', color: BRAND, fontWeight: 800, cursor: 'pointer' }}>{tx(tr('Aplicar'))}</button>
         </div>
       )}
       {quote.promoError && promo && <p style={{ color: C.danger, fontSize: 13, fontWeight: 700, margin: '0 0 10px' }}>{tx(quote.promoError)}</p>}
       <div style={{ position: 'sticky', bottom: -14, background: 'white', padding: '6px 0 14px', margin: '0 0 -14px' }}>
         <Btn onClick={onOrder} disabled={!quote.served || !sel || busy || !methods.length}>
-          {busy ? tx('Un momento…') : sel ? `${tx('Pedir')} ${sel.rideType.name} · ${money(sel.price.total, cur)}` : tx('Pedir')}
+          {busy ? tx(tr('Un momento…')) : sel ? `${tx(tr('Pedir'))} ${sel.rideType.name} · ${money(sel.price.total, cur)}` : tx(tr('Pedir'))}
         </Btn>
       </div>
     </Sheet>
@@ -461,7 +462,7 @@ function AddrLine({ dot, square, text, onClick }) {
 }
 
 // ── Viaje en curso ───────────────────────────────────────────────────────────
-const PAY_LABEL = { cash: 'Efectivo', wallet: 'Monedero', stripe: 'Tarjeta de crédito' };
+const PAY_LABEL = { cash: 'Efectivo', wallet: 'Monedero', stripe: tr('Tarjeta de crédito') };
 
 function TripPanel({ booking: b, settings, driverPos, notify, reload, onCall, onDone, onRetry }) {
   const cur = b.currency || 'EUR';
@@ -477,13 +478,13 @@ function TripPanel({ booking: b, settings, driverPos, notify, reload, onCall, on
   };
   const doCancel = async () => {
     setBusy(true);
-    try { await taxiApi(`/customer/bookings/${b.code}/cancel`, { method: 'POST', body: { reason: 'Cancelado por el cliente' } }); setConfirmCancel(null); await reload(); }
+    try { await taxiApi(`/customer/bookings/${b.code}/cancel`, { method: 'POST', body: { reason: tr('Cancelado por el cliente') } }); setConfirmCancel(null); await reload(); }
     catch (e) { notify(e.message, true); }
     setBusy(false);
   };
   const rate = async () => {
     setBusy(true);
-    try { await taxiApi(`/customer/bookings/${b.code}/rate`, { method: 'POST', body: { stars, comment } }); notify(tx('¡Gracias por tu valoración!')); onDone(); }
+    try { await taxiApi(`/customer/bookings/${b.code}/rate`, { method: 'POST', body: { stars, comment } }); notify(tx(tr('¡Gracias por tu valoración!'))); onDone(); }
     catch (e) { notify(e.message, true); }
     setBusy(false);
   };
@@ -499,7 +500,7 @@ function TripPanel({ booking: b, settings, driverPos, notify, reload, onCall, on
           <span style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: `${BRAND}22`, animation: 'taxiPulse 1.6s ease-out infinite' }} />
           <span style={{ fontSize: 34 }}>🚕</span>
         </div>
-        <p style={{ fontWeight: 900, fontSize: 18, margin: 0 }}>{tx('Buscando conductor…')}</p>
+        <p style={{ fontWeight: 900, fontSize: 18, margin: 0 }}>{tx(tr('Buscando conductor…'))}</p>
         <p style={{ color: C.muted, margin: 0, fontSize: 14, textAlign: 'center' }}>{b.rideType?.name} · {money(b.estimated_fare, cur)} · {payLabel}</p>
       </div>
       {cancel}
@@ -510,26 +511,26 @@ function TripPanel({ booking: b, settings, driverPos, notify, reload, onCall, on
   if (['accepted', 'arrived', 'started'].includes(b.status)) return (
     <Sheet>
       <p style={{ fontWeight: 900, fontSize: 18, margin: '0 0 2px' }}>
-        {b.status === 'accepted' ? tx('Tu conductor va de camino') : b.status === 'arrived' ? tx('Tu conductor ha llegado') : tx('En viaje')}
+        {b.status === 'accepted' ? tx(tr('Tu conductor va de camino')) : b.status === 'arrived' ? tx(tr('Tu conductor ha llegado')) : tx(tr('En viaje'))}
       </p>
       <p style={{ color: C.muted, margin: '0 0 12px', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {b.status === 'accepted' ? (eta ? tx('Llega en {n} min', { n: eta }) : b.pickup_address) : b.status === 'arrived' ? b.pickup_address : `${tx('Destino')}: ${b.dropoff_address}`}
+        {b.status === 'accepted' ? (eta ? tx(tr('Llega en {n} min'), { n: eta }) : b.pickup_address) : b.status === 'arrived' ? b.pickup_address : `${tx(tr('Destino'))}: ${b.dropoff_address}`}
       </p>
       <DriverCard b={b} />
       {settings.otpRequired && b.start_otp && b.status !== 'started' && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#E3EDF2', borderRadius: 14, padding: '10px 14px', margin: '12px 0 0' }}>
-          <span style={{ fontSize: 13, fontWeight: 800, color: BRAND }}>{tx('Código para empezar el viaje')}<br /><span style={{ fontWeight: 600, color: C.muted, fontSize: 12 }}>{tx('Díselo al conductor al subir')}</span></span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: BRAND }}>{tx(tr('Código para empezar el viaje'))}<br /><span style={{ fontWeight: 600, color: C.muted, fontSize: 12 }}>{tx(tr('Díselo al conductor al subir'))}</span></span>
           <span style={{ fontSize: 28, fontWeight: 900, letterSpacing: 6, color: BRAND }}>{b.start_otp}</span>
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-        <TripChatButton code={b.code} role="customer" otherName={b.driver?.name} label={tx('Mensaje')}
+        <TripChatButton code={b.code} role="customer" otherName={b.driver?.name} label={tx(tr('Mensaje'))}
           style={{ flex: 1.6, width: 'auto', height: 'auto', minHeight: 44, borderRadius: 14 }} />
-        <Btn variant="soft" onClick={onCall} style={{ flex: 1, padding: '12px 6px', fontSize: 14 }}>📞 {tx('Llamar')}</Btn>
+        <Btn variant="soft" onClick={onCall} style={{ flex: 1, padding: '12px 6px', fontSize: 14 }}>📞 {tx(tr('Llamar'))}</Btn>
         <Btn variant="soft" onClick={() => shareTrip(b)} style={{ flex: '0 0 48px', padding: '12px 0', fontSize: 16 }}>
-          <span role="img" aria-label={tx('Compartir')} title={tx('Compartir')}>🔗</span>
+          <span role="img" aria-label={tx(tr('Compartir'))} title={tx(tr('Compartir'))}>🔗</span>
         </Btn>
-        {b.status === 'started' && <Btn variant="danger" onClick={() => { window.location.href = 'tel:112'; }} style={{ flex: 1, padding: '12px 6px', fontSize: 14 }}>🆘 SOS</Btn>}
+        {b.status === 'started' && <Btn variant="danger" onClick={() => { window.location.href = 'tel:112'; }} style={{ flex: 1, padding: '12px 6px', fontSize: 14 }}>{tr('🆘 SOS')}</Btn>}
       </div>
       {/* Con el conductor ya en camino el cliente no puede cancelar (solo mientras se busca conductor) */}
       <p style={{ textAlign: 'center', color: C.muted, fontSize: 13, margin: '12px 0 0' }}>{money(b.estimated_fare, cur)} · {payLabel}</p>
@@ -538,18 +539,18 @@ function TripPanel({ booking: b, settings, driverPos, notify, reload, onCall, on
 
   if (b.status === 'completed') return (
     <Sheet>
-      <p style={{ fontWeight: 900, fontSize: 20, margin: '0 0 4px', textAlign: 'center' }}>{tx('Has llegado a tu destino')}</p>
+      <p style={{ fontWeight: 900, fontSize: 20, margin: '0 0 4px', textAlign: 'center' }}>{tx(tr('Has llegado a tu destino'))}</p>
       <p style={{ fontWeight: 900, fontSize: 30, margin: '6px 0', textAlign: 'center', color: BRAND }}>{money(b.total_amount, cur)}</p>
-      <p style={{ color: C.muted, textAlign: 'center', margin: '0 0 14px', fontSize: 13 }}>{payLabel}{b.payment_method === 'cash' ? ` · ${tx('Paga al conductor')}` : b.payment_method === 'stripe' ? ` · ${tx('Se cobra en tu tarjeta')}` : ''}</p>
+      <p style={{ color: C.muted, textAlign: 'center', margin: '0 0 14px', fontSize: 13 }}>{payLabel}{b.payment_method === 'cash' ? ` · ${tx(tr('Paga al conductor'))}` : b.payment_method === 'stripe' ? ` · ${tx(tr('Se cobra en tu tarjeta'))}` : ''}</p>
       {!rated ? (
         <>
-          <p style={{ textAlign: 'center', fontWeight: 800, margin: '0 0 8px' }}>{tx('¿Qué tal con {name}?', { name: b.driver?.name || tx('tu conductor') })}</p>
+          <p style={{ textAlign: 'center', fontWeight: 800, margin: '0 0 8px' }}>{tx(tr('¿Qué tal con {name}?'), { name: b.driver?.name || tx(tr('tu conductor')) })}</p>
           <Stars value={stars} onChange={setStars} />
-          <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder={tx('Comentario (opcional)')} rows={2} maxLength={500} style={{ ...inputStyle, marginTop: 12, resize: 'none' }} />
-          <Btn onClick={rate} disabled={!stars || busy} style={{ marginTop: 10 }}>{tx('Enviar valoración')}</Btn>
-          <Btn variant="ghost" onClick={onDone} style={{ marginTop: 8 }}>{tx('Ahora no')}</Btn>
+          <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder={tx(tr('Comentario (opcional)'))} rows={2} maxLength={500} style={{ ...inputStyle, marginTop: 12, resize: 'none' }} />
+          <Btn onClick={rate} disabled={!stars || busy} style={{ marginTop: 10 }}>{tx(tr('Enviar valoración'))}</Btn>
+          <Btn variant="ghost" onClick={onDone} style={{ marginTop: 8 }}>{tx(tr('Ahora no'))}</Btn>
         </>
-      ) : <Btn onClick={onDone}>{tx('Hecho')}</Btn>}
+      ) : <Btn onClick={onDone}>{tx(tr('Hecho'))}</Btn>}
     </Sheet>
   );
 
@@ -557,25 +558,25 @@ function TripPanel({ booking: b, settings, driverPos, notify, reload, onCall, on
   return (
     <Sheet>
       <p style={{ fontWeight: 900, fontSize: 18, margin: '0 0 6px', textAlign: 'center' }}>
-        {b.status === 'expired' ? tx('No hay conductores disponibles ahora mismo') : tx('Viaje cancelado')}
+        {b.status === 'expired' ? tx(tr('No hay conductores disponibles ahora mismo')) : tx(tr('Viaje cancelado'))}
       </p>
-      {b.cancel_fee > 0 && <p style={{ color: C.muted, textAlign: 'center', margin: '0 0 10px' }}>{tx('Gastos de cancelación')}: {money(b.cancel_fee, cur)}</p>}
-      <Btn onClick={onRetry} style={{ marginTop: 8 }}>{tx('Volver a intentarlo')}</Btn>
-      <Btn variant="ghost" onClick={onDone} style={{ marginTop: 8 }}>{tx('Cerrar')}</Btn>
+      {b.cancel_fee > 0 && <p style={{ color: C.muted, textAlign: 'center', margin: '0 0 10px' }}>{tx(tr('Gastos de cancelación'))}: {money(b.cancel_fee, cur)}</p>}
+      <Btn onClick={onRetry} style={{ marginTop: 8 }}>{tx(tr('Volver a intentarlo'))}</Btn>
+      <Btn variant="ghost" onClick={onDone} style={{ marginTop: 8 }}>{tx(tr('Cerrar'))}</Btn>
     </Sheet>
   );
 }
 
 function CancelBox({ cur, confirm, setConfirm, onAsk, onCancel, busy }) {
-  if (!confirm) return <button onClick={onAsk} style={{ display: 'block', margin: '12px auto 0', background: 'none', border: 'none', color: C.danger, fontWeight: 800, cursor: 'pointer', fontSize: 14 }}>{tx('Cancelar viaje')}</button>;
+  if (!confirm) return <button onClick={onAsk} style={{ display: 'block', margin: '12px auto 0', background: 'none', border: 'none', color: C.danger, fontWeight: 800, cursor: 'pointer', fontSize: 14 }}>{tx(tr('Cancelar viaje'))}</button>;
   return (
     <div style={{ background: '#fef2f2', borderRadius: 14, padding: 12, marginTop: 12 }}>
       <p style={{ margin: '0 0 10px', fontWeight: 800, color: C.danger, fontSize: 14 }}>
-        {confirm.fee > 0 ? tx('¿Cancelar el viaje? Se cobrarán {fee} de gastos de cancelación.', { fee: money(confirm.fee, cur) }) : tx('¿Seguro que quieres cancelar el viaje?')}
+        {confirm.fee > 0 ? tx(tr('¿Cancelar el viaje? Se cobrarán {fee} de gastos de cancelación.'), { fee: money(confirm.fee, cur) }) : tx(tr('¿Seguro que quieres cancelar el viaje?'))}
       </p>
       <div style={{ display: 'flex', gap: 8 }}>
-        <Btn variant="ghost" onClick={() => setConfirm(null)} style={{ flex: 1, padding: 10 }}>{tx('No')}</Btn>
-        <Btn variant="danger" onClick={onCancel} disabled={busy} style={{ flex: 1, padding: 10 }}>{tx('Sí, cancelar')}</Btn>
+        <Btn variant="ghost" onClick={() => setConfirm(null)} style={{ flex: 1, padding: 10 }}>{tx(tr('No'))}</Btn>
+        <Btn variant="danger" onClick={onCancel} disabled={busy} style={{ flex: 1, padding: 10 }}>{tx(tr('Sí, cancelar'))}</Btn>
       </div>
     </div>
   );
@@ -597,7 +598,7 @@ function DriverCard({ b }) {
 }
 
 async function shareTrip(b) {
-  const text = `${tx('Voy en un taxi de OldFace')}: ${b.pickup_address} → ${b.dropoff_address}. ${tx('Conductor')}: ${b.driver?.name || ''} ${b.vehicle?.plate ? `(${b.vehicle.plate})` : ''}`;
+  const text = `${tx(tr('Voy en un taxi de OldFace'))}: ${b.pickup_address} → ${b.dropoff_address}. ${tx('Conductor')}: ${b.driver?.name || ''} ${b.vehicle?.plate ? `(${b.vehicle.plate})` : ''}`;
   try {
     const { Capacitor } = await import('@capacitor/core');
     if (Capacitor.isNativePlatform()) { const { Share } = await import('@capacitor/share'); await Share.share({ text }); return; }

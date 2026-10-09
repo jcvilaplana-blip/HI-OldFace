@@ -15,6 +15,7 @@ import { KaraokeScorer, lineLabel } from '../utils/karaokeScore';
 import { parseLrc, duetParts, fmtTime } from '../utils/lrc';
 import LyricsView, { KARAOKE_ACCENT, DUET_PARTNER } from '../components/LyricsView';
 import { absUrl } from './KaraokePage';
+import { tr } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const BG = 'linear-gradient(180deg, #141A2A 0%, #111827 55%, #3D5A80 140%)';
@@ -77,11 +78,11 @@ export default function KaraokeSingPage() {
       try {
         const { songs } = await (await fetch(`${BACKEND}/karaoke/songs`)).json();
         const s = (songs || []).find(x => x.id === songId);
-        if (!s) throw new Error('Canción no encontrada');
+        if (!s) throw new Error(tr('Canción no encontrada'));
         if (joinId) {
           const r = await fetch(`${BACKEND}/karaoke/recordings/${encodeURIComponent(joinId)}`);
           const d = await r.json().catch(() => ({}));
-          if (!r.ok || !d.recording?.duetPart || d.recording.duetOf || d.recording.songId !== songId) throw new Error('Este dúo ya no está disponible');
+          if (!r.ok || !d.recording?.duetPart || d.recording.duetOf || d.recording.songId !== songId) throw new Error(tr('Este dúo ya no está disponible'));
           setPartner(d.recording);
         }
         setSong(s);
@@ -137,7 +138,7 @@ export default function KaraokeSingPage() {
       setDur(engine.duration || song.duration || 0);
       setStage('ready');
     } catch (e) {
-      setError(e?.name === 'NotAllowedError' ? 'Necesitamos permiso para usar el micrófono y la cámara' : (e.message || 'No se pudo preparar el audio'));
+      setError(e?.name === 'NotAllowedError' ? tr('Necesitamos permiso para usar el micrófono y la cámara') : (e.message || tr('No se pudo preparar el audio')));
       setStage('error');
     }
   };
@@ -171,7 +172,7 @@ export default function KaraokeSingPage() {
     clearInterval(drawTimer.current);
     drawTimer.current = setInterval(() => {
       half(partner.video ? partnerRef.current : null, 0, partner.userName, false);
-      half(videoRef.current, 640, user?.name || 'Yo', true);
+      half(videoRef.current, 640, user?.name || tr('Yo'), true);
     }, 1000 / 24);
     engine.setRecordVideoTrack(canvas.captureStream(24).getVideoTracks()[0]);
   };
@@ -274,7 +275,7 @@ export default function KaraokeSingPage() {
         method: 'POST', headers: { 'Content-Type': (rec.blob.type || 'video/webm').split(';')[0] }, body: rec.blob,
       });
       const { url, video, error: upErr } = await up.json().catch(() => ({}));
-      if (!url) throw new Error(upErr || 'No se pudo subir la grabación');
+      if (!url) throw new Error(upErr || tr('No se pudo subir la grabación'));
       const res = await fetch(`${BACKEND}/karaoke/recordings`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -283,7 +284,7 @@ export default function KaraokeSingPage() {
         }),
       });
       const d = await res.json();
-      if (!res.ok) throw new Error(d.error || 'No se pudo guardar');
+      if (!res.ok) throw new Error(d.error || tr('No se pudo guardar'));
       setSaved(d.recording);
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
@@ -291,16 +292,16 @@ export default function KaraokeSingPage() {
 
   const share = async () => {
     if (!saved) return;
-    const what = mode === 'duo' ? `¡Canta conmigo! Abrí un dúo de "${song.title}" en OldFace (Karaoke → Dúos)`
-               : mode === 'join' ? `🎤 Mira nuestro dúo de "${song.title}" con ${partner?.userName} en OldFace`
-               : `🎤 ${saved.video ? 'Mira' : 'Escucha'} cómo canto "${song.title}" en OldFace`;
-    const text = result ? `${what} — ¡${result.score} puntos!` : what;
+    const what = mode === 'duo' ? tr('¡Canta conmigo! Abrí un dúo de "{title}" en OldFace (Karaoke → Dúos)', { title: song.title })
+               : mode === 'join' ? tr('🎤 Mira nuestro dúo de "{title}" con {userName} en OldFace', { title: song.title, userName: partner?.userName })
+               : tr('🎤 {p0} cómo canto "{title}" en OldFace', { p0: saved.video ? 'Mira' : 'Escucha', title: song.title });
+    const text = result ? tr('{what} — ¡{score} puntos!', { what, score: result.score }) : what;
     const url = absUrl(saved.audioUrl);
     try {
       const { Capacitor } = await import('@capacitor/core');
       if (Capacitor.isNativePlatform()) {
         const { Share } = await import('@capacitor/share');
-        await Share.share({ title: song.title, text, url, dialogTitle: 'Compartir grabación' });
+        await Share.share({ title: song.title, text, url, dialogTitle: tr('Compartir grabación') });
         return;
       }
     } catch { /* web */ }
@@ -334,7 +335,7 @@ export default function KaraokeSingPage() {
       {/* Cabecera */}
       <div style={{ paddingTop: 'max(env(safe-area-inset-top, 12px), 12px)', flexShrink: 0, position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 14px' }}>
-          <button onClick={close} aria-label="Cerrar" style={{ background: 'none', border: 'none', color: 'white', fontSize: 22, cursor: 'pointer', width: 32 }}>✕</button>
+          <button onClick={close} aria-label={tr('Cerrar')} style={{ background: 'none', border: 'none', color: 'white', fontSize: 22, cursor: 'pointer', width: 32 }}>✕</button>
           <p style={{ flex: 1, margin: 0, textAlign: 'center', fontSize: 14, fontWeight: 700, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {mode !== 'solo' && '👥 '}♫ {song ? `${song.title}${song.artist ? ' - ' + song.artist : ''}` : ''}
           </p>
@@ -350,8 +351,8 @@ export default function KaraokeSingPage() {
             <span style={{ fontFamily: 'monospace' }}>{fmtTime(pos)} / {fmtTime(dur)}</span>
             {duetPart && (
               <span style={{ fontWeight: 800 }}>
-                <span style={{ color: KARAOKE_ACCENT }}>● Tú (parte {duetPart})</span>
-                {'  '}<span style={{ color: DUET_PARTNER }}>● {mode === 'join' ? partner?.userName : 'Tu pareja'}</span>
+                <span style={{ color: KARAOKE_ACCENT }}>{tr('● Tú (parte')}{' '}{duetPart})</span>
+                {'  '}<span style={{ color: DUET_PARTNER }}>● {mode === 'join' ? partner?.userName : tr('Tu pareja')}</span>
               </span>
             )}
           </div>
@@ -381,28 +382,28 @@ export default function KaraokeSingPage() {
       <div style={{ flexShrink: 0, padding: '10px 18px calc(env(safe-area-inset-bottom, 0px) + 18px)', position: 'relative', zIndex: 1 }}>
         {stage === 'ready' && (
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={() => setShowMixer(true)} aria-label="Ajustes de sonido" style={{ ...bigBtn, width: 60, flexShrink: 0, background: 'rgba(255,255,255,0.18)', fontSize: 20 }}>🎚</button>
-            <button onClick={start} style={bigBtn}>Pulsa para empezar</button>
+            <button onClick={() => setShowMixer(true)} aria-label={tr('Ajustes de sonido')} style={{ ...bigBtn, width: 60, flexShrink: 0, background: 'rgba(255,255,255,0.18)', fontSize: 20 }}>🎚</button>
+            <button onClick={start} style={bigBtn}>{tr('Pulsa para empezar')}</button>
           </div>
         )}
-        {stage === 'preparing' && <p style={{ textAlign: 'center', opacity: 0.8 }}>Preparando cámara, micrófono y canción…</p>}
+        {stage === 'preparing' && <p style={{ textAlign: 'center', opacity: 0.8 }}>{tr('Preparando cámara, micrófono y canción…')}</p>}
         {stage === 'singing' && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around' }}>
-            <CtrlBtn label="Mezclador" onPress={() => setShowMixer(true)}>
+            <CtrlBtn label={tr('Mezclador')} onPress={() => setShowMixer(true)}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
             </CtrlBtn>
             {hasVideo && (
-              <CtrlBtn label={camOn ? 'Cámara' : 'Sin cámara'} onPress={toggleCamera}>
+              <CtrlBtn label={camOn ? tr('Cámara') : tr('Sin cámara')} onPress={toggleCamera}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: camOn ? 1 : 0.5 }}><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>{!camOn && <line x1="2" y1="2" x2="22" y2="22"/>}</svg>
               </CtrlBtn>
             )}
-            <button onClick={togglePause} aria-label={paused ? 'Continuar' : 'Pausa'} style={{ width: 70, height: 70, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.18)', color: 'white', fontSize: 26, cursor: 'pointer' }}>
+            <button onClick={togglePause} aria-label={paused ? tr('Continuar') : tr('Pausa')} style={{ width: 70, height: 70, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.18)', color: 'white', fontSize: 26, cursor: 'pointer' }}>
               {paused ? '▶' : '❚❚'}
             </button>
-            <CtrlBtn label="Reiniciar" onPress={restart}>
+            <CtrlBtn label={tr('Reiniciar')} onPress={restart}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
             </CtrlBtn>
-            <CtrlBtn label="Hecho" onPress={finish}>
+            <CtrlBtn label={tr('Hecho')} onPress={finish}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg>
             </CtrlBtn>
           </div>
@@ -415,25 +416,24 @@ export default function KaraokeSingPage() {
           {mode === 'join' ? (
             <>
               <div style={{ fontSize: 40, marginBottom: 4 }}>👥</div>
-              <p style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 900 }}>Dúo con {partner?.userName}</p>
-              <p style={{ margin: '0 0 14px', fontSize: 13, opacity: 0.85, lineHeight: 1.5 }}>
-                Oirás su grabación y cantarás la <b>parte {duetPart}</b>. Sus frases salen en <span style={{ color: DUET_PARTNER, fontWeight: 800 }}>rosa</span>.
+              <p style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 900 }}>{tr('Dúo con')}{' '}{partner?.userName}</p>
+              <p style={{ margin: '0 0 14px', fontSize: 13, opacity: 0.85, lineHeight: 1.5 }}>{tr('Oirás su grabación y cantarás la')}{' '}<b>{tr('parte')}{' '}{duetPart}</b>{tr('. Sus frases salen en')}{' '}<span style={{ color: DUET_PARTNER, fontWeight: 800 }}>{tr('rosa')}</span>.
               </p>
             </>
           ) : (
             <>
-              <p style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 900 }}>¿Cómo quieres cantar?</p>
+              <p style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 900 }}>{tr('¿Cómo quieres cantar?')}</p>
               <div style={{ display: 'flex', gap: 8, marginBottom: mode === 'duo' ? 8 : 14 }}>
-                {[['solo', '🎤 Solo'], ['duo', '👥 Dúo']].map(([id, label]) => (
+                {[['solo', tr('🎤 Solo')], ['duo', tr('👥 Dúo')]].map(([id, label]) => (
                   <button key={id} onClick={() => setMode(id)} style={{ ...chip(mode === id), flex: 1, padding: '11px 0', fontSize: 14 }}>{label}</button>
                 ))}
               </div>
               {mode === 'duo' && (
                 <>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                    {['A', 'B'].map(p => <button key={p} onClick={() => setMyPart(p)} style={{ ...chip(myPart === p), flex: 1 }}>Parte {p}</button>)}
+                    {['A', 'B'].map(p => <button key={p} onClick={() => setMyPart(p)} style={{ ...chip(myPart === p), flex: 1 }}>{tr('Parte')}{' '}{p}</button>)}
                   </div>
-                  <p style={{ margin: '0 0 14px', fontSize: 12, opacity: 0.8, lineHeight: 1.45 }}>Grabas tu parte y tus amigos se unen después desde Karaoke → Dúos para cantar la otra.</p>
+                  <p style={{ margin: '0 0 14px', fontSize: 12, opacity: 0.8, lineHeight: 1.45 }}>{tr('Grabas tu parte y tus amigos se unen después desde Karaoke → Dúos para cantar la otra.')}</p>
                 </>
               )}
             </>
@@ -441,8 +441,8 @@ export default function KaraokeSingPage() {
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 14 }}>
             <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 900 }}>🎧 {hpTitle(hpKind)}</p>
             <p style={{ margin: '0 0 14px', fontSize: 12, opacity: 0.85, lineHeight: 1.5 }}>{hpText(hpKind)}</p>
-            <button onClick={() => prepare(true)} style={{ ...bigBtn, marginBottom: 10 }}>{hpKind === 'none' ? 'Tengo auriculares' : 'Cantar con auriculares'}</button>
-            <button onClick={() => prepare(false)} style={{ ...bigBtn, background: 'rgba(255,255,255,0.15)' }}>Cantar sin auriculares</button>
+            <button onClick={() => prepare(true)} style={{ ...bigBtn, marginBottom: 10 }}>{hpKind === 'none' ? tr('Tengo auriculares') : tr('Cantar con auriculares')}</button>
+            <button onClick={() => prepare(false)} style={{ ...bigBtn, background: 'rgba(255,255,255,0.15)' }}>{tr('Cantar sin auriculares')}</button>
           </div>
         </Modal>
       )}
@@ -454,32 +454,32 @@ export default function KaraokeSingPage() {
             <div style={{ marginBottom: 12 }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 74, height: 74, borderRadius: '50%', fontSize: 38, fontWeight: 900,
                             background: 'linear-gradient(135deg, #facc15, #f97316)', color: '#1e1b4b', boxShadow: '0 6px 20px rgba(250,204,21,0.4)' }}>{result.grade}</div>
-              <p style={{ margin: '8px 0 2px', fontSize: 22, fontWeight: 900 }}>{result.score} puntos</p>
-              <p style={{ margin: 0, fontSize: 12, opacity: 0.85 }}>Ritmo {result.timing}% · Afinación {result.tune}%</p>
+              <p style={{ margin: '8px 0 2px', fontSize: 22, fontWeight: 900 }}>{result.score}{' '}{tr('puntos')}</p>
+              <p style={{ margin: 0, fontSize: 12, opacity: 0.85 }}>{tr('Ritmo')}{' '}{result.timing}{tr('% · Afinación')}{' '}{result.tune}%</p>
             </div>
           ) : (
-            <><div style={{ fontSize: 46, marginBottom: 6 }}>🎉</div><p style={{ margin: '0 0 4px', fontSize: 19, fontWeight: 900 }}>¡Bravo!</p></>
+            <><div style={{ fontSize: 46, marginBottom: 6 }}>🎉</div><p style={{ margin: '0 0 4px', fontSize: 19, fontWeight: 900 }}>{tr('¡Bravo!')}</p></>
           )}
-          <p style={{ margin: '0 0 12px', fontSize: 13, opacity: 0.85 }}>{rec.video ? 'Mira' : 'Escucha'} tu grabación de "{song?.title}" ({fmtTime(rec.duration)})</p>
+          <p style={{ margin: '0 0 12px', fontSize: 13, opacity: 0.85 }}>{rec.video ? tr('Mira') : tr('Escucha')}{' '}{tr('tu grabación de "')}{song?.title}" ({fmtTime(rec.duration)})</p>
           {rec.video
             ? <video controls playsInline src={rec.url} style={{ width: '100%', maxHeight: '34vh', borderRadius: 14, background: '#000', marginBottom: 12 }} />
             : <audio controls src={rec.url} style={{ width: '100%', marginBottom: 12 }} />}
           {!saved ? (
             <button onClick={save} disabled={saving} style={{ ...bigBtn, marginBottom: 10, opacity: saving ? 0.6 : 1 }}>
-              {saving ? 'Guardando…' : mode === 'duo' ? 'Guardar y abrir el dúo' : 'Guardar en mis grabaciones'}
+              {saving ? tr('Guardando…') : mode === 'duo' ? tr('Guardar y abrir el dúo') : tr('Guardar en mis grabaciones')}
             </button>
           ) : (
-            <button onClick={share} style={{ ...bigBtn, marginBottom: 10 }}>Compartir ↗</button>
+            <button onClick={share} style={{ ...bigBtn, marginBottom: 10 }}>{tr('Compartir ↗')}</button>
           )}
           {saved && (
             <p style={{ margin: '0 0 10px', fontSize: 12, color: '#86efac', fontWeight: 700 }}>
-              {mode === 'duo' ? '✓ Dúo abierto: otros pueden unirse desde Karaoke → Dúos' : '✓ Guardada en Mis grabaciones'}
+              {mode === 'duo' ? tr('✓ Dúo abierto: otros pueden unirse desde Karaoke → Dúos') : '✓ Guardada en Mis grabaciones'}
             </p>
           )}
           {error && <p style={{ margin: '0 0 10px', fontSize: 12, color: '#fca5a5' }}>{error}</p>}
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={() => { setRec(null); setSaved(null); setError(''); setResult(null); setStage('ready'); }} style={{ ...bigBtn, flex: 1, background: 'rgba(255,255,255,0.15)', fontSize: 14 }}>Repetir</button>
-            <button onClick={() => navigate('/karaoke?tab=grabaciones', { replace: true })} style={{ ...bigBtn, flex: 1, background: 'rgba(255,255,255,0.15)', fontSize: 14 }}>Salir</button>
+            <button onClick={() => { setRec(null); setSaved(null); setError(''); setResult(null); setStage('ready'); }} style={{ ...bigBtn, flex: 1, background: 'rgba(255,255,255,0.15)', fontSize: 14 }}>{tr('Repetir')}</button>
+            <button onClick={() => navigate('/karaoke?tab=grabaciones', { replace: true })} style={{ ...bigBtn, flex: 1, background: 'rgba(255,255,255,0.15)', fontSize: 14 }}>{tr('Salir')}</button>
           </div>
         </Modal>
       )}
@@ -489,28 +489,26 @@ export default function KaraokeSingPage() {
         <div onClick={() => setShowMixer(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', zIndex: 5 }}>
           <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxHeight: '80vh', overflowY: 'auto', background: '#161c3a', borderRadius: '22px 22px 0 0', padding: '20px 18px calc(env(safe-area-inset-bottom, 0px) + 24px)' }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-              <p style={{ flex: 1, margin: 0, fontWeight: 900, fontSize: 16 }}>Mezclador</p>
+              <p style={{ flex: 1, margin: 0, fontWeight: 900, fontSize: 16 }}>{tr('Mezclador')}</p>
               <button onClick={() => setShowMixer(false)} style={{ background: 'none', border: 'none', color: 'white', fontSize: 18, cursor: 'pointer' }}>✕</button>
             </div>
-            <Slider label="Música" value={mix.music} onChange={v => changeMix('music', v)} />
-            <Slider label="Voz (en la grabación)" value={mix.voice} onChange={v => changeMix('voice', v)} />
+            <Slider label={tr('Música')} value={mix.music} onChange={v => changeMix('music', v)} />
+            <Slider label={tr('Voz (en la grabación)')} value={mix.voice} onChange={v => changeMix('voice', v)} />
             {headphones
-              ? <Slider label="Oír mi voz en los auriculares" value={mix.monitor} onChange={v => changeMix('monitor', v)} />
-              : <p style={{ fontSize: 12, opacity: 0.6, margin: '0 0 16px' }}>Oír tu voz solo está disponible con auriculares.</p>}
+              ? <Slider label={tr('Oír mi voz en los auriculares')} value={mix.monitor} onChange={v => changeMix('monitor', v)} />
+              : <p style={{ fontSize: 12, opacity: 0.6, margin: '0 0 16px' }}>{tr('Oír tu voz solo está disponible con auriculares.')}</p>}
 
-            <Section title="🎯 Sincronizar voz con la música">
+            <Section title={tr('🎯 Sincronizar voz con la música')}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, marginBottom: 6 }}>
-                <span>Ajuste de la grabación</span>
-                <span style={{ fontWeight: 800 }}>{mix.sync} ms{mix.sync === autoSync ? ' (auto)' : ''}</span>
+                <span>{tr('Ajuste de la grabación')}</span>
+                <span style={{ fontWeight: 800 }}>{mix.sync}{' '}{tr('ms')}{mix.sync === autoSync ? ' (auto)' : ''}</span>
               </div>
               <input type="range" min="0" max="500" step="10" value={mix.sync} onChange={e => changeMix('sync', Number(e.target.value))}
                 style={{ width: '100%', accentColor: KARAOKE_ACCENT }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
-                <p style={{ flex: 1, margin: 0, fontSize: 11, opacity: 0.7, lineHeight: 1.4 }}>
-                  Si al escuchar la grabación tu voz va <b>retrasada</b> respecto a la música, súbelo; si va <b>adelantada</b>, bájalo.
-                </p>
+                <p style={{ flex: 1, margin: 0, fontSize: 11, opacity: 0.7, lineHeight: 1.4 }}>{tr('Si al escuchar la grabación tu voz va')}{' '}<b>{tr('retrasada')}</b>{' '}{tr('respecto a la música, súbelo; si va')}{' '}<b>{tr('adelantada')}</b>{tr(', bájalo.')}</p>
                 {mix.sync !== autoSync && (
-                  <button onClick={() => changeMix('sync', autoSync)} style={{ ...chip(false), flexShrink: 0 }}>Auto</button>
+                  <button onClick={() => changeMix('sync', autoSync)} style={{ ...chip(false), flexShrink: 0 }}>{tr('Auto')}</button>
                 )}
               </div>
             </Section>
@@ -521,39 +519,39 @@ export default function KaraokeSingPage() {
                   <button key={id} onClick={() => changeMix('reverbType', id)} style={{ ...chip(mix.reverbType === id), flex: 1 }}>{p.label}</button>
                 ))}
               </div>
-              <Slider label="Cantidad de reverb" value={mix.reverb} onChange={v => changeMix('reverb', v)} />
+              <Slider label={tr('Cantidad de reverb')} value={mix.reverb} onChange={v => changeMix('reverb', v)} />
             </Section>
 
-            <Section title="🎼 Tono de la canción">
+            <Section title={tr('🎼 Tono de la canción')}>
               {canKey ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <button onClick={() => changeMix('key', Math.max(-6, mix.key - 1))} style={stepBtn}>−</button>
                   <div style={{ flex: 1, textAlign: 'center' }}>
                     <p style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>{mix.key > 0 ? `+${mix.key}` : mix.key}</p>
-                    <p style={{ margin: 0, fontSize: 11, opacity: 0.7 }}>{mix.key === 0 ? 'Tono original' : mix.key > 0 ? 'Más agudo' : 'Más grave'} (semitonos)</p>
+                    <p style={{ margin: 0, fontSize: 11, opacity: 0.7 }}>{mix.key === 0 ? tr('Tono original') : mix.key > 0 ? tr('Más agudo') : tr('Más grave')}{' '}{tr('(semitonos)')}</p>
                   </div>
                   <button onClick={() => changeMix('key', Math.min(6, mix.key + 1))} style={stepBtn}>+</button>
                 </div>
-              ) : <p style={{ fontSize: 12, opacity: 0.6, margin: 0 }}>{mode === 'join' ? 'En un dúo se canta en el tono que eligió tu pareja.' : 'Tu móvil no permite cambiar el tono.'}</p>}
+              ) : <p style={{ fontSize: 12, opacity: 0.6, margin: 0 }}>{mode === 'join' ? tr('En un dúo se canta en el tono que eligió tu pareja.') : tr('Tu móvil no permite cambiar el tono.')}</p>}
             </Section>
 
             <Section title="⏱ Velocidad">
               {mode === 'solo' ? (
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {SPEEDS.map(s => <button key={s} onClick={() => changeMix('speed', s)} style={{ ...chip(mix.speed === s), flex: 1 }}>{s === 1 ? 'Normal' : `${s}x`}</button>)}
+                  {SPEEDS.map(s => <button key={s} onClick={() => changeMix('speed', s)} style={{ ...chip(mix.speed === s), flex: 1 }}>{s === 1 ? tr('Normal') : `${s}x`}</button>)}
                 </div>
-              ) : <p style={{ fontSize: 12, opacity: 0.6, margin: 0 }}>En los dúos se canta a velocidad normal para que encajen las dos partes.</p>}
+              ) : <p style={{ fontSize: 12, opacity: 0.6, margin: 0 }}>{tr('En los dúos se canta a velocidad normal para que encajen las dos partes.')}</p>}
             </Section>
           </div>
         </div>
       )}
 
-      {stage === 'loading' && <Modal><p style={{ margin: 0 }}>Cargando canción…</p></Modal>}
+      {stage === 'loading' && <Modal><p style={{ margin: 0 }}>{tr('Cargando canción…')}</p></Modal>}
       {stage === 'error' && (
         <Modal>
           <div style={{ fontSize: 40 }}>⚠️</div>
           <p style={{ fontWeight: 800 }}>{error}</p>
-          <button onClick={close} style={bigBtn}>Volver</button>
+          <button onClick={close} style={bigBtn}>{tr('Volver')}</button>
         </Modal>
       )}
 
@@ -563,13 +561,13 @@ export default function KaraokeSingPage() {
 }
 
 function hpTitle(kind) {
-  return { wired: 'Auriculares con cable conectados', usb: 'Auriculares USB conectados', bluetooth: 'Auriculares Bluetooth conectados',
-           none: 'No hay auriculares conectados' }[kind] || 'Se recomienda usar auriculares';
+  return { wired: tr('Auriculares con cable conectados'), usb: tr('Auriculares USB conectados'), bluetooth: tr('Auriculares Bluetooth conectados'),
+           none: tr('No hay auriculares conectados') }[kind] || tr('Se recomienda usar auriculares');
 }
 function hpText(kind) {
-  if (kind === 'bluetooth') return 'Con Bluetooth tu voz te llegará con algo de retraso (es propio del Bluetooth). Para oírte al instante usa auriculares con cable.';
-  if (kind === 'none') return 'Conecta unos auriculares para oírte cantando sobre la música sin eco. Sin auriculares la música sonará por el altavoz.';
-  return 'Te oirás cantando sobre la música, con efecto de estudio, y tu voz se grabará limpia. Se activará la cámara para grabarte en vídeo.';
+  if (kind === 'bluetooth') return tr('Con Bluetooth tu voz te llegará con algo de retraso (es propio del Bluetooth). Para oírte al instante usa auriculares con cable.');
+  if (kind === 'none') return tr('Conecta unos auriculares para oírte cantando sobre la música sin eco. Sin auriculares la música sonará por el altavoz.');
+  return tr('Te oirás cantando sobre la música, con efecto de estudio, y tu voz se grabará limpia. Se activará la cámara para grabarte en vídeo.');
 }
 
 function Modal({ children }) {

@@ -10,14 +10,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { taxiApi, taxiSocket, tx, money, decodePolyline, currentPosition, trackDriver, openNavigation, taxiUrl } from '../../utils/taxiApi';
-import { playMessageSound } from '../../utils/sounds';
+import { playAlertSound as playMessageSound } from '../../utils/sounds';
 import { BRAND, C, Header, Btn, Card, Sheet, Spinner, Center, Toast, Stars, Tabs, inputStyle } from './ui.jsx';
 import TaxiMap from './TaxiMap.jsx';
 import { TripChatButton } from './TripChat.jsx';
 import { EarningsTab, DriverTripsTab, AccountTab } from './DriverTabs.jsx';
+import { tr } from '../../i18n';
 
 const GREEN = '#16a34a';
-const PAY = { cash: 'Efectivo', wallet: 'Monedero', stripe: 'Tarjeta de crédito' };
+const PAY = { cash: 'Efectivo', wallet: 'Monedero', stripe: tr('Tarjeta de crédito') };
 
 export default function DriverApp({ boot, reload, onExit }) {
   const [tab, setTab] = useState('home');
@@ -55,8 +56,8 @@ export default function DriverApp({ boot, reload, onExit }) {
 
   if (!dash) return (
     <>
-      <Header title={tx('Conductor')} onBack={onExit} />
-      <Center>{dashError ? <><p style={{ fontWeight: 700 }}>{dashError}</p><div style={{ width: 200 }}><Btn onClick={loadDash}>{tx('Reintentar')}</Btn></div></> : <Spinner />}</Center>
+      <Header title={tx(tr('Conductor'))} onBack={onExit} />
+      <Center>{dashError ? <><p style={{ fontWeight: 700 }}>{dashError}</p><div style={{ width: 200 }}><Btn onClick={loadDash}>{tx(tr('Reintentar'))}</Btn></div></> : <Spinner />}</Center>
     </>
   );
 
@@ -111,7 +112,7 @@ function DriverHome({ boot, dash, loadDash, notify, onExit, openAccount }) {
       if (!code || offerRef.current?.code === code) return;
       if (tripRef.current && ['accepted', 'arrived', 'started'].includes(tripRef.current.status)) return;
       taxiApi(`/driver/offers/${code}`).then(({ offer: o }) => { setOffer({ ...o, receivedAt: Date.now() }); setFit(f => f + 1); })
-        .catch(() => notify(tx('La oferta ya no está disponible'), true));
+        .catch(() => notify(tx(tr('La oferta ya no está disponible')), true));
     };
     window.addEventListener('taxi:offer', onTaxiOffer);
     return () => window.removeEventListener('taxi:offer', onTaxiOffer);
@@ -139,11 +140,11 @@ function DriverHome({ boot, dash, loadDash, notify, onExit, openAccount }) {
       setOffer({ ...o, receivedAt: Date.now() }); setFit(f => f + 1);
       try { navigator.vibrate?.([300, 150, 300]); } catch { /* sin vibración */ }
     };
-    const onExpired = (p) => { if (offerRef.current?.code === p.code) { setOffer(null); notify(tx('La oferta ha caducado')); } };
+    const onExpired = (p) => { if (offerRef.current?.code === p.code) { setOffer(null); notify(tx(tr('La oferta ha caducado'))); } };
     const onUpdate = (p) => {
       const t = tripRef.current;
       if (!t || p.code !== t.code) return;
-      if (p.status === 'cancelled' && p.cancelledBy !== 'driver') { notify(tx('El cliente ha cancelado el viaje'), true); setTrip(null); setPickupRoute(null); loadDash(); return; }
+      if (p.status === 'cancelled' && p.cancelledBy !== 'driver') { notify(tx(tr('El cliente ha cancelado el viaje')), true); setTrip(null); setPickupRoute(null); loadDash(); return; }
       if (p.status !== 'cancelled') reloadTrip(p.code);
     };
     taxiSocket().then(sock => {
@@ -167,7 +168,7 @@ function DriverHome({ boot, dash, loadDash, notify, onExit, openAccount }) {
   useEffect(() => {
     if (!tracking) return;
     const send = (p) => sockRef.current?.emit('driver:location', p);
-    const stop = trackDriver((p) => { setPos(p); send(p); }, (e) => notify(e?.message || tx('No se pudo obtener tu ubicación'), true));
+    const stop = trackDriver((p) => { setPos(p); send(p); }, (e) => notify(e?.message || tx(tr('No se pudo obtener tu ubicación')), true));
     const beat = setInterval(() => posRef.current && send(posRef.current), 20000);   // mantener la posición "reciente"
     return () => { stop(); clearInterval(beat); };
   }, [tracking, notify]);
@@ -199,7 +200,7 @@ function DriverHome({ boot, dash, loadDash, notify, onExit, openAccount }) {
       await taxiApi('/driver/online', { method: 'POST', body: { online: !online, lat: p?.lat, lng: p?.lng } });
       if (!online && p) sockRef.current?.emit('driver:location', p);
       await loadDash();
-      notify(online ? tx('Te has desconectado') : tx('Conectado: ya puedes recibir viajes'));
+      notify(online ? tx(tr('Te has desconectado')) : tx(tr('Conectado: ya puedes recibir viajes')));
       if (!online && needsBackgroundSetup()) setBgSetup(true);   // la primera vez: ajustes para recibir viajes con la app cerrada
     } catch (e) { notify(e.message, true); }
     setBusy(false);
@@ -218,7 +219,7 @@ function DriverHome({ boot, dash, loadDash, notify, onExit, openAccount }) {
   });
   const reject = () => act(async () => { const code = offer.code; setOffer(null); await taxiApi(`/driver/offers/${code}/reject`, { method: 'POST' }); });
   const step = (path, body) => act(async () => { const { booking } = await taxiApi(`/driver/bookings/${trip.code}/${path}`, { method: 'POST', body }); setTrip(booking); setFit(f => f + 1); });
-  const cancelTrip = (reason) => act(async () => { await taxiApi(`/driver/bookings/${trip.code}/cancel`, { method: 'POST', body: { reason } }); setTrip(null); await loadDash(); notify(tx('Viaje cancelado')); });
+  const cancelTrip = (reason) => act(async () => { await taxiApi(`/driver/bookings/${trip.code}/cancel`, { method: 'POST', body: { reason } }); setTrip(null); await loadDash(); notify(tx(tr('Viaje cancelado'))); });
   const finish = () => { setTrip(null); loadDash(); };
 
   // Sin completar el alta: lista de pasos
@@ -237,16 +238,16 @@ function DriverHome({ boot, dash, loadDash, notify, onExit, openAccount }) {
 
       {/* Barra superior: volver · estado · centrar */}
       <div style={{ position: 'absolute', top: 'calc(var(--sat) + 10px)', left: 12, right: 12, display: 'flex', alignItems: 'center', gap: 10, zIndex: 3 }}>
-        <RoundBtn label={tx('Volver')} onClick={onExit}>
+        <RoundBtn label={tx(tr('Volver'))} onClick={onExit}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M15 19l-7-7 7-7" /></svg>
         </RoundBtn>
         <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
           <span style={{ background: 'white', borderRadius: 20, padding: '8px 14px', boxShadow: '0 2px 10px rgba(0,0,0,0.2)', fontWeight: 900, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 10, height: 10, borderRadius: '50%', background: online ? GREEN : '#94a3b8' }} />
-            {online ? tx('Conectado') : tx('Desconectado')} · {money(dash.today?.earnings, cur)}
+            {online ? tx(tr('Conectado')) : tx(tr('Desconectado'))} · {money(dash.today?.earnings, cur)}
           </span>
         </div>
-        <RoundBtn label={tx('Mi ubicación')} onClick={() => pos && setCenter({ lat: pos.lat + Math.random() * 1e-7, lng: pos.lng })}>
+        <RoundBtn label={tx(tr('Mi ubicación'))} onClick={() => pos && setCenter({ lat: pos.lat + Math.random() * 1e-7, lng: pos.lng })}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.2"><circle cx="12" cy="12" r="4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
         </RoundBtn>
       </div>
@@ -280,11 +281,11 @@ function needsBackgroundSetup() {
 
 /** Qué hay que activar en el ajuste de "Inicio automático" de cada marca */
 function autostartHelp(brand = '') {
-  if (/samsung/.test(brand)) return tx('Añade OldFace a «Aplicaciones que nunca se suspenden» (Batería → Límites de uso en segundo plano).');
-  if (/huawei|honor/.test(brand)) return tx('Busca OldFace, elige «Gestionar manualmente» y activa las tres opciones.');
-  if (/xiaomi|redmi|poco/.test(brand)) return tx('Activa «Inicio automático» para OldFace. En Batería, elige «Sin restricciones».');
-  if (/oppo|realme|oneplus|vivo/.test(brand)) return tx('Activa «Inicio automático» para OldFace y permite la actividad en segundo plano.');
-  return tx('Permite que OldFace se inicie sola y funcione en segundo plano.');
+  if (/samsung/.test(brand)) return tx(tr('Añade OldFace a «Aplicaciones que nunca se suspenden» (Batería → Límites de uso en segundo plano).'));
+  if (/huawei|honor/.test(brand)) return tx(tr('Busca OldFace, elige «Gestionar manualmente» y activa las tres opciones.'));
+  if (/xiaomi|redmi|poco/.test(brand)) return tx(tr('Activa «Inicio automático» para OldFace. En Batería, elige «Sin restricciones».'));
+  if (/oppo|realme|oneplus|vivo/.test(brand)) return tx(tr('Activa «Inicio automático» para OldFace y permite la actividad en segundo plano.'));
+  return tx(tr('Permite que OldFace se inicie sola y funcione en segundo plano.'));
 }
 
 function BackgroundSetup({ onClose }) {
@@ -302,18 +303,18 @@ function BackgroundSetup({ onClose }) {
   const finish = () => { try { localStorage.setItem(BG_SETUP_KEY, 'done'); } catch { /* sin almacenamiento */ } onClose(); };
 
   const steps = [
-    { key: 'notifications', ok: st.notifications, title: tx('Notificaciones'), text: tx('Permite las notificaciones de OldFace.') },
-    { key: 'fullscreen', ok: st.fullScreen, title: tx('Pantalla completa'), text: tx('Para que el aviso de nuevo servicio encienda la pantalla.') },
-    { key: 'battery', ok: st.battery, title: tx('Batería sin restricciones'), text: tx('Para que los avisos lleguen en modo ahorro o con la pantalla apagada.') },
-    ...(st.autostart ? [{ key: 'autostart', ok: autoDone, manual: true, title: tx('Inicio automático'), text: autostartHelp(st.brand) }] : []),
+    { key: 'notifications', ok: st.notifications, title: tx('Notificaciones'), text: tx(tr('Permite las notificaciones de OldFace.')) },
+    { key: 'fullscreen', ok: st.fullScreen, title: tx(tr('Pantalla completa')), text: tx(tr('Para que el aviso de nuevo servicio encienda la pantalla.')) },
+    { key: 'battery', ok: st.battery, title: tx(tr('Batería sin restricciones')), text: tx(tr('Para que los avisos lleguen en modo ahorro o con la pantalla apagada.')) },
+    ...(st.autostart ? [{ key: 'autostart', ok: autoDone, manual: true, title: tx(tr('Inicio automático')), text: autostartHelp(st.brand) }] : []),
   ];
 
   return (
     <div role="dialog" aria-modal="true" style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(10,13,37,0.55)', display: 'flex', alignItems: 'flex-end' }}>
       <div style={{ background: 'white', width: '100%', borderRadius: '22px 22px 0 0', padding: '20px 18px calc(var(--sab, 0px) + 18px)', maxHeight: '88%', overflowY: 'auto', color: C.text }}>
-        <p style={{ fontWeight: 900, fontSize: 19, margin: 0 }}>📲 {tx('Recibe viajes con la app cerrada')}</p>
+        <p style={{ fontWeight: 900, fontSize: 19, margin: 0 }}>📲 {tx(tr('Recibe viajes con la app cerrada'))}</p>
         <p style={{ color: C.muted, fontSize: 13, margin: '4px 0 14px' }}>
-          {tx('Activa estos ajustes una sola vez para que te llegue la pantalla de «Nuevo servicio» aunque el móvil esté bloqueado, en ahorro de batería o con OldFace cerrada.')}
+          {tx(tr('Activa estos ajustes una sola vez para que te llegue la pantalla de «Nuevo servicio» aunque el móvil esté bloqueado, en ahorro de batería o con OldFace cerrada.'))}
         </p>
         {steps.map((x, i) => (
           <div key={x.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: i ? `1px solid ${C.line}` : 'none' }}>
@@ -326,17 +327,17 @@ function BackgroundSetup({ onClose }) {
             {(!x.ok || x.manual) && (
               <button onClick={() => { open(x.key); if (x.manual) setAutoDone(true); }}
                       style={{ background: x.ok ? '#f1f5f9' : BRAND, color: x.ok ? BRAND : 'white', border: 'none', borderRadius: 12, padding: '9px 12px', fontWeight: 800, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>
-                {x.ok ? tx('Abrir otra vez') : tx('Activar')}
+                {x.ok ? tx(tr('Abrir otra vez')) : tx(tr('Activar'))}
               </button>
             )}
           </div>
         ))}
         <p style={{ color: C.muted, fontSize: 12, margin: '6px 0 14px' }}>
-          💡 {tx('No cierres OldFace deslizándola desde las apps recientes: sal con el botón de inicio.')}
+          💡 {tx(tr('No cierres OldFace deslizándola desde las apps recientes: sal con el botón de inicio.'))}
         </p>
         <div style={{ display: 'flex', gap: 10 }}>
-          <Btn variant="soft" onClick={onClose} style={{ flex: 1 }}>{tx('Más tarde')}</Btn>
-          <Btn onClick={finish} style={{ flex: 2 }}>{tx('Listo')}</Btn>
+          <Btn variant="soft" onClick={onClose} style={{ flex: 1 }}>{tx(tr('Más tarde'))}</Btn>
+          <Btn onClick={finish} style={{ flex: 2 }}>{tx(tr('Listo'))}</Btn>
         </div>
       </div>
     </div>
@@ -362,31 +363,31 @@ function IdlePanel({ online, dash, cur, busy, onToggle, openAccount, onBackgroun
             <span style={{ fontSize: 24 }}>📡</span>
           </span>
           <span>
-            <span style={{ display: 'block', fontWeight: 900, fontSize: 18 }}>{tx('Buscando viajes…')}</span>
-            <span style={{ display: 'block', color: C.muted, fontSize: 13 }}>{tx('Te avisaremos en cuanto haya un viaje cerca')}</span>
+            <span style={{ display: 'block', fontWeight: 900, fontSize: 18 }}>{tx(tr('Buscando viajes…'))}</span>
+            <span style={{ display: 'block', color: C.muted, fontSize: 13 }}>{tx(tr('Te avisaremos en cuanto haya un viaje cerca'))}</span>
           </span>
         </div>
       ) : (
         <div style={{ marginBottom: 12 }}>
-          <p style={{ fontWeight: 900, fontSize: 18, margin: 0 }}>{tx('Estás desconectado')}</p>
-          <p style={{ color: C.muted, fontSize: 13, margin: '2px 0 0' }}>{tx('Conéctate para empezar a recibir viajes')}</p>
+          <p style={{ fontWeight: 900, fontSize: 18, margin: 0 }}>{tx(tr('Estás desconectado'))}</p>
+          <p style={{ color: C.muted, fontSize: 13, margin: '2px 0 0' }}>{tx(tr('Conéctate para empezar a recibir viajes'))}</p>
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <Stat label={tx('Hoy')} value={money(dash.today?.earnings, cur)} sub={tx((dash.today?.trips || 0) === 1 ? '1 viaje' : '{n} viajes', { n: dash.today?.trips || 0 })} />
-        <Stat label={tx('Monedero')} value={money(dash.wallet?.balance, cur)} />
-        <Stat label={tx('Valoración')} value={`★ ${Number(dash.driver.rating || 5).toFixed(1)}`} />
+        <Stat label={tx(tr('Hoy'))} value={money(dash.today?.earnings, cur)} sub={tx((dash.today?.trips || 0) === 1 ? tr('1 viaje') : '{n} viajes', { n: dash.today?.trips || 0 })} />
+        <Stat label={tx(tr('Monedero'))} value={money(dash.wallet?.balance, cur)} />
+        <Stat label={tx(tr('Valoración'))} value={`★ ${Number(dash.driver.rating || 5).toFixed(1)}`} />
       </div>
       {debt > 0 && (
         <button onClick={() => openAccount('cash')} style={{ width: '100%', textAlign: 'left', background: '#fef3c7', color: '#92400e', border: 'none', borderRadius: 12, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 12, cursor: 'pointer' }}>
-          ⚠️ {tx('Debes {amount} de comisiones de viajes en efectivo. Ver puntos de pago ›', { amount: money(debt, cur) })}
+          ⚠️ {tx(tr('Debes {amount} de comisiones de viajes en efectivo. Ver puntos de pago ›'), { amount: money(debt, cur) })}
         </button>
       )}
-      {online ? <Btn variant="danger" onClick={onToggle} disabled={busy}>{busy ? tx('Un momento…') : tx('Desconectarse')}</Btn>
-              : <Btn onClick={onToggle} disabled={busy} style={{ background: GREEN }}>{busy ? tx('Un momento…') : tx('Conectarse')}</Btn>}
+      {online ? <Btn variant="danger" onClick={onToggle} disabled={busy}>{busy ? tx(tr('Un momento…')) : tx(tr('Desconectarse'))}</Btn>
+              : <Btn onClick={onToggle} disabled={busy} style={{ background: GREEN }}>{busy ? tx(tr('Un momento…')) : tx(tr('Conectarse'))}</Btn>}
       {onBackgroundSetup && (
         <button onClick={onBackgroundSetup} style={{ width: '100%', background: 'none', border: 'none', color: BRAND, fontSize: 13, fontWeight: 800, padding: '12px 0 0', cursor: 'pointer' }}>
-          ⚙️ {tx('Ajustes del móvil para recibir viajes con la app cerrada')}
+          ⚙️ {tx(tr('Ajustes del móvil para recibir viajes con la app cerrada'))}
         </button>
       )}
       <style>{'@keyframes drvPulse{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.5);opacity:0}}'}</style>
@@ -417,19 +418,19 @@ function OfferPanel({ offer, cur, onAccept, onReject, onExpire, busy }) {
     <Sheet>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
         <span style={{ minWidth: 0 }}>
-          <span style={{ display: 'block', fontSize: 13, fontWeight: 800, color: BRAND }}>{tx('Nuevo viaje')} · {offer.rideType}</span>
+          <span style={{ display: 'block', fontSize: 13, fontWeight: 800, color: BRAND }}>{tx(tr('Nuevo viaje'))} · {offer.rideType}</span>
           <span style={{ display: 'block', fontSize: 28, fontWeight: 900 }}>{money(offer.fare, offer.currency || cur)}</span>
-          <span style={{ display: 'block', fontSize: 12, color: C.muted, fontWeight: 700 }}>{tx(PAY[offer.paymentMethod] || offer.paymentMethod)} · {offer.distanceKm} km · {Math.round(offer.durationMin || 0)} min</span>
+          <span style={{ display: 'block', fontSize: 12, color: C.muted, fontWeight: 700 }}>{tx(PAY[offer.paymentMethod] || offer.paymentMethod)} · {offer.distanceKm}{' '}{tr('km ·')}{' '}{Math.round(offer.durationMin || 0)}{' '}{tr('min')}</span>
         </span>
         <Countdown left={left} total={total} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 6, marginBottom: 14 }}>
-        <Addr dot={GREEN} text={offer.pickup?.address} extra={tx('A {km} km de ti', { km: offer.pickupKm })} />
+        <Addr dot={GREEN} text={offer.pickup?.address} extra={tx(tr('A {km} km de ti'), { km: offer.pickupKm })} />
         <Addr dot={BRAND} square text={offer.dropoff?.address} />
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <Btn variant="ghost" onClick={onReject} disabled={busy} style={{ flex: 1 }}>{tx('Rechazar')}</Btn>
-        <Btn onClick={onAccept} disabled={busy} style={{ flex: 2, background: GREEN }}>{tx('Aceptar')}</Btn>
+        <Btn variant="ghost" onClick={onReject} disabled={busy} style={{ flex: 1 }}>{tx(tr('Rechazar'))}</Btn>
+        <Btn onClick={onAccept} disabled={busy} style={{ flex: 2, background: GREEN }}>{tx(tr('Aceptar'))}</Btn>
       </div>
     </Sheet>
   );
@@ -470,7 +471,7 @@ function TripPanel({ trip: t, settings, cur, pickupRoute, busy, notify, onCall, 
   const curT = t.currency || cur;
 
   const rate = async () => {
-    try { await taxiApi(`/driver/bookings/${t.code}/rate`, { method: 'POST', body: { stars } }); setRated(true); notify(tx('¡Gracias por tu valoración!')); }
+    try { await taxiApi(`/driver/bookings/${t.code}/rate`, { method: 'POST', body: { stars } }); setRated(true); notify(tx(tr('¡Gracias por tu valoración!'))); }
     catch (e) { notify(e.message, true); }
   };
 
@@ -478,32 +479,32 @@ function TripPanel({ trip: t, settings, cur, pickupRoute, busy, notify, onCall, 
     const cash = t.payment_method === 'cash';
     return (
       <Sheet>
-        <p style={{ fontWeight: 900, fontSize: 20, margin: '0 0 4px', textAlign: 'center' }}>{tx('Viaje finalizado')}</p>
+        <p style={{ fontWeight: 900, fontSize: 20, margin: '0 0 4px', textAlign: 'center' }}>{tx(tr('Viaje finalizado'))}</p>
         {cash ? (
           <div style={{ background: '#dcfce7', borderRadius: 14, padding: 12, textAlign: 'center', margin: '8px 0' }}>
-            <p style={{ margin: 0, fontWeight: 800, color: '#166534' }}>💶 {tx('Cobra en efectivo')}</p>
+            <p style={{ margin: 0, fontWeight: 800, color: '#166534' }}>💶 {tx(tr('Cobra en efectivo'))}</p>
             <p style={{ margin: '4px 0 0', fontSize: 32, fontWeight: 900, color: '#166534' }}>{money(t.total_amount, curT)}</p>
           </div>
         ) : (
           <>
             <p style={{ textAlign: 'center', fontSize: 30, fontWeight: 900, color: BRAND, margin: '6px 0' }}>{money(t.total_amount, curT)}</p>
             <p style={{ textAlign: 'center', fontWeight: 800, color: C.ok, margin: '0 0 6px' }}>
-              {t.payment_method === 'stripe' ? `💳 ${tx('Pagado con tarjeta de crédito: no cobres nada al cliente')}` : `👛 ${tx('Pagado con el monedero: no cobres nada al cliente')}`}
+              {t.payment_method === 'stripe' ? `💳 ${tx(tr('Pagado con tarjeta de crédito: no cobres nada al cliente'))}` : `👛 ${tx(tr('Pagado con el monedero: no cobres nada al cliente'))}`}
             </p>
           </>
         )}
         <p style={{ textAlign: 'center', color: C.muted, margin: '0 0 12px', fontSize: 13 }}>
-          {tx('Tu ganancia')}: <b style={{ color: C.text }}>{money(t.driver_earning, curT)}</b>
-          {t.payment_status === 'failed' ? ` · ${tx('pago pendiente del cliente')}` : ''}
+          {tx(tr('Tu ganancia'))}: <b style={{ color: C.text }}>{money(t.driver_earning, curT)}</b>
+          {t.payment_status === 'failed' ? ` · ${tx(tr('pago pendiente del cliente'))}` : ''}
         </p>
         {!rated ? (
           <>
-            <p style={{ textAlign: 'center', fontWeight: 800, margin: '0 0 8px' }}>{tx('Valora a {name}', { name: c.name || tx('el cliente') })}</p>
+            <p style={{ textAlign: 'center', fontWeight: 800, margin: '0 0 8px' }}>{tx(tr('Valora a {name}'), { name: c.name || tx(tr('el cliente')) })}</p>
             <Stars value={stars} onChange={setStars} />
-            <Btn onClick={rate} disabled={!stars} style={{ marginTop: 12 }}>{tx('Enviar valoración')}</Btn>
-            <Btn variant="ghost" onClick={onDone} style={{ marginTop: 8 }}>{tx('Ahora no')}</Btn>
+            <Btn onClick={rate} disabled={!stars} style={{ marginTop: 12 }}>{tx(tr('Enviar valoración'))}</Btn>
+            <Btn variant="ghost" onClick={onDone} style={{ marginTop: 8 }}>{tx(tr('Ahora no'))}</Btn>
           </>
-        ) : <Btn onClick={onDone}>{tx('Seguir conduciendo')}</Btn>}
+        ) : <Btn onClick={onDone}>{tx(tr('Seguir conduciendo'))}</Btn>}
       </Sheet>
     );
   }
@@ -515,8 +516,8 @@ function TripPanel({ trip: t, settings, cur, pickupRoute, busy, notify, onCall, 
   return (
     <Sheet>
       <p style={{ fontSize: 13, fontWeight: 800, color: BRAND, margin: 0 }}>
-        {t.status === 'accepted' ? tx('Ve a recoger al cliente') : t.status === 'arrived' ? tx('Esperando al cliente') : tx('Lleva al cliente a su destino')}
-        {t.status === 'accepted' && pickupRoute?.code === t.code ? ` · ${pickupRoute.km} km · ${Math.round(pickupRoute.min)} min` : ''}
+        {t.status === 'accepted' ? tx(tr('Ve a recoger al cliente')) : t.status === 'arrived' ? tx(tr('Esperando al cliente')) : tx(tr('Lleva al cliente a su destino'))}
+        {t.status === 'accepted' && pickupRoute?.code === t.code ? tr(' · {km} km · {p1} min', { km: pickupRoute.km, p1: Math.round(pickupRoute.min) }) : ''}
       </p>
       <p style={{ fontSize: 16, fontWeight: 900, margin: '2px 0 10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{target.address}</p>
 
@@ -528,37 +529,37 @@ function TripPanel({ trip: t, settings, cur, pickupRoute, busy, notify, onCall, 
           <p style={{ margin: 0, fontSize: 13, color: C.muted }}>★ {Number(c.rating || 5).toFixed(1)} · {money(t.total_amount ?? t.estimated_fare, curT)} · {tx(PAY[t.payment_method] || t.payment_method)}</p>
         </div>
         <TripChatButton code={t.code} role="driver" otherName={c.name} />
-        <button onClick={onCall} aria-label={tx('Llamar')} title={tx('Llamar')} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: '#D5E6F0', fontSize: 20, cursor: 'pointer', flexShrink: 0 }}>📞</button>
-        <button onClick={() => openNavigation(target.lat, target.lng, target.address)} aria-label={tx('Navegar')} title={tx('Navegar')} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: BRAND, color: 'white', fontSize: 20, cursor: 'pointer', flexShrink: 0 }}>🧭</button>
+        <button onClick={onCall} aria-label={tx(tr('Llamar'))} title={tx(tr('Llamar'))} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: '#D5E6F0', fontSize: 20, cursor: 'pointer', flexShrink: 0 }}>📞</button>
+        <button onClick={() => openNavigation(target.lat, target.lng, target.address)} aria-label={tx(tr('Navegar'))} title={tx(tr('Navegar'))} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: BRAND, color: 'white', fontSize: 20, cursor: 'pointer', flexShrink: 0 }}>🧭</button>
       </div>
 
-      {t.status === 'accepted' && <Btn onClick={onArrived} disabled={busy}>{tx('He llegado')}</Btn>}
+      {t.status === 'accepted' && <Btn onClick={onArrived} disabled={busy}>{tx(tr('He llegado'))}</Btn>}
       {t.status === 'arrived' && (
         <>
           {otpRequired && (
             <>
-              <p style={{ fontSize: 13, fontWeight: 700, color: C.muted, margin: '0 0 6px' }}>{tx('Pide al cliente su código de 4 cifras')}</p>
-              <input value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="• • • •" aria-label={tx('Código')}
+              <p style={{ fontSize: 13, fontWeight: 700, color: C.muted, margin: '0 0 6px' }}>{tx(tr('Pide al cliente su código de 4 cifras'))}</p>
+              <input value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="• • • •" aria-label={tx(tr('Código'))}
                      style={{ ...inputStyle, textAlign: 'center', fontSize: 28, fontWeight: 900, letterSpacing: 12, marginBottom: 10 }} />
             </>
           )}
-          <Btn onClick={() => onStart(otp)} disabled={busy || (otpRequired && otp.length !== 4)} style={{ background: GREEN }}>{tx('Empezar viaje')}</Btn>
+          <Btn onClick={() => onStart(otp)} disabled={busy || (otpRequired && otp.length !== 4)} style={{ background: GREEN }}>{tx(tr('Empezar viaje'))}</Btn>
         </>
       )}
-      {t.status === 'started' && <Btn onClick={onComplete} disabled={busy}>{tx('Finalizar viaje')}</Btn>}
+      {t.status === 'started' && <Btn onClick={onComplete} disabled={busy}>{tx(tr('Finalizar viaje'))}</Btn>}
 
       {t.status !== 'started' && (!cancelling ? (
-        <button onClick={() => setCancelling(true)} style={{ display: 'block', margin: '12px auto 0', background: 'none', border: 'none', color: C.danger, fontWeight: 800, cursor: 'pointer', fontSize: 14 }}>{tx('Cancelar viaje')}</button>
+        <button onClick={() => setCancelling(true)} style={{ display: 'block', margin: '12px auto 0', background: 'none', border: 'none', color: C.danger, fontWeight: 800, cursor: 'pointer', fontSize: 14 }}>{tx(tr('Cancelar viaje'))}</button>
       ) : (
         <div style={{ background: '#fef2f2', borderRadius: 14, padding: 12, marginTop: 12 }}>
-          <p style={{ margin: '0 0 8px', fontWeight: 800, color: C.danger, fontSize: 14 }}>{tx('¿Por qué cancelas? El viaje se ofrecerá a otro conductor.')}</p>
+          <p style={{ margin: '0 0 8px', fontWeight: 800, color: C.danger, fontSize: 14 }}>{tx(tr('¿Por qué cancelas? El viaje se ofrecerá a otro conductor.'))}</p>
           <select value={reason} onChange={e => setReason(e.target.value)} style={{ ...inputStyle, marginBottom: 10 }}>
-            <option value="">{tx('Elige un motivo')}</option>
+            <option value="">{tx(tr('Elige un motivo'))}</option>
             {['El cliente no aparece', 'El cliente me ha pedido cancelar', 'Problema con el vehículo', 'Tráfico o calle cortada', 'Otro motivo'].map(r => <option key={r} value={r}>{tx(r)}</option>)}
           </select>
           <div style={{ display: 'flex', gap: 8 }}>
-            <Btn variant="ghost" onClick={() => setCancelling(false)} style={{ flex: 1, padding: 10 }}>{tx('No')}</Btn>
-            <Btn variant="danger" onClick={() => onCancel(reason)} disabled={!reason || busy} style={{ flex: 1, padding: 10 }}>{tx('Sí, cancelar')}</Btn>
+            <Btn variant="ghost" onClick={() => setCancelling(false)} style={{ flex: 1, padding: 10 }}>{tx(tr('No'))}</Btn>
+            <Btn variant="danger" onClick={() => onCancel(reason)} disabled={!reason || busy} style={{ flex: 1, padding: 10 }}>{tx(tr('Sí, cancelar'))}</Btn>
           </div>
         </div>
       ))}
@@ -576,19 +577,19 @@ function Onboarding({ dash, loadDash, openAccount, onExit }) {
   const accState = ob.status === 'blocked' ? 'error' : ob.verified && ob.status === 'active' ? 'done' : 'wait';
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: C.bg }}>
-      <Header title={tx('Hazte conductor')} subtitle={dash.driver.name} onBack={onExit} />
+      <Header title={tx(tr('Hazte conductor'))} subtitle={dash.driver.name} onBack={onExit} />
       <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
-        <p style={{ fontWeight: 900, fontSize: 20, margin: '4px 0 4px' }}>{tx('Completa tu alta')}</p>
-        <p style={{ color: C.muted, margin: '0 0 16px', fontSize: 14 }}>{tx('Cuando el equipo apruebe tu vehículo y tus documentos podrás conectarte y recibir viajes.')}</p>
-        <StepCard n={1} state={vehicleState} title={tx('Tu vehículo')}
-          text={vehicleState === 'todo' ? tx('Añade la matrícula, el modelo y el tipo de viaje.') : vehicleState === 'done' ? tx('Vehículo aprobado') : vehicleState === 'error' ? tx('Vehículo bloqueado. Contacta con soporte.') : tx('En revisión por el equipo')}
-          action={vehicleState === 'todo' ? tx('Añadir') : tx('Ver')} onClick={() => openAccount('vehicles')} />
-        <StepCard n={2} state={docsState} title={tx('Documentos')}
-          text={docsState === 'todo' ? `${tx('Faltan')}: ${ob.missingDocuments.join(', ')}` : tx('Documentos enviados')}
-          action={docsState === 'todo' ? tx('Subir') : tx('Ver')} onClick={() => openAccount('documents')} />
-        <StepCard n={3} state={accState} title={tx('Aprobación de la cuenta')}
-          text={accState === 'done' ? tx('Cuenta verificada') : accState === 'error' ? tx('Cuenta bloqueada. Contacta con soporte.') : tx('El equipo revisará tus datos. Te avisaremos cuando esté lista.')} />
-        <Btn variant="ghost" onClick={refresh} disabled={busy} style={{ marginTop: 8 }}>{busy ? tx('Comprobando…') : tx('Comprobar de nuevo')}</Btn>
+        <p style={{ fontWeight: 900, fontSize: 20, margin: '4px 0 4px' }}>{tx(tr('Completa tu alta'))}</p>
+        <p style={{ color: C.muted, margin: '0 0 16px', fontSize: 14 }}>{tx(tr('Cuando el equipo apruebe tu vehículo y tus documentos podrás conectarte y recibir viajes.'))}</p>
+        <StepCard n={1} state={vehicleState} title={tx(tr('Tu vehículo'))}
+          text={vehicleState === 'todo' ? tx(tr('Añade la matrícula, el modelo y el tipo de viaje.')) : vehicleState === 'done' ? tx(tr('Vehículo aprobado')) : vehicleState === 'error' ? tx(tr('Vehículo bloqueado. Contacta con soporte.')) : tx(tr('En revisión por el equipo'))}
+          action={vehicleState === 'todo' ? tx(tr('Añadir')) : tx(tr('Ver'))} onClick={() => openAccount('vehicles')} />
+        <StepCard n={2} state={docsState} title={tx(tr('Documentos'))}
+          text={docsState === 'todo' ? `${tx(tr('Faltan'))}: ${ob.missingDocuments.join(', ')}` : tx(tr('Documentos enviados'))}
+          action={docsState === 'todo' ? tx(tr('Subir')) : tx(tr('Ver'))} onClick={() => openAccount('documents')} />
+        <StepCard n={3} state={accState} title={tx(tr('Aprobación de la cuenta'))}
+          text={accState === 'done' ? tx(tr('Cuenta verificada')) : accState === 'error' ? tx(tr('Cuenta bloqueada. Contacta con soporte.')) : tx(tr('El equipo revisará tus datos. Te avisaremos cuando esté lista.'))} />
+        <Btn variant="ghost" onClick={refresh} disabled={busy} style={{ marginTop: 8 }}>{busy ? tx(tr('Comprobando…')) : tx(tr('Comprobar de nuevo'))}</Btn>
       </div>
     </div>
   );

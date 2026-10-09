@@ -3,6 +3,7 @@
  */
 import { useState, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { tr } from '../i18n';
 
 export function useGeolocation() {
   const [location, setLocation] = useState(null);
@@ -19,7 +20,7 @@ export function useGeolocation() {
         
         const permission = await Geolocation.requestPermissions();
         if (permission.location !== 'granted') {
-          throw new Error('Permiso de ubicación denegado');
+          throw new Error(tr('Permiso de ubicación denegado'));
         }
 
         const pos = await Geolocation.getCurrentPosition({
@@ -40,7 +41,7 @@ export function useGeolocation() {
         // En web
         return new Promise((resolve, reject) => {
           if (!navigator.geolocation) {
-            reject(new Error('Geolocalización no disponible'));
+            reject(new Error(tr('Geolocalización no disponible')));
             return;
           }
 
@@ -80,7 +81,7 @@ export function useGeolocation() {
       lat: loc.lat,
       lng: loc.lng,
       url: `https://maps.google.com/?q=${loc.lat},${loc.lng}`,
-      text: `📍 Mi ubicación\n${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)}`
+      text: tr('📍 Mi ubicación\n{p0}, {p1}', { p0: loc.lat.toFixed(6), p1: loc.lng.toFixed(6) })
     };
   };
 

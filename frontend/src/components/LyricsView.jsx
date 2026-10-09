@@ -5,6 +5,7 @@
  */
 import React, { useEffect, useRef } from 'react';
 import { lineIndexAt } from '../utils/lrc';
+import { tr } from '../i18n';
 
 // Azul cielo OldFace (el azul de marca #3D5A80 no se lee sobre fondo oscuro)
 export const KARAOKE_ACCENT = '#98C1D9';
@@ -31,7 +32,7 @@ export default function LyricsView({ lines, position, compact = false, accent = 
   }, [idx]);
 
   if (!lines.length) {
-    return <p style={{ textAlign: 'center', opacity: 0.6, fontSize: 15 }}>Esta canción no tiene letra sincronizada</p>;
+    return <p style={{ textAlign: 'center', opacity: 0.6, fontSize: 15 }}>{tr('Esta canción no tiene letra sincronizada')}</p>;
   }
 
   const size = compact ? 18 : 24;

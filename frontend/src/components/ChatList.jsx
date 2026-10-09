@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 import { useChatStore } from '../store/chatStore';
 import Avatar from './Avatar.jsx';
+import { tr } from '../i18n';
 
 export default function ChatList({ chats }) {
   const navigate = useNavigate();
@@ -52,9 +53,7 @@ export default function ChatList({ chats }) {
         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
         </svg>
-        <p style={{ fontSize: 14, fontWeight: 600, color: T.textSecondary, textAlign: 'center', margin: 0 }}>
-          No hay conversaciones aún.<br />¡Empieza a chatear!
-        </p>
+        <p style={{ fontSize: 14, fontWeight: 600, color: T.textSecondary, textAlign: 'center', margin: 0 }}>{tr('No hay conversaciones aún.')}<br />{tr('¡Empieza a chatear!')}</p>
       </div>
     );
   }
@@ -156,7 +155,7 @@ export default function ChatList({ chats }) {
                 <p style={{ fontSize: 12, color: isDark ? '#6b8ab0' : '#6b7280', margin: '2px 0 0' }}>
                   {selectedChat.lastMessage
                     ? (selectedChat.lastMessage.length > 40 ? selectedChat.lastMessage.slice(0, 40) + '…' : selectedChat.lastMessage)
-                    : 'Sin mensajes'}
+                    : tr('Sin mensajes')}
                 </p>
               </div>
             </div>
@@ -180,7 +179,7 @@ export default function ChatList({ chats }) {
                 <path d="M10 11v6M14 11v6"/>
                 <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
               </svg>
-              {deleting ? 'Eliminando…' : 'Eliminar chat'}
+              {deleting ? tr('Eliminando…') : tr('Eliminar chat')}
             </button>
 
             {/* Botón cancelar */}
@@ -193,9 +192,7 @@ export default function ChatList({ chats }) {
                 border: `1.5px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#e5e7eb'}`,
                 borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer',
               }}
-            >
-              Cancelar
-            </button>
+            >{tr('Cancelar')}</button>
           </div>
         </div>
       )}

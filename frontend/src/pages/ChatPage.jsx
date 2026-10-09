@@ -22,9 +22,10 @@ import { GroupInfoSheet } from '../components/GroupSheets.jsx';
 import { groupIdFromChatId, fetchGroupCall } from '../utils/groupsApi';
 import { renderMapSnapshot, createChatMap, messageLatLng } from '../utils/chatMap';
 import { startLiveShare, stopLiveShare, isSharingLive, onLiveSharesChange } from '../utils/liveLocation';
+import { tr, LOCALE } from '../i18n';
 
 const CHAT_BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-const nowTime = () => new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+const nowTime = () => new Date().toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
 
 /** Sube una foto/vídeo/audio del chat en binario (sin el límite de ~10 MB del base64) → URL permanente o null */
 async function uploadChatFile(blob, userId) {
@@ -53,11 +54,11 @@ function formatPresenceTime(ts) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const that = new Date(ts); that.setHours(0, 0, 0, 0);
   const days = Math.round((today - that) / 86_400_000);
-  const timeStr = d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
-  if (diff < 60_000) return 'ahora';
-  if (days === 0) return `hoy a las ${timeStr}`;
-  if (days === 1) return `ayer a las ${timeStr}`;
-  return `${d.toLocaleDateString('es', { day: '2-digit', month: '2-digit' })} a las ${timeStr}`;
+  const timeStr = d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
+  if (diff < 60_000) return tr('ahora');
+  if (days === 0) return tr('hoy a las {time}', { time: timeStr });
+  if (days === 1) return tr('ayer a las {time}', { time: timeStr });
+  return tr('{date} a las {time}', { date: d.toLocaleDateString(LOCALE, { day: '2-digit', month: '2-digit' }), time: timeStr });
 }
 
 // Emojis frecuentes
@@ -253,7 +254,7 @@ export default function ChatPage() {
     const t = m.type || 'text';
     const url = !m.viewOnce && ['image', 'video', 'sticker'].includes(t) && m.url && (!m.url.startsWith('data:') || m.url.length < 150000) ? m.url : null;
     return { id: m.id, text: m.text, type: t, isMine: m.isMine, url, fileName: m.fileName || null, viewOnce: !!m.viewOnce,
-             senderName: m.isMine ? 'Tú' : (memberNames[m.sender] || chat.name || participantId) };
+             senderName: m.isMine ? tr('Tú') : (memberNames[m.sender] || chat.name || participantId) };
   };
   const canEdit = (m) => m.isMine && (m.type || 'text') === 'text' && !m.deleted && m.status !== 'sending'
                          && (!m.createdAt || Date.now() - m.createdAt < 15 * 60 * 1000);
@@ -327,7 +328,7 @@ export default function ChatPage() {
       id: `msg_${Date.now()}`,
       text: text.trim(),
       sender: user.id,
-      time: new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
+      time: new Date().toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' }),
       status: 'sending',
       isMine: true,
       replyTo: currentReply || null,
@@ -363,7 +364,7 @@ export default function ChatPage() {
   const saveSticker = async (blob, andSend) => {
     setStickerSrc(null);
     const url = await uploadChatFile(blob, user.id);
-    if (!url) { alert('No se pudo guardar el sticker. Inténtalo de nuevo.'); return; }
+    if (!url) { alert(tr('No se pudo guardar el sticker. Inténtalo de nuevo.')); return; }
     try {
       const r = await fetch(`${CHAT_BACKEND}/stickers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: user.id, url }) });
       const d = await r.json();
@@ -378,8 +379,8 @@ export default function ChatPage() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       setStickers(d.stickers);
-      showToast('Sticker añadido a tus stickers');
-    } catch { showToast('No se pudo añadir el sticker'); }
+      showToast(tr('Sticker añadido a tus stickers'));
+    } catch { showToast(tr('No se pudo añadir el sticker')); }
   };
   /**
    * Foto, vídeo o sticker → galería del móvil (Imágenes/OldFace o Películas/OldFace).
@@ -387,7 +388,7 @@ export default function ChatPage() {
    */
   const saveMediaToPhone = async (msg) => {
     const kind = msg.type === 'video' ? 'video' : msg.type === 'sticker' ? 'sticker' : 'image';
-    const what = kind === 'video' ? 'el vídeo' : kind === 'sticker' ? 'el sticker' : 'la foto';
+    const what = kind === 'video' ? tr('el vídeo') : kind === 'sticker' ? tr('el sticker') : tr('la foto');
     const url = msg.url && !/^(https?|data|blob):/.test(msg.url) ? new URL(msg.url, CHAT_BACKEND).href : msg.url;
     if (!url) return;
     const dataMime = url.match(/^data:([^;,]+)/)?.[1];
@@ -395,11 +396,11 @@ export default function ChatPage() {
              || url.split('?')[0].match(/\.(\w{2,4})$/)?.[1]?.toLowerCase()
              || (kind === 'video' ? 'mp4' : kind === 'sticker' ? 'png' : 'jpg');
     const mime = dataMime || (kind === 'video' ? `video/${ext === 'mov' ? 'quicktime' : ext}` : `image/${ext === 'jpg' ? 'jpeg' : ext}`);
-    const fileName = `OldFace_${kind === 'video' ? 'VID' : kind === 'sticker' ? 'STK' : 'IMG'}_${Date.now()}.${ext}`;
+    const fileName = tr('OldFace_{p0}_{p1}.{ext}', { p0: kind === 'video' ? 'VID' : kind === 'sticker' ? 'STK' : 'IMG', p1: Date.now(), ext });
     const native = window.OldFaceMedia;
     try {
       if (native && /^https?:/.test(url) && native.download(url, fileName, mime)) {
-        showToast(`Descargando ${what}… la verás en la galería (carpeta OldFace)`);
+        showToast(tr('Descargando {what}… la verás en la galería (carpeta OldFace)', { what }));
         return;
       }
       const blob = await fetch(url).then(r => { if (!r.ok) throw new Error(); return r.blob(); });
@@ -413,19 +414,19 @@ export default function ChatPage() {
         const rd = new FileReader();
         rd.onload = () => resolve(rd.result.split(',')[1]); rd.onerror = reject; rd.readAsDataURL(blob);
       });
-      if (native?.saveBase64(base64, fileName, mime)) { showToast(`Guardado en la galería (carpeta OldFace)`); return; }
+      if (native?.saveBase64(base64, fileName, mime)) { showToast(tr('Guardado en la galería (carpeta OldFace)')); return; }
       const { Filesystem, Directory } = await import('@capacitor/filesystem');
       const { Share } = await import('@capacitor/share');
       await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache, recursive: true });
       const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache });
-      await Share.share({ files: [uri], title: fileName, dialogTitle: `Guardar ${what} en el móvil` });
-    } catch { showToast(`No se pudo guardar ${what}`); }
+      await Share.share({ files: [uri], title: fileName, dialogTitle: tr('Guardar {what} en el móvil', { what }) });
+    } catch { showToast(tr('No se pudo guardar {what}', { what })); }
   };
   const [toast, setToast] = useState(null);
   const showToast = (t) => { setToast(t); setTimeout(() => setToast(x => (x === t ? null : x)), 2200); };
 
   const removeSticker = async (url) => {
-    if (!window.confirm('¿Quitar este sticker de tu colección?')) return;
+    if (!window.confirm(tr('¿Quitar este sticker de tu colección?'))) return;
     setStickers(list => (list || []).filter(u => u !== url));
     fetch(`${CHAT_BACKEND}/stickers/${encodeURIComponent(user.id)}?url=${encodeURIComponent(url)}`, { method: 'DELETE' }).catch(() => {});
   };
@@ -442,18 +443,18 @@ export default function ChatPage() {
   const sendLocation = async () => {
     setShowAttachMenu(false);
     const localId = `loc_${Date.now()}`;
-    addMessage(msgChatId, { id: localId, type: 'location', text: '📍 Ubicación', url: null, locating: true,
+    addMessage(msgChatId, { id: localId, type: 'location', text: tr('📍 Ubicación'), url: null, locating: true,
                             sender: user.id, time: nowTime(), status: 'sending', isMine: true });
     try {
       const pos = await getCurrentPosition();
-      if (!pos) throw new Error('sin posición');
+      if (!pos) throw new Error(tr('sin posición'));
       const locMsg = formatLocationMessage(pos);
       patchLocal(localId, { text: locMsg.text, url: locMsg.url, locating: false });
       const saved = await persistMessage(msgChatId, user.id, locMsg.text, 'location', locMsg.url);
       if (saved) patchLocal(localId, { status: 'sent' });
     } catch {
       removeLocal(localId);
-      alert('No se pudo obtener la ubicación. Comprueba que la ubicación del móvil está activada y que OldFace tiene permiso.');
+      alert(tr('No se pudo obtener la ubicación. Comprueba que la ubicación del móvil está activada y que OldFace tiene permiso.'));
     }
   };
 
@@ -462,21 +463,21 @@ export default function ChatPage() {
     setShowLiveMenu(false);
     const localId = `live_${Date.now()}`;
     const until = Date.now() + minutes * 60000;
-    addMessage(msgChatId, { id: localId, type: 'live_location', text: '📍 Ubicación en tiempo real', url: null, locating: true,
+    addMessage(msgChatId, { id: localId, type: 'live_location', text: tr('📍 Ubicación en tiempo real'), url: null, locating: true,
                             sender: user.id, time: nowTime(), status: 'sending', isMine: true });
     try {
       const pos = await getCurrentPosition();
-      if (!pos) throw new Error('sin posición');
+      if (!pos) throw new Error(tr('sin posición'));
       const live = { lat: pos.lat, lng: pos.lng, until };
       patchLocal(localId, { locating: false, live: { ...live, updatedAt: Date.now() } });
-      const saved = await persistMessage(msgChatId, user.id, '📍 Ubicación en tiempo real', 'live_location',
+      const saved = await persistMessage(msgChatId, user.id, tr('📍 Ubicación en tiempo real'), 'live_location',
                                          `https://maps.google.com/?q=${pos.lat},${pos.lng}`, null, null, { live });
-      if (!saved?.id) throw new Error('no guardado');
+      if (!saved?.id) throw new Error(tr('no guardado'));
       startLiveShare({ chatId: msgChatId, msgId: saved.id, senderId: user.id, until: saved.live?.until || until });
       loadMessages(msgChatId, user.id, participantId);
     } catch {
       removeLocal(localId);
-      alert('No se pudo compartir la ubicación. Comprueba que la ubicación del móvil está activada y que OldFace tiene permiso.');
+      alert(tr('No se pudo compartir la ubicación. Comprueba que la ubicación del móvil está activada y que OldFace tiene permiso.'));
     }
   };
 
@@ -496,14 +497,14 @@ export default function ChatPage() {
         text: `[Contacto: ${name}]`,
         url: payload,
         sender: user.id,
-        time: new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
+        time: new Date().toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' }),
         status: 'sent',
         isMine: true,
       });
       persistMessage(msgChatId, user.id, `[Contacto: ${name}]`, 'contact', payload);
     } catch (e) {
       const msg = e?.message || '';
-      if (!msg.includes('cancel') && !msg.includes('dismiss')) alert('No se pudo acceder a los contactos');
+      if (!msg.includes('cancel') && !msg.includes('dismiss')) alert(tr('No se pudo acceder a los contactos'));
     }
   };
 
@@ -532,10 +533,10 @@ export default function ChatPage() {
       });
       const d = await res.json().catch(() => ({}));
       patchLocal(m.id, { opened: true });
-      if (!res.ok) { showToast(d.error || 'No se pudo abrir'); return; }
+      if (!res.ok) { showToast(d.error || tr('No se pudo abrir')); return; }
       const src = /^https?:/.test(d.url) ? d.url : new URL(d.url, CHAT_BACKEND).href;
       setExpandedPhoto({ type: d.type === 'video' ? 'video' : 'image', src, viewOnce: true });
-    } catch { showToast('Sin conexión: inténtalo de nuevo'); }
+    } catch { showToast(tr('Sin conexión: inténtalo de nuevo')); }
   };
 
   // ── Enviar imagen o video ─────────────────────────────────────────────────
@@ -584,7 +585,7 @@ export default function ChatPage() {
       setReplyTo(null);
       const blob = isVideo ? file : await fetch(await processFile()).then(r => r.blob());
       const url = await uploadChatFile(blob, user.id);
-      if (!url) { updateMessageStatus(msgChatId, localId, 'error'); alert(`No se pudo enviar ${isVideo ? 'el vídeo' : 'la foto'}. Inténtalo de nuevo.`); return; }
+      if (!url) { updateMessageStatus(msgChatId, localId, 'error'); alert(tr('No se pudo enviar {p0}. Inténtalo de nuevo.', { p0: isVideo ? 'el vídeo' : 'la foto' })); return; }
       await persistMessage(msgChatId, user.id, text, type, url, currentReply, null, { viewOnce: true });
       return;
     }
@@ -596,7 +597,7 @@ export default function ChatPage() {
                               time: nowTime(), status: 'sending', isMine: true, replyTo: currentReply || null });
       setReplyTo(null);
       const url = await uploadChatFile(file, user.id);
-      if (!url) { updateMessageStatus(msgChatId, localId, 'error'); alert('No se pudo enviar el vídeo. Inténtalo de nuevo.'); return; }
+      if (!url) { updateMessageStatus(msgChatId, localId, 'error'); alert(tr('No se pudo enviar el vídeo. Inténtalo de nuevo.')); return; }
       patchLocal(localId, { url });
       await persistMessage(msgChatId, user.id, '[Video]', 'video', url, currentReply);
       return;
@@ -659,7 +660,7 @@ export default function ChatPage() {
         }
       }, 1000);
     } catch {
-      alert('No se puede acceder al micrófono. Verifica los permisos.');
+      alert(tr('No se puede acceder al micrófono. Verifica los permisos.'));
     }
   };
 
@@ -695,7 +696,7 @@ export default function ChatPage() {
         url: dataUrl,
         duration,
         sender: user.id,
-        time: new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
+        time: new Date().toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' }),
         status: 'sending',
         isMine: true,
       };
@@ -732,19 +733,15 @@ export default function ChatPage() {
           backgroundColor: BRAND, color: 'white', padding: '0 10px 10px', paddingTop: 'var(--sat)',
           display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, minHeight: 56,
         }}>
-          <button onClick={() => setSelectedIds(null)} aria-label="Cancelar selección"
+          <button onClick={() => setSelectedIds(null)} aria-label={tr('Cancelar selección')}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, color: 'white', fontSize: 22, lineHeight: 1 }}>✕</button>
           <span style={{ flex: 1, fontWeight: 800, fontSize: 17 }}>{selectedIds.size} {selectedIds.size === 1 ? 'seleccionado' : 'seleccionados'}</span>
-          <button onClick={() => setShowForward(true)} aria-label="Reenviar"
+          <button onClick={() => setShowForward(true)} aria-label={tr('Reenviar')}
             style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 20, cursor: 'pointer', padding: '8px 12px', color: 'white', fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 17l5-5-5-5"/><path d="M4 18v-2a4 4 0 014-4h12"/></svg>
-            Reenviar
-          </button>
-          <button onClick={deleteSelected} aria-label="Eliminar"
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 17l5-5-5-5"/><path d="M4 18v-2a4 4 0 014-4h12"/></svg>{tr('Reenviar')}</button>
+          <button onClick={deleteSelected} aria-label={tr('Eliminar')}
             style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 20, cursor: 'pointer', padding: '8px 12px', color: 'white', fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-            Eliminar
-          </button>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>{tr('Eliminar')}</button>
         </div>
       )}
 
@@ -775,23 +772,23 @@ export default function ChatPage() {
           <p style={{ fontWeight: 700, fontSize: 15, color: T.textPrimary, margin: 0, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{headerName}</p>
           <p style={{ fontSize: 11, color: isGroup ? T.textMuted : (presenceInfo.online ? BRAND : T.textMuted), margin: 0 }}>
             {isGroup
-              ? (Object.keys(memberNames).length ? `Grupo · ${Object.keys(memberNames).length} miembros` : 'Grupo')
+              ? (Object.keys(memberNames).length ? tr('Grupo · {length} miembros', { length: Object.keys(memberNames).length }) : tr('Grupo'))
               : presenceInfo.online
-                ? '● en línea'
+                ? tr('● en línea')
                 : presenceInfo.lastSeen
-                  ? `últ. vez ${formatPresenceTime(presenceInfo.lastSeen)}`
+                  ? tr('últ. vez {p0}', { p0: formatPresenceTime(presenceInfo.lastSeen) })
                   : 'OldFace'}
           </p>
         </div>
 
         {isGroup && groupId && <>
-          <button onClick={() => startGroupCall(groupId, headerName, 'video')} aria-label="Videollamada de grupo"
+          <button onClick={() => startGroupCall(groupId, headerName, 'video')} aria-label={tr('Videollamada de grupo')}
             style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="18" height="18" fill="none" stroke={T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
               <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
           </button>
-          <button onClick={() => startGroupCall(groupId, headerName, 'voice')} aria-label="Llamada de grupo"
+          <button onClick={() => startGroupCall(groupId, headerName, 'voice')} aria-label={tr('Llamada de grupo')}
             style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="18" height="18" fill="none" stroke={T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
               <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z" />
@@ -813,16 +810,16 @@ export default function ChatPage() {
           </button>
         </>}
         <div style={{ position: 'relative' }}>
-          <button onClick={(e) => { e.stopPropagation(); setShowChatMenu(v => !v); }} aria-label="Más opciones"
+          <button onClick={(e) => { e.stopPropagation(); setShowChatMenu(v => !v); }} aria-label={tr('Más opciones')}
             style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill={T.textSecondary}><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
           </button>
           {showChatMenu && (
             <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 0, top: 42, zIndex: 60, background: T.bgSurface, border: `1px solid ${T.border}`,
                                                           borderRadius: 14, boxShadow: '0 6px 24px rgba(0,0,0,0.2)', padding: 6, minWidth: 210 }}>
-              {[...(isGroup && groupId ? [['Info del grupo', () => setShowGroupInfo(true)]] : []),
-                [`Mensajes destacados${starredMsgs.length ? ` (${starredMsgs.length})` : ''}`, () => setShowStarred(true)],
-                ['Fondo del chat', () => setShowBgSheet(true)]].map(([label, fn]) => (
+              {[...(isGroup && groupId ? [[tr('Info del grupo'), () => setShowGroupInfo(true)]] : []),
+                [tr('Mensajes destacados{p0}', { p0: starredMsgs.length ? ` (${starredMsgs.length})` : '' }), () => setShowStarred(true)],
+                [tr('Fondo del chat'), () => setShowBgSheet(true)]].map(([label, fn]) => (
                 <button key={label} onClick={() => { setShowChatMenu(false); fn(); }}
                   style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '11px 14px', borderRadius: 10, cursor: 'pointer', color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
                   {label}
@@ -840,9 +837,9 @@ export default function ChatPage() {
                    cursor: 'pointer', textAlign: 'left', flexShrink: 0 }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
           <span style={{ flex: 1, minWidth: 0, color: 'white', fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {groupCall.callType === 'video' ? 'Videollamada' : 'Llamada'} en curso{groupCall.peers?.length ? ` · ${groupCall.peers.length} dentro` : ''}
+            {groupCall.callType === 'video' ? tr('Videollamada') : tr('Llamada')}{' '}{tr('en curso')}{groupCall.peers?.length ? tr(' · {length} dentro', { length: groupCall.peers.length }) : ''}
           </span>
-          <span style={{ background: 'white', color: '#16a34a', fontWeight: 900, fontSize: 12, borderRadius: 14, padding: '5px 12px' }}>Unirse</span>
+          <span style={{ background: 'white', color: '#16a34a', fontWeight: 900, fontSize: 12, borderRadius: 14, padding: '5px 12px' }}>{tr('Unirse')}</span>
         </button>
       )}
 
@@ -856,8 +853,7 @@ export default function ChatPage() {
             <span style={{ width: 3, alignSelf: 'stretch', background: BRAND, borderRadius: 3 }} />
             <span style={{ fontSize: 16 }}>📌</span>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 11, fontWeight: 800, color: BRAND }}>
-                Mensaje fijado{pinned.length > 1 ? ` · ${(pinIdx % pinned.length) + 1} de ${pinned.length}` : ''}
+              <span style={{ display: 'block', fontSize: 11, fontWeight: 800, color: BRAND }}>{tr('Mensaje fijado')}{pinned.length > 1 ? tr(' · {p0} de {length}', { p0: (pinIdx % pinned.length) + 1, length: pinned.length }) : ''}
               </span>
               <span style={{ display: 'block', fontSize: 13, color: T.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {msgPreview(m)}
@@ -933,13 +929,13 @@ export default function ChatPage() {
                         opacity: scrollBtnsVisible ? 0.92 : 0, transform: scrollBtnsVisible ? 'none' : 'translateX(12px)',
                         transition: 'opacity 0.3s, transform 0.3s', pointerEvents: scrollBtnsVisible ? 'auto' : 'none' }}>
             {scrollBtns.top && (
-              <button onClick={scrollToTop} aria-label="Ir al principio del chat" title="Ir al principio del chat"
+              <button onClick={scrollToTop} aria-label={tr('Ir al principio del chat')} title={tr('Ir al principio del chat')}
                 style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgSurface, border: `1px solid ${T.border}`, boxShadow: '0 2px 10px rgba(0,0,0,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4h14"/><path d="M12 20V9"/><path d="M6 14l6-6 6 6"/></svg>
               </button>
             )}
             {scrollBtns.bottom && (
-              <button onClick={scrollToBottom} aria-label="Ir al último mensaje" title="Ir al último mensaje"
+              <button onClick={scrollToBottom} aria-label={tr('Ir al último mensaje')} title={tr('Ir al último mensaje')}
                 style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgSurface, border: `1px solid ${T.border}`, boxShadow: '0 2px 10px rgba(0,0,0,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 20h14"/><path d="M12 4v11"/><path d="M6 10l6 6 6-6"/></svg>
               </button>
@@ -953,10 +949,10 @@ export default function ChatPage() {
         <div style={{ background: isDark ? '#0a1628' : '#f0f4ff', borderTop: `2px solid ${BRAND}`, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <span style={{ fontSize: 18 }}>✏️</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, margin: '0 0 2px' }}>Editando mensaje</p>
+            <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, margin: '0 0 2px' }}>{tr('Editando mensaje')}</p>
             <p style={{ fontSize: 12, color: T.textSecondary, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{editingMsg.text}</p>
           </div>
-          <button onClick={() => { setEditingMsg(null); setText(''); }} aria-label="Cancelar edición" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+          <button onClick={() => { setEditingMsg(null); setText(''); }} aria-label={tr('Cancelar edición')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
         </div>
@@ -969,12 +965,11 @@ export default function ChatPage() {
           padding: '8px 10px 2px', boxShadow: '0 -4px 14px rgba(0,0,0,0.06)',
         }}>
           <p style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '0 4px 6px', fontSize: 12, fontWeight: 700, color: T.textMuted }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-2"/></svg>
-            Respondiendo a {replyTo.isMine ? 'tu mensaje' : replyTo.senderName}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-2"/></svg>{tr('Respondiendo a')}{' '}{replyTo.isMine ? tr('tu mensaje') : replyTo.senderName}
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <ReplyQuote reply={replyTo} where="bar" isDark={isDark} onClick={replyTo.id ? () => jumpTo(replyTo.id) : undefined} />
-            <button onClick={() => setReplyTo(null)} aria-label="Cancelar respuesta"
+            <button onClick={() => setReplyTo(null)} aria-label={tr('Cancelar respuesta')}
               style={{ width: 32, height: 32, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', flexShrink: 0,
                        display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -988,7 +983,7 @@ export default function ChatPage() {
       {/* Emoji picker */}
       {showEmojiPicker && (
         <div style={{ background: T.bgSurface, borderTop: `1px solid ${T.border}`, display: 'flex', gap: 4, padding: '6px 10px 0', flexShrink: 0 }}>
-          {[['emoji', '😊 Emojis'], ['stickers', '🌟 Stickers']].map(([k, label]) => (
+          {[['emoji', '😊 Emojis'], ['stickers', tr('🌟 Stickers')]].map(([k, label]) => (
             <button key={k} onClick={() => { setEmojiTab(k); if (k === 'stickers' && !stickers) loadStickers(); }}
               style={{ background: emojiTab === k ? BRAND : T.bgHover, color: emojiTab === k ? 'white' : T.textPrimary, border: 'none', borderRadius: 14, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
               {label}
@@ -1000,14 +995,13 @@ export default function ChatPage() {
         <div style={{ background: T.bgSurface, padding: '10px 12px 8px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))', gap: 8, maxHeight: 230, overflowY: 'auto', flexShrink: 0 }}>
           <button onClick={() => stickerInputRef.current?.click()}
             style={{ aspectRatio: '1', borderRadius: 16, border: `2px dashed ${BRAND}`, background: 'none', color: BRAND, fontWeight: 800, fontSize: 12, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-            <span style={{ fontSize: 24, lineHeight: 1 }}>＋</span>Crear
-          </button>
-          {stickers === null && <span style={{ color: T.textMuted, fontSize: 12, alignSelf: 'center' }}>Cargando…</span>}
+            <span style={{ fontSize: 24, lineHeight: 1 }}>＋</span>{tr('Crear')}</button>
+          {stickers === null && <span style={{ color: T.textMuted, fontSize: 12, alignSelf: 'center' }}>{tr('Cargando…')}</span>}
           {(stickers || []).map(url => (
             <button key={url} onClick={() => sendSticker(url)} onContextMenu={(e) => { e.preventDefault(); removeSticker(url); }}
-              title="Toca para enviar · mantén pulsado para quitar"
+              title={tr('Toca para enviar · mantén pulsado para quitar')}
               style={{ aspectRatio: '1', borderRadius: 12, border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}>
-              <img src={url} alt="Sticker" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              <img src={url} alt={tr('Sticker')} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             </button>
           ))}
           <input ref={stickerInputRef} type="file" accept="image/*" style={{ display: 'none' }}
@@ -1060,9 +1054,7 @@ export default function ChatPage() {
                   <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
                   <circle cx="12" cy="13" r="4"/>
                 </svg>
-              </span>
-              Foto
-            </button>
+              </span>{tr('Foto')}</button>
             {/* Video con cámara */}
             <button onClick={() => { cameraVideoRef.current?.click(); setShowAttachMenu(false); }}
               style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
@@ -1070,9 +1062,7 @@ export default function ChatPage() {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                 </svg>
-              </span>
-              Video
-            </button>
+              </span>{tr('Video')}</button>
             {/* Galería */}
             <button onClick={() => { galleryInputRef.current?.click(); setShowAttachMenu(false); }}
               style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
@@ -1080,9 +1070,7 @@ export default function ChatPage() {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
                 </svg>
-              </span>
-              Galería
-            </button>
+              </span>{tr('Galería')}</button>
             {/* Documento */}
             <button onClick={() => { docInputRef.current?.click(); setShowAttachMenu(false); }}
               style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
@@ -1090,9 +1078,7 @@ export default function ChatPage() {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
                 </svg>
-              </span>
-              Documento
-            </button>
+              </span>{tr('Documento')}</button>
             {/* Ubicación */}
             <button onClick={sendLocation}
               style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
@@ -1101,9 +1087,7 @@ export default function ChatPage() {
                   <path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                   <path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-              </span>
-              Ubicación
-            </button>
+              </span>{tr('Ubicación')}</button>
             {/* Ubicación en tiempo real */}
             <button onClick={() => { setShowAttachMenu(false); setShowLiveMenu(true); }}
               style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
@@ -1111,9 +1095,7 @@ export default function ChatPage() {
                 <svg width="18" height="18" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                   <circle cx="12" cy="11" r="3"/><path d="M6.3 16.7a8 8 0 1111.4 0"/><path d="M3.5 19.5a12 12 0 1117 0"/>
                 </svg>
-              </span>
-              Ubicación en tiempo real
-            </button>
+              </span>{tr('Ubicación en tiempo real')}</button>
             {/* Contacto */}
             <button onClick={sendContact}
               style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', borderRadius: 12, color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
@@ -1121,9 +1103,7 @@ export default function ChatPage() {
                 <svg width="18" height="18" fill="white" viewBox="0 0 24 24">
                   <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
                 </svg>
-              </span>
-              Contacto
-            </button>
+              </span>{tr('Contacto')}</button>
           </div>
         )}
 
@@ -1151,7 +1131,7 @@ export default function ChatPage() {
                   url:      dataUrl,   // base64 local para mostrar inmediatamente
                   fileName: file.name,
                   sender:   user.id,
-                  time:     new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
+                  time:     new Date().toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' }),
                   status:   'sending',
                   isMine:   true,
                   replyTo:  currentReply || null,
@@ -1209,13 +1189,13 @@ export default function ChatPage() {
             background: T.bgSurface, border: `1px solid ${T.border}`, borderRadius: 16, padding: 6,
             boxShadow: '0 4px 20px rgba(0,0,0,0.18)', display: 'flex', gap: 6,
           }} onClick={e => e.stopPropagation()}>
-            {[['Foto', '#f59e0b', cameraPhotoRef, 'M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z'],
-              ['Vídeo', '#dc2626', cameraVideoRef, 'M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z']]
+            {[[tr('Foto'), '#f59e0b', cameraPhotoRef, 'M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z'],
+              [tr('Vídeo'), '#dc2626', cameraVideoRef, 'M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z']]
               .map(([label, color, ref, d]) => (
               <button key={label} onClick={() => { setShowCameraMenu(false); ref.current?.click(); }}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: '8px 14px', borderRadius: 12, color: T.textPrimary, fontSize: 13, fontWeight: 700 }}>
                 <span style={{ width: 40, height: 40, borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d}/>{label === 'Foto' && <circle cx="12" cy="13" r="4"/>}</svg>
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d}/>{label === tr('Foto') && <circle cx="12" cy="13" r="4"/>}</svg>
                 </span>
                 {label}
               </button>
@@ -1224,7 +1204,7 @@ export default function ChatPage() {
         )}
         {!isRecording && (
           <button onClick={(e) => { e.stopPropagation(); setShowCameraMenu(v => !v); setShowAttachMenu(false); setShowEmojiPicker(false); }}
-            aria-label="Cámara: foto o vídeo"
+            aria-label={tr('Cámara: foto o vídeo')}
             style={{ width: 40, height: 40, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
@@ -1241,8 +1221,7 @@ export default function ChatPage() {
             border: `1.5px solid #ef4444`,
           }}>
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', animation: 'recBlink 1s ease infinite', flexShrink: 0 }} />
-            <span style={{ fontSize: 14, color: '#ef4444', fontWeight: 700, flex: 1 }}>
-              Grabando {fmtTime(recordingTime)}
+            <span style={{ fontSize: 14, color: '#ef4444', fontWeight: 700, flex: 1 }}>{tr('Grabando')}{' '}{fmtTime(recordingTime)}
             </span>
             <span style={{ fontSize: 11, color: T.textMuted }}>{fmtTime(MAX_RECORDING_SECS - recordingTime)}</span>
             <style>{`@keyframes recBlink { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
@@ -1265,7 +1244,7 @@ export default function ChatPage() {
               }}
               onKeyDown={handleKeyDown}
               onFocus={() => setShowEmojiPicker(false)}
-              placeholder="Mensaje..."
+              placeholder={tr('Mensaje...')}
               enterKeyHint={IS_TOUCH ? 'enter' : 'send'}
               rows={1}
               style={{ width: '100%', resize: 'none', outline: 'none', fontSize: 14, fontWeight: 500, color: T.textPrimary, background: 'transparent', lineHeight: 1.5, overflowY: 'auto', overflowX: 'hidden', padding: '3px 0' }}
@@ -1292,7 +1271,7 @@ export default function ChatPage() {
             </button>
           </>
         ) : text.trim() ? (
-          <button onMouseDown={keepKeyboard} onTouchEnd={sendKeepingKeyboard} onClick={sendKeepingKeyboard} disabled={sending} aria-label="Enviar"
+          <button onMouseDown={keepKeyboard} onTouchEnd={sendKeepingKeyboard} onClick={sendKeepingKeyboard} disabled={sending} aria-label={tr('Enviar')}
             style={{ width: 40, height: 40, borderRadius: '50%', background: BRAND, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: sending ? 0.7 : 1 }}>
             <svg width="18" height="18" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ transform: 'translateX(1px)' }}>
               <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -1358,12 +1337,11 @@ export default function ChatPage() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 900, background: 'rgba(10,13,37,0.55)', display: 'flex', alignItems: 'flex-end' }}
           onClick={() => setShowLiveMenu(false)}>
           <div onClick={e => e.stopPropagation()} style={{ background: T.bgSurface, width: '100%', borderRadius: '22px 22px 0 0', padding: '20px 18px', paddingBottom: 'max(18px, env(safe-area-inset-bottom, 18px))' }}>
-            <p style={{ fontWeight: 900, fontSize: 18, color: T.textPrimary, margin: 0 }}>📍 Compartir ubicación en tiempo real</p>
+            <p style={{ fontWeight: 900, fontSize: 18, color: T.textPrimary, margin: 0 }}>{tr('📍 Compartir ubicación en tiempo real')}</p>
             <p style={{ fontSize: 13, color: T.textMuted, margin: '4px 0 16px' }}>
-              {isGroup ? 'El grupo verá' : `${chat.name || 'Esta persona'} verá`} cómo te mueves en el mapa. Puedes dejar de compartirla cuando quieras.
-            </p>
+              {isGroup ? tr('El grupo verá') : tr('{p0} verá', { p0: chat.name || 'Esta persona' })}{' '}{tr('cómo te mueves en el mapa. Puedes dejar de compartirla cuando quieras.')}</p>
             <div style={{ display: 'flex', gap: 8 }}>
-              {[[15, '15 min'], [60, '1 hora'], [480, '8 horas']].map(([min, label]) => (
+              {[[15, tr('15 min')], [60, tr('1 hora')], [480, tr('8 horas')]].map(([min, label]) => (
                 <button key={min} onClick={() => sendLiveLocation(min)}
                   style={{ flex: 1, background: BRAND, color: 'white', border: 'none', borderRadius: 14, padding: '14px 0', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
                   {label}
@@ -1371,9 +1349,7 @@ export default function ChatPage() {
               ))}
             </div>
             <button onClick={() => setShowLiveMenu(false)}
-              style={{ width: '100%', marginTop: 10, background: 'none', border: 'none', color: T.textMuted, fontWeight: 700, fontSize: 14, padding: 10, cursor: 'pointer' }}>
-              Cancelar
-            </button>
+              style={{ width: '100%', marginTop: 10, background: 'none', border: 'none', color: T.textMuted, fontWeight: 700, fontSize: 14, padding: 10, cursor: 'pointer' }}>{tr('Cancelar')}</button>
           </div>
         </div>
       )}
@@ -1462,7 +1438,7 @@ export default function ChatPage() {
                     for (let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
                     blob = new Blob([u8], { type: mime });
                   }
-                  if (!blob) throw new Error('Sin datos');
+                  if (!blob) throw new Error(tr('Sin datos'));
 
                   // ── 2. Blob → base64 ────────────────────────────────────────
                   const base64 = await new Promise((resolve, reject) => {
@@ -1521,7 +1497,7 @@ export default function ChatPage() {
                   await Share.share({
                     files:       [uri],           // ← files[], no url — muestra apps de archivo
                     title:       fileName,
-                    dialogTitle: 'Guardar en el dispositivo',
+                    dialogTitle: tr('Guardar en el dispositivo'),
                   });
 
                 } catch (err) {
@@ -1546,18 +1522,14 @@ export default function ChatPage() {
                 <>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
                     <path d="M21 12a9 9 0 11-6.219-8.56"/>
-                  </svg>
-                  Descargando...
-                </>
+                  </svg>{tr('Descargando...')}</>
               ) : (
                 <>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
                     <polyline points="7 10 12 15 17 10"/>
                     <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                  Descargar
-                </>
+                  </svg>{tr('Descargar')}</>
               )}
             </button>
           </div>
@@ -1581,11 +1553,9 @@ export default function ChatPage() {
           )}
           {expandedPhoto?.viewOnce && (
             <span style={{ position: 'absolute', bottom: 'calc(24px + env(safe-area-inset-bottom, 0px))', left: '50%', transform: 'translateX(-50%)', color: 'white',
-                           background: 'rgba(0,0,0,0.55)', padding: '8px 16px', borderRadius: 18, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', pointerEvents: 'none' }}>
-              Ver una vez · al cerrar ya no se podrá volver a ver
-            </span>
+                           background: 'rgba(0,0,0,0.55)', padding: '8px 16px', borderRadius: 18, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', pointerEvents: 'none' }}>{tr('Ver una vez · al cerrar ya no se podrá volver a ver')}</span>
           )}
-          {!expandedPhoto?.viewOnce && <button aria-label="Descargar" title="Descargar"
+          {!expandedPhoto?.viewOnce && <button aria-label={tr('Descargar')} title={tr('Descargar')}
             onClick={(e) => { e.stopPropagation(); const isVid = expandedPhoto?.type === 'video';
                               saveMediaToPhone({ type: isVid ? 'video' : 'image', url: typeof expandedPhoto === 'string' ? expandedPhoto : expandedPhoto.src }); }}
             style={{ position: 'absolute', top: 20, right: 72, width: 40, height: 40, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: '1.5px solid rgba(255,255,255,0.3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1615,11 +1585,11 @@ export default function ChatPage() {
 // ── Burbuja de una foto/vídeo "ver una vez" ─────────────────────────────────
 function ViewOnceChip({ msg, isDark, onOpen }) {
   const video = msg.type === 'video';
-  const what = video ? 'Vídeo' : 'Foto';
+  const what = video ? tr('Vídeo') : tr('Foto');
   const canOpen = !msg.isMine && !msg.opened && msg.status !== 'sending';
   const fg = isDark ? '#E0FBFC' : '#293241';
-  const label = msg.status === 'sending' ? 'Enviando…'
-              : msg.isMine ? (msg.opened ? `${what} · Abierta` : what)
+  const label = msg.status === 'sending' ? tr('Enviando…')
+              : msg.isMine ? (msg.opened ? tr('{what} · Abierta', { what }) : what)
               : msg.opened ? 'Abierta' : what;
   return (
     <button onClick={canOpen ? (e) => { e.stopPropagation(); onOpen(); } : undefined} disabled={!canOpen}
@@ -1630,7 +1600,7 @@ function ViewOnceChip({ msg, isDark, onOpen }) {
                      border: msg.opened ? `2px dashed ${isDark ? 'rgba(224,251,252,0.6)' : 'rgba(41,50,65,0.45)'}` : 'none' }}>1</span>
       <span style={{ textAlign: 'left' }}>
         <span style={{ display: 'block', fontSize: 15, fontWeight: 700 }}>{label}</span>
-        {canOpen && <span style={{ display: 'block', fontSize: 11, opacity: 0.7 }}>Toca para verla · solo una vez</span>}
+        {canOpen && <span style={{ display: 'block', fontSize: 11, opacity: 0.7 }}>{tr('Toca para verla · solo una vez')}</span>}
       </span>
     </button>
   );
@@ -1642,7 +1612,7 @@ function MediaPreview({ media, onCancel, onSend }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#0A0D25', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 14px 8px' }}>
-        <button onClick={onCancel} aria-label="Cancelar"
+        <button onClick={onCancel} aria-label={tr('Cancelar')}
           style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
@@ -1659,13 +1629,13 @@ function MediaPreview({ media, onCancel, onSend }) {
           <span style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 900,
                          background: once ? '#98C1D9' : 'transparent', color: once ? '#0A0D25' : 'white', border: once ? 'none' : '2px dashed rgba(255,255,255,0.7)' }}>1</span>
           <span style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.25 }}>
-            {once ? 'Ver una vez: activado' : 'Ver una vez'}
+            {once ? tr('Ver una vez: activado') : tr('Ver una vez')}
             <span style={{ display: 'block', fontSize: 11, fontWeight: 500, opacity: 0.75 }}>
-              {once ? 'Solo podrá abrirse una vez y no se podrá guardar' : 'Toca para que solo se pueda ver una vez'}
+              {once ? tr('Solo podrá abrirse una vez y no se podrá guardar') : tr('Toca para que solo se pueda ver una vez')}
             </span>
           </span>
         </button>
-        <button onClick={() => onSend(once)} aria-label="Enviar"
+        <button onClick={() => onSend(once)} aria-label={tr('Enviar')}
           style={{ width: 54, height: 54, borderRadius: '50%', background: '#3D5A80', border: 'none', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <svg width="22" height="22" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ transform: 'translateX(1px)' }}>
             <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -1693,7 +1663,7 @@ function FullVideo({ src, viewOnce }) {
         onLoadedMetadata={e => { e.target.playbackRate = speed; }}
         onClick={e => e.stopPropagation()}
         style={{ maxWidth: '96vw', maxHeight: '96vh', borderRadius: 12, outline: 'none' }} />
-      <button onClick={cycle} aria-label={`Velocidad ${speedLabel(speed)}`}
+      <button onClick={cycle} aria-label={tr('Velocidad {p0}', { p0: speedLabel(speed) })}
         style={{ position: 'absolute', top: 20, left: 20, minWidth: 54, height: 40, borderRadius: 20, padding: '0 12px', cursor: 'pointer',
                  background: speed !== 1 ? 'white' : 'rgba(0,0,0,0.5)', color: speed !== 1 ? '#293241' : 'white',
                  border: '1.5px solid rgba(255,255,255,0.3)', fontSize: 15, fontWeight: 800 }}>
@@ -1813,7 +1783,7 @@ function AudioPlayer({ src, isMine, isDark, knownDuration }) {
       </div>
 
       {/* Velocidad: 1× → 1,5× → 2× */}
-      <button onClick={(e) => { e.stopPropagation(); cycleSpeed(); }} aria-label={`Velocidad ${speedLabel(speed)}`}
+      <button onClick={(e) => { e.stopPropagation(); cycleSpeed(); }} aria-label={tr('Velocidad {p0}', { p0: speedLabel(speed) })}
         style={{ flexShrink: 0, minWidth: 38, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', padding: '0 7px',
                  background: speed !== 1 ? micColor : (sentDark ? 'rgba(255,255,255,0.18)' : 'rgba(61,90,128,0.14)'),
                  color: speed !== 1 ? (sentDark ? '#293241' : 'white') : micColor, fontSize: 12, fontWeight: 800 }}>
@@ -1947,11 +1917,11 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
 
         {/* Contenido del mensaje */}
         {isDeleted ? (
-          <p style={{ fontSize: 14, fontStyle: 'italic', color: msg.isMine ? timeColor : recvTime, margin: 0 }}>🚫 Se eliminó este mensaje</p>
+          <p style={{ fontSize: 14, fontStyle: 'italic', color: msg.isMine ? timeColor : recvTime, margin: 0 }}>{tr('🚫 Se eliminó este mensaje')}</p>
         ) : isOnce ? (
           <ViewOnceChip msg={msg} isDark={isDark} onOpen={() => onOpenViewOnce?.(msg)} />
         ) : isSticker ? (
-          <img src={msg.url} alt="Sticker" onLoad={onMediaLoad} style={{ display: 'block', width: 150, height: 150, objectFit: 'contain' }} />
+          <img src={msg.url} alt={tr('Sticker')} onLoad={onMediaLoad} style={{ display: 'block', width: 150, height: 150, objectFit: 'contain' }} />
         ) : isImage ? (
           <img
             src={msg.url}
@@ -1994,9 +1964,7 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
                 color: msg.isMine ? (isDark ? '#D5E6F0' : '#293241') : (isDark ? '#E0FBFC' : '#293241'),
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180,
               }}>{docName}</div>
-              <div style={{ fontSize: 11, color: msg.isMine ? (isDark ? '#93c5fd' : '#3b82f6') : (isDark ? '#93b8e0' : '#6b7280'), marginTop: 2 }}>
-                Toca para descargar
-              </div>
+              <div style={{ fontSize: 11, color: msg.isMine ? (isDark ? '#93c5fd' : '#3b82f6') : (isDark ? '#93b8e0' : '#6b7280'), marginTop: 2 }}>{tr('Toca para descargar')}</div>
             </div>
           </button>
           );
@@ -2034,9 +2002,9 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
           marginTop: isWide ? 2 : 4,
           padding: isWide ? '0 8px' : 0,
         }}>
-          {msg.pinned && !isDeleted && <span style={{ fontSize: 11 }} title="Fijado">📌</span>}
-          {msg.starred && !isDeleted && <span style={{ fontSize: 11 }} title="Destacado">⭐</span>}
-          {msg.editedAt && !isDeleted && <span style={{ fontSize: 11, fontStyle: 'italic', color: msg.isMine ? timeColor : recvTime }}>editado</span>}
+          {msg.pinned && !isDeleted && <span style={{ fontSize: 11 }} title={tr('Fijado')}>📌</span>}
+          {msg.starred && !isDeleted && <span style={{ fontSize: 11 }} title={tr('Destacado')}>⭐</span>}
+          {msg.editedAt && !isDeleted && <span style={{ fontSize: 11, fontStyle: 'italic', color: msg.isMine ? timeColor : recvTime }}>{tr('editado')}</span>}
           <span style={{ fontSize: 12, color: msg.isMine ? timeColor : recvTime }}>{msg.time}</span>
           {msg.isMine && (
             <span style={{ fontSize: 12, color: msg.status === 'read' ? '#60a5fa' : timeColor }}>
@@ -2050,12 +2018,12 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
 }
 
 // ── Ubicación (fija o en tiempo real) con la vista previa del mapa, como en WhatsApp ──
-const fmtHour = (ts) => new Date(ts).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+const fmtHour = (ts) => new Date(ts).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
 function agoText(ts) {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  if (s < 60) return 'hace un momento';
-  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
-  return `a las ${fmtHour(ts)}`;
+  if (s < 60) return tr('hace un momento');
+  if (s < 3600) return tr('hace {m} min', { m: Math.round(s / 60) });
+  return tr('a las {time}', { time: fmtHour(ts) });
 }
 const liveActive = (live) => !!live && !live.stopped && live.until > Date.now();
 
@@ -2097,7 +2065,7 @@ function LocationCard({ msg, textColor, mutedColor, onOpen }) {
   const active = isLive && liveActive(live);
   return (
     <div ref={boxRef}>
-      <button onClick={pos ? onOpen : undefined} aria-label="Ver la ubicación en el mapa"
+      <button onClick={pos ? onOpen : undefined} aria-label={tr('Ver la ubicación en el mapa')}
         style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: '#dfe7ee', borderRadius: 12, overflow: 'hidden',
                  cursor: pos ? 'pointer' : 'default', position: 'relative', aspectRatio: '320 / 170' }}>
         {snap
@@ -2106,29 +2074,25 @@ function LocationCard({ msg, textColor, mutedColor, onOpen }) {
               <svg width="30" height="30" viewBox="0 0 24 24" fill="#3D5A80" style={{ animation: msg.locating ? 'locPulse 1.2s ease-in-out infinite' : 'none' }}>
                 <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
               </svg>
-              {msg.locating ? 'Obteniendo tu ubicación…' : 'Cargando mapa…'}
+              {msg.locating ? tr('Obteniendo tu ubicación…') : tr('Cargando mapa…')}
               <style>{'@keyframes locPulse{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}'}</style>
             </span>}
         {active && (
-          <span style={{ position: 'absolute', top: 8, left: 8, background: '#dc2626', color: 'white', fontSize: 11, fontWeight: 800, borderRadius: 10, padding: '3px 8px' }}>
-            ● EN DIRECTO
-          </span>
+          <span style={{ position: 'absolute', top: 8, left: 8, background: '#dc2626', color: 'white', fontSize: 11, fontWeight: 800, borderRadius: 10, padding: '3px 8px' }}>{tr('● EN DIRECTO')}</span>
         )}
       </button>
       <div style={{ padding: '8px 8px 0' }}>
         <p style={{ margin: 0, fontSize: 14, fontWeight: 800, color: textColor }}>
-          {isLive ? 'Ubicación en tiempo real' : '📍 Ubicación'}
+          {isLive ? tr('Ubicación en tiempo real') : tr('📍 Ubicación')}
         </p>
         {isLive && live && (
           <p style={{ margin: '2px 0 0', fontSize: 12, color: mutedColor }}>
-            {active ? `Hasta las ${fmtHour(live.until)} · actualizada ${agoText(live.updatedAt || Date.now())}` : 'Ya no se comparte'}
+            {active ? tr('Hasta las {p0} · actualizada {p1}', { p0: fmtHour(live.until), p1: agoText(live.updatedAt || Date.now()) }) : tr('Ya no se comparte')}
           </p>
         )}
         {msg.isMine && active && sharing && (
-          <button onClick={(e) => { e.stopPropagation(); if (window.confirm('¿Dejar de compartir tu ubicación?')) stopLiveShare(msg.id); }}
-            style={{ marginTop: 8, width: '100%', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 10, padding: '8px 0', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
-            Dejar de compartir
-          </button>
+          <button onClick={(e) => { e.stopPropagation(); if (window.confirm(tr('¿Dejar de compartir tu ubicación?'))) stopLiveShare(msg.id); }}
+            style={{ marginTop: 8, width: '100%', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 10, padding: '8px 0', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>{tr('Dejar de compartir')}</button>
         )}
       </div>
     </div>
@@ -2156,22 +2120,20 @@ function ChatMapView({ msg, onClose }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#dfe7ee', display: 'flex', flexDirection: 'column' }}>
       <div style={{ background: '#3D5A80', color: 'white', padding: '0 12px 12px', paddingTop: 'max(12px, env(safe-area-inset-top, 12px))',
                     display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-        <button onClick={onClose} aria-label="Volver" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+        <button onClick={onClose} aria-label={tr('Volver')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
           <svg width="24" height="24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
         </button>
         <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: 'block', fontWeight: 800, fontSize: 16 }}>{isLive ? 'Ubicación en tiempo real' : 'Ubicación'}</span>
+          <span style={{ display: 'block', fontWeight: 800, fontSize: 16 }}>{isLive ? tr('Ubicación en tiempo real') : tr('Ubicación')}</span>
           {isLive && msg.live && (
             <span style={{ display: 'block', fontSize: 12, opacity: 0.85 }}>
-              {active ? `Hasta las ${fmtHour(msg.live.until)} · actualizada ${agoText(msg.live.updatedAt || Date.now())}` : 'Ya no se comparte'}
+              {active ? tr('Hasta las {p0} · actualizada {p1}', { p0: fmtHour(msg.live.until), p1: agoText(msg.live.updatedAt || Date.now()) }) : tr('Ya no se comparte')}
             </span>
           )}
         </span>
         {pos && (
           <button onClick={() => openInMapsApp(pos.lat, pos.lng)}
-            style={{ background: 'white', color: '#3D5A80', border: 'none', borderRadius: 18, padding: '8px 12px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
-            Cómo llegar
-          </button>
+            style={{ background: 'white', color: '#3D5A80', border: 'none', borderRadius: 18, padding: '8px 12px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>{tr('Cómo llegar')}</button>
         )}
       </div>
       <div ref={boxRef} style={{ flex: 1, position: 'relative' }} />
@@ -2202,7 +2164,7 @@ function ForwardSheet({ T, user, currentChatId, msgs, onClose, onDone }) {
         // La ubicación en tiempo real se reenvía como ubicación fija (el último punto)
         const type = m.type === 'live_location' ? 'location' : (m.type || 'text');
         const p = m.type === 'live_location' ? messageLatLng(m) : null;
-        const text = p ? `📍 Ubicación\n${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}` : m.text;
+        const text = p ? tr('📍 Ubicación\n{p0}, {p1}', { p0: p.lat.toFixed(6), p1: p.lng.toFixed(6) }) : m.text;
         const url = p ? `https://maps.google.com/?q=${p.lat},${p.lng}` : m.url;
         await persistMessage(chatId, user.id, text, type, url, null, m.fileName || null, m.duration ? { duration: m.duration } : {});
       }
@@ -2210,7 +2172,7 @@ function ForwardSheet({ T, user, currentChatId, msgs, onClose, onDone }) {
     setBusy(false);
     if (picked.has(currentChatId)) useChatStore.getState().loadMessages(currentChatId, user.id);
     onDone();
-    alert(picked.size === 1 ? 'Reenviado' : `Reenviado a ${picked.size} chats`);
+    alert(picked.size === 1 ? 'Reenviado' : tr('Reenviado a {size} chats', { size: picked.size }));
   };
 
   return (
@@ -2218,14 +2180,13 @@ function ForwardSheet({ T, user, currentChatId, msgs, onClose, onDone }) {
       <div onClick={e => e.stopPropagation()} style={{ background: T.bgSurface, width: '100%', maxHeight: '85dvh', borderRadius: '22px 22px 0 0',
                                                       display: 'flex', flexDirection: 'column', paddingBottom: 'max(14px, env(safe-area-inset-bottom, 14px))' }}>
         <div style={{ padding: '18px 18px 10px' }}>
-          <p style={{ margin: 0, fontWeight: 900, fontSize: 18, color: T.textPrimary }}>
-            Reenviar {msgs.length === 1 ? 'mensaje' : `${msgs.length} mensajes`}
+          <p style={{ margin: 0, fontWeight: 900, fontSize: 18, color: T.textPrimary }}>{tr('Reenviar')}{' '}{msgs.length === 1 ? 'mensaje' : `${msgs.length} mensajes`}
           </p>
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar chat…"
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder={tr('Buscar chat…')}
             style={{ marginTop: 10, width: '100%', boxSizing: 'border-box', padding: '10px 14px', borderRadius: 12, border: `1px solid ${T.border}`, background: T.bgInput, color: T.textPrimary, fontSize: 14, outline: 'none' }} />
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px' }}>
-          {list.length === 0 && <p style={{ textAlign: 'center', color: T.textMuted, fontSize: 13, padding: 20 }}>No hay chats</p>}
+          {list.length === 0 && <p style={{ textAlign: 'center', color: T.textMuted, fontSize: 13, padding: 20 }}>{tr('No hay chats')}</p>}
           {list.map(c => {
             const on = picked.has(c.id);
             return (
@@ -2233,7 +2194,7 @@ function ForwardSheet({ T, user, currentChatId, msgs, onClose, onDone }) {
                 style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', background: on ? 'rgba(61,90,128,0.12)' : 'none', border: 'none', borderRadius: 12, padding: '8px 8px', cursor: 'pointer', textAlign: 'left' }}>
                 <Avatar name={c.name} src={c.avatar || null} size="md" />
                 <span style={{ flex: 1, minWidth: 0, color: T.textPrimary, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {c.name}{c.id === currentChatId ? ' (este chat)' : ''}
+                  {c.name}{c.id === currentChatId ? tr(' (este chat)') : ''}
                 </span>
                 <span style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, border: `2px solid ${on ? '#3D5A80' : T.border}`, background: on ? '#3D5A80' : 'transparent',
                                color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 900 }}>{on ? '✓' : ''}</span>
@@ -2242,10 +2203,10 @@ function ForwardSheet({ T, user, currentChatId, msgs, onClose, onDone }) {
           })}
         </div>
         <div style={{ display: 'flex', gap: 10, padding: '12px 18px 0' }}>
-          <button onClick={onClose} style={{ flex: 1, background: T.bgHover, color: T.textPrimary, border: 'none', borderRadius: 14, padding: '13px 0', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={onClose} style={{ flex: 1, background: T.bgHover, color: T.textPrimary, border: 'none', borderRadius: 14, padding: '13px 0', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>{tr('Cancelar')}</button>
           <button onClick={send} disabled={!picked.size || busy}
             style={{ flex: 2, background: '#3D5A80', color: 'white', border: 'none', borderRadius: 14, padding: '13px 0', fontWeight: 800, fontSize: 15, cursor: 'pointer', opacity: !picked.size || busy ? 0.5 : 1 }}>
-            {busy ? 'Enviando…' : picked.size > 1 ? `Enviar a ${picked.size} chats` : 'Enviar'}
+            {busy ? tr('Enviando…') : picked.size > 1 ? tr('Enviar a {size} chats', { size: picked.size }) : tr('Enviar')}
           </button>
         </div>
       </div>
@@ -2266,8 +2227,8 @@ const REPLY_ICONS = {
   contact:  'M12 12a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0',
 };
 REPLY_ICONS.live_location = REPLY_ICONS.location;
-const REPLY_LABELS = { image: 'Foto', video: 'Vídeo', audio: 'Nota de voz', location: 'Ubicación', live_location: 'Ubicación en tiempo real',
-                       document: 'Documento', sticker: 'Sticker', contact: 'Contacto' };
+const REPLY_LABELS = { image: tr('Foto'), video: tr('Vídeo'), audio: tr('Nota de voz'), location: tr('Ubicación'), live_location: tr('Ubicación en tiempo real'),
+                       document: tr('Documento'), sticker: tr('Sticker'), contact: tr('Contacto') };
 
 /** Colores de la cita según dónde se pinta: 'sent' / 'recv' (burbujas) o 'bar' (barra de escribir) */
 function replyColors(where, isDark) {
@@ -2282,7 +2243,7 @@ function ReplyQuote({ reply, where, isDark, onClick, children }) {
   const c = replyColors(where, isDark);
   const t = reply.type || 'text';
   const icon = REPLY_ICONS[t];
-  const label = reply.viewOnce ? `${REPLY_LABELS[t] || 'Foto'} (ver una vez)`
+  const label = reply.viewOnce ? tr('{p0} (ver una vez)', { p0: REPLY_LABELS[t] || 'Foto' })
               : t === 'document' ? (reply.fileName || REPLY_LABELS.document)
               : (t === 'image' || t === 'video') && reply.text && !/^\[/.test(reply.text) ? reply.text
               : REPLY_LABELS[t] || reply.text || '';
@@ -2319,11 +2280,11 @@ function ReplyQuote({ reply, where, isDark, onClick, children }) {
 // ── Vista previa corta de un mensaje (fijados, destacados) ─────────────────
 function msgPreview(m) {
   const t = m.type || 'text';
-  if (m.deleted || t === 'deleted') return '🚫 Se eliminó este mensaje';
-  if (m.viewOnce) return t === 'video' ? '① Vídeo (ver una vez)' : '① Foto (ver una vez)';
-  return t === 'image' ? '📷 Foto' : t === 'video' ? '🎥 Vídeo' : t === 'audio' ? '🎤 Nota de voz'
-       : t === 'sticker' ? '🌟 Sticker' : t === 'location' ? '📍 Ubicación' : t === 'live_location' ? '📍 Ubicación en tiempo real'
-       : t === 'document' ? `📄 ${m.fileName || 'Documento'}` : t === 'contact' ? '👤 Contacto' : (m.text || '');
+  if (m.deleted || t === 'deleted') return tr('🚫 Se eliminó este mensaje');
+  if (m.viewOnce) return t === 'video' ? tr('① Vídeo (ver una vez)') : tr('① Foto (ver una vez)');
+  return t === 'image' ? tr('📷 Foto') : t === 'video' ? tr('🎥 Vídeo') : t === 'audio' ? tr('🎤 Nota de voz')
+       : t === 'sticker' ? tr('🌟 Sticker') : t === 'location' ? tr('📍 Ubicación') : t === 'live_location' ? tr('📍 Ubicación en tiempo real')
+       : t === 'document' ? `📄 ${m.fileName || tr('Documento')}` : t === 'contact' ? tr('👤 Contacto') : (m.text || '');
 }
 
 // ── Fondo del chat (en este móvil): por chat o para todos ('*') ────────────
@@ -2339,7 +2300,7 @@ function saveChatBg(key, bg, clearKey) {
     if (clearKey) delete all[clearKey];   // "para todos": este chat deja de tener uno propio
     localStorage.setItem(BG_KEY, JSON.stringify(all));
     return null;
-  } catch { return 'No hay espacio para guardar esa foto de fondo. Prueba con otra foto o con un color.'; }
+  } catch { return tr('No hay espacio para guardar esa foto de fondo. Prueba con otra foto o con un color.'); }
 }
 
 const BG_PRESETS = [
@@ -2371,7 +2332,7 @@ function BackgroundSheet({ T, current, onClose, onApply }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 950, background: 'rgba(10,13,37,0.55)', display: 'flex', alignItems: 'flex-end' }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.bgSurface, width: '100%', borderRadius: '22px 22px 0 0', padding: '18px', paddingBottom: 'max(18px, env(safe-area-inset-bottom, 18px))' }}>
-        <p style={{ margin: '0 0 12px', fontWeight: 900, fontSize: 18, color: T.textPrimary }}>Fondo del chat</p>
+        <p style={{ margin: '0 0 12px', fontWeight: 900, fontSize: 18, color: T.textPrimary }}>{tr('Fondo del chat')}</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))', gap: 10 }}>
           {BG_PRESETS.map(([name, css]) => {
             const on = (current?.css || null) === css;
@@ -2386,13 +2347,11 @@ function BackgroundSheet({ T, current, onClose, onApply }) {
           <button onClick={() => fileRef.current?.click()}
             style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
             <span style={{ width: '100%', aspectRatio: '3 / 4', borderRadius: 12, border: '2px dashed #3D5A80', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>📷</span>
-            <span style={{ fontSize: 11, color: T.textSecondary, fontWeight: 600 }}>Tu foto</span>
+            <span style={{ fontSize: 11, color: T.textSecondary, fontWeight: 600 }}>{tr('Tu foto')}</span>
           </button>
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, color: T.textPrimary, fontSize: 14, fontWeight: 600 }}>
-          <input type="checkbox" checked={all} onChange={e => setAll(e.target.checked)} style={{ width: 18, height: 18 }} />
-          Usar en todos los chats
-        </label>
+          <input type="checkbox" checked={all} onChange={e => setAll(e.target.checked)} style={{ width: 18, height: 18 }} />{tr('Usar en todos los chats')}</label>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} />
       </div>
     </div>
@@ -2407,14 +2366,14 @@ function MessageActions({ T, msg, canEdit, onClose, onReply, onCopy, onEdit, onP
   const media = ['image', 'video', 'sticker'].includes(msg.type) && !deleted && !local && !!msg.url && !msg.viewOnce;
   const items = [
     !deleted && !local && ['Responder', onReply],
-    sticker && !msg.isMine && ['Añadir a mis stickers', onAddSticker],
-    media && [msg.type === 'video' ? 'Descargar vídeo' : msg.type === 'sticker' ? 'Guardar en el móvil' : 'Descargar foto', onSaveMedia],
+    sticker && !msg.isMine && [tr('Añadir a mis stickers'), onAddSticker],
+    media && [msg.type === 'video' ? tr('Descargar vídeo') : msg.type === 'sticker' ? tr('Guardar en el móvil') : tr('Descargar foto'), onSaveMedia],
     !deleted && (msg.type || 'text') === 'text' && ['Copiar', onCopy],
     canEdit && ['Editar', onEdit],
-    !deleted && !local && [msg.pinned ? 'Dejar de fijar' : 'Fijar', onPin],
-    !deleted && !local && [msg.starred ? 'Quitar destacado' : 'Destacar', onStar],
+    !deleted && !local && [msg.pinned ? tr('Dejar de fijar') : 'Fijar', onPin],
+    !deleted && !local && [msg.starred ? tr('Quitar destacado') : 'Destacar', onStar],
     !deleted && !local && !msg.viewOnce && ['Reenviar', onForward],
-    ['Seleccionar varios', onSelect],
+    [tr('Seleccionar varios'), onSelect],
     ['Eliminar', onDelete, true],
   ].filter(Boolean);
   return (
@@ -2445,14 +2404,14 @@ function DeleteDialog({ T, msgs, onCancel, onDelete }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 960, background: 'rgba(10,13,37,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }} onClick={onCancel}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.bgSurface, width: '100%', maxWidth: 360, borderRadius: 20, overflow: 'hidden' }}>
         <p style={{ margin: 0, padding: '20px 20px 6px', fontWeight: 900, fontSize: 17, color: T.textPrimary }}>
-          {n === 1 ? '¿Eliminar mensaje?' : `¿Eliminar ${n} mensajes?`}
+          {n === 1 ? tr('¿Eliminar mensaje?') : tr('¿Eliminar {n} mensajes?', { n })}
         </p>
         <p style={{ margin: 0, padding: '0 20px 16px', fontSize: 13, color: T.textMuted }}>
-          {canAll ? '«Para todos» lo quita también del móvil de los demás.' : 'Solo desaparecerá de tu móvil.'}
+          {canAll ? tr('«Para todos» lo quita también del móvil de los demás.') : tr('Solo desaparecerá de tu móvil.')}
         </p>
-        {canAll && btn('Eliminar para todos', () => onDelete('all'), '#dc2626')}
-        {btn('Eliminar para mí', () => onDelete('me'), '#dc2626')}
-        {btn('Cancelar', onCancel, '#3D5A80')}
+        {canAll && btn(tr('Eliminar para todos'), () => onDelete('all'), '#dc2626')}
+        {btn(tr('Eliminar para mí'), () => onDelete('me'), '#dc2626')}
+        {btn(tr('Cancelar'), onCancel, '#3D5A80')}
       </div>
     </div>
   );
@@ -2464,17 +2423,16 @@ function StarredSheet({ T, msgs, onClose, onPick, onUnstar }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 950, background: 'rgba(10,13,37,0.55)', display: 'flex', alignItems: 'flex-end' }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.bgSurface, width: '100%', maxHeight: '80dvh', borderRadius: '22px 22px 0 0', display: 'flex', flexDirection: 'column',
                                                       paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))' }}>
-        <p style={{ margin: 0, padding: '18px 18px 10px', fontWeight: 900, fontSize: 18, color: T.textPrimary }}>Mensajes destacados</p>
+        <p style={{ margin: 0, padding: '18px 18px 10px', fontWeight: 900, fontSize: 18, color: T.textPrimary }}>{tr('Mensajes destacados')}</p>
         <div style={{ overflowY: 'auto', padding: '0 10px' }}>
-          {msgs.length === 0 && <p style={{ textAlign: 'center', color: T.textMuted, fontSize: 13, padding: '16px 20px 24px' }}>
-            Aún no hay mensajes destacados. Mantén pulsado un mensaje y elige «Destacar».</p>}
+          {msgs.length === 0 && <p style={{ textAlign: 'center', color: T.textMuted, fontSize: 13, padding: '16px 20px 24px' }}>{tr('Aún no hay mensajes destacados. Mantén pulsado un mensaje y elige «Destacar».')}</p>}
           {msgs.map(m => (
             <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: `1px solid ${T.border}` }}>
               <button onClick={() => onPick(m)} style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', padding: '12px 8px', textAlign: 'left', cursor: 'pointer' }}>
-                <span style={{ display: 'block', fontSize: 12, color: T.textMuted, fontWeight: 700 }}>{m.isMine ? 'Tú' : 'Recibido'} · {m.time}</span>
+                <span style={{ display: 'block', fontSize: 12, color: T.textMuted, fontWeight: 700 }}>{m.isMine ? tr('Tú') : tr('Recibido')} · {m.time}</span>
                 <span style={{ display: 'block', fontSize: 14, color: T.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msgPreview(m)}</span>
               </button>
-              <button onClick={() => onUnstar(m)} aria-label="Quitar destacado" title="Quitar destacado"
+              <button onClick={() => onUnstar(m)} aria-label={tr('Quitar destacado')} title={tr('Quitar destacado')}
                 style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', padding: 8 }}>✖️</button>
             </div>
           ))}
@@ -2539,35 +2497,33 @@ function StickerEditor({ T, src, onCancel, onSave }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 970, background: 'rgba(10,13,37,0.7)', display: 'flex', alignItems: 'flex-end' }} onClick={onCancel}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.bgSurface, width: '100%', maxHeight: '94dvh', overflowY: 'auto', borderRadius: '22px 22px 0 0', padding: 18,
                                                       paddingBottom: 'max(18px, env(safe-area-inset-bottom, 18px))' }}>
-        <p style={{ margin: '0 0 12px', fontWeight: 900, fontSize: 18, color: T.textPrimary }}>🌟 Crear sticker</p>
+        <p style={{ margin: '0 0 12px', fontWeight: 900, fontSize: 18, color: T.textPrimary }}>{tr('🌟 Crear sticker')}</p>
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12,
                       background: 'repeating-conic-gradient(#e5e7eb 0% 25%, #ffffff 0% 50%) 50% / 20px 20px', borderRadius: 16 }}>
           <canvas ref={canvasRef} width={STICKER_SIZE} height={STICKER_SIZE} style={{ width: 'min(64vw, 240px)', height: 'min(64vw, 240px)' }} />
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-          {[['rounded', 'Redondeado'], ['circle', 'Círculo'], ['free', 'Foto entera']].map(([k, l]) => (
+          {[['rounded', tr('Redondeado')], ['circle', tr('Círculo')], ['free', tr('Foto entera')]].map(([k, l]) => (
             <button key={k} onClick={() => setShape(k)} style={chip(shape === k)}>{l}</button>
           ))}
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: T.textSecondary, fontWeight: 700, marginBottom: 10 }}>
-          Zoom
-          <input type="range" min="1" max="3" step="0.05" value={zoom} onChange={e => setZoom(Number(e.target.value))} style={{ flex: 1 }} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: T.textSecondary, fontWeight: 700, marginBottom: 10 }}>{tr('Zoom')}<input type="range" min="1" max="3" step="0.05" value={zoom} onChange={e => setZoom(Number(e.target.value))} style={{ flex: 1 }} />
         </label>
-        <input value={text} onChange={e => setText(e.target.value.slice(0, 30))} placeholder="Texto (opcional)"
+        <input value={text} onChange={e => setText(e.target.value.slice(0, 30))} placeholder={tr('Texto (opcional)')}
           style={{ width: '100%', boxSizing: 'border-box', padding: '11px 14px', borderRadius: 12, border: `1px solid ${T.border}`, background: T.bgInput, color: T.textPrimary, fontSize: 15, outline: 'none', marginBottom: 10 }} />
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
           {['#ffffff', '#000000', '#FFC800', '#EE6C4D', '#3D5A80', '#22c55e'].map(c => (
-            <button key={c} onClick={() => setColor(c)} aria-label={`Color ${c}`}
+            <button key={c} onClick={() => setColor(c)} aria-label={tr('Color {c}', { c })}
               style={{ width: 30, height: 30, borderRadius: '50%', background: c, border: `3px solid ${color === c ? '#3D5A80' : T.border}`, cursor: 'pointer' }} />
           ))}
           <span style={{ flex: 1 }} />
-          <button onClick={() => setPos('top')} style={chip(pos === 'top')}>Arriba</button>
-          <button onClick={() => setPos('bottom')} style={chip(pos === 'bottom')}>Abajo</button>
+          <button onClick={() => setPos('top')} style={chip(pos === 'top')}>{tr('Arriba')}</button>
+          <button onClick={() => setPos('bottom')} style={chip(pos === 'bottom')}>{tr('Abajo')}</button>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onCancel} style={{ flex: 1, background: T.bgHover, color: T.textPrimary, border: 'none', borderRadius: 14, padding: '13px 0', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>Cancelar</button>
-          <button onClick={() => save(false)} disabled={!img} style={{ flex: 1, background: '#D5E6F0', color: '#3D5A80', border: 'none', borderRadius: 14, padding: '13px 0', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>Guardar</button>
-          <button onClick={() => save(true)} disabled={!img} style={{ flex: 1.3, background: '#3D5A80', color: 'white', border: 'none', borderRadius: 14, padding: '13px 0', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>Guardar y enviar</button>
+          <button onClick={onCancel} style={{ flex: 1, background: T.bgHover, color: T.textPrimary, border: 'none', borderRadius: 14, padding: '13px 0', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>{tr('Cancelar')}</button>
+          <button onClick={() => save(false)} disabled={!img} style={{ flex: 1, background: '#D5E6F0', color: '#3D5A80', border: 'none', borderRadius: 14, padding: '13px 0', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>{tr('Guardar')}</button>
+          <button onClick={() => save(true)} disabled={!img} style={{ flex: 1.3, background: '#3D5A80', color: 'white', border: 'none', borderRadius: 14, padding: '13px 0', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>{tr('Guardar y enviar')}</button>
         </div>
       </div>
     </div>

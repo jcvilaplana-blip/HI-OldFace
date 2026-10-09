@@ -10,6 +10,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { RTC_HTTP } from '../utils/rtcClient';
 import { fmtTime } from '../utils/lrc';
+import { tr, LOCALE } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const BRAND   = '#3D5A80';
@@ -74,24 +75,24 @@ export default function KaraokePage() {
       {/* Cabecera */}
       <div style={{ background: `linear-gradient(135deg, ${BRAND}, #4E7D96)`, color: 'white', paddingTop: 'var(--sat)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px 6px' }}>
-          <button onClick={() => navigate(-1)} aria-label="Volver" style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+          <button onClick={() => navigate(-1)} aria-label={tr('Volver')} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 19l-7-7 7-7"/></svg>
           </button>
           <span style={{ fontSize: 22 }}>🎤</span>
-          <p style={{ margin: 0, fontSize: 19, fontWeight: 900, letterSpacing: 0.3 }}>Karaoke</p>
+          <p style={{ margin: 0, fontSize: 19, fontWeight: 900, letterSpacing: 0.3 }}>{tr('Karaoke')}</p>
         </div>
         {tab === 'cantar' && (
           <div style={{ padding: '4px 14px 10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'white', borderRadius: 22, padding: '9px 14px' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Busca una canción o artista"
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder={tr('Busca una canción o artista')}
                 style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, color: '#293241', background: 'transparent' }} />
               {query && <button onClick={() => setQuery('')} style={{ border: 'none', background: 'none', color: '#94a3b8', fontSize: 16 }}>✕</button>}
             </div>
           </div>
         )}
         <div style={{ display: 'flex' }}>
-          {[['cantar', 'Cantar'], ['duos', 'Dúos'], ['salas', 'Salas'], ['grabaciones', 'Grabaciones']].map(([id, label]) => (
+          {[['cantar', tr('Cantar')], ['duos', tr('Dúos')], ['salas', tr('Salas')], ['grabaciones', tr('Grabaciones')]].map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)} style={{
               flex: 1, background: 'none', border: 'none', color: 'white', padding: '10px 0 11px', cursor: 'pointer',
               fontSize: 13, fontWeight: tab === id ? 900 : 600, opacity: tab === id ? 1 : 0.7,
@@ -113,8 +114,8 @@ export default function KaraokePage() {
               }}>
                 <span style={{ fontSize: 34 }}>🎙️</span>
                 <span style={{ flex: 1 }}>
-                  <span style={{ display: 'block', fontSize: 16, fontWeight: 900 }}>Canta en directo</span>
-                  <span style={{ display: 'block', fontSize: 12, opacity: 0.85 }}>Crea una sala o únete a una y canta por turnos con tus amigos</span>
+                  <span style={{ display: 'block', fontSize: 16, fontWeight: 900 }}>{tr('Canta en directo')}</span>
+                  <span style={{ display: 'block', fontSize: 12, opacity: 0.85 }}>{tr('Crea una sala o únete a una y canta por turnos con tus amigos')}</span>
                 </span>
                 <span style={{ fontSize: 20 }}>›</span>
               </button>
@@ -122,7 +123,7 @@ export default function KaraokePage() {
 
             {genres.length > 0 && (
               <div className="scroll-hide" style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '12px 14px 0' }}>
-                {[{ id: null, name: 'Todas', icon: '' }, ...genres].map(g => (
+                {[{ id: null, name: tr('Todas'), icon: '' }, ...genres].map(g => (
                   <button key={g.id || 'all'} onClick={() => setGenre(g.id)} style={{
                     flexShrink: 0, padding: '7px 14px', borderRadius: 20, fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
                     border: `1px solid ${genre === g.id ? BRAND : 'rgba(148,163,184,0.35)'}`,
@@ -133,20 +134,20 @@ export default function KaraokePage() {
             )}
             {songs === null && <Spinner />}
             {songs?.length === 0 && (
-              <Empty icon="🎵" title="El catálogo está vacío" text="El administrador puede subir canciones (pista instrumental + letra LRC) desde el panel /admin → Karaoke." />
+              <Empty icon="🎵" title={tr('El catálogo está vacío')} text={tr('El administrador puede subir canciones (pista instrumental + letra LRC) desde el panel /admin → Karaoke.')} />
             )}
 
             {!query && !genre && forYou.length > 0 && (forYou.some(s => s.featured) || songs.length > 4) && (
               <>
-                <SectionTitle>Para ti</SectionTitle>
+                <SectionTitle>{tr('Para ti')}</SectionTitle>
                 {forYou.map(s => <SongRow key={s.id} song={s} onSing={() => navigate(`/karaoke/cantar/${s.id}`)} />)}
               </>
             )}
             {songs?.length > 0 && (
               <>
-                <SectionTitle>{query || genre ? `Resultados (${filtered.length})` : 'Todas las canciones'}</SectionTitle>
+                <SectionTitle>{query || genre ? tr('Resultados ({length})', { length: filtered.length }) : tr('Todas las canciones')}</SectionTitle>
                 {filtered.map(s => <SongRow key={s.id} song={s} onSing={() => navigate(`/karaoke/cantar/${s.id}`)} />)}
-                {query && filtered.length === 0 && <Empty icon="🔍" title="Sin resultados" text={`No hay canciones que coincidan con "${query}"`} />}
+                {query && filtered.length === 0 && <Empty icon="🔍" title={tr('Sin resultados')} text={tr('No hay canciones que coincidan con "{query}"', { query })} />}
               </>
             )}
           </>
@@ -156,13 +157,11 @@ export default function KaraokePage() {
         {tab === 'duos' && (
           <>
             <div style={{ margin: '14px 14px 4px', padding: 14, borderRadius: 18, color: 'white', background: `linear-gradient(120deg, ${BRAND}, #be185d)` }}>
-              <p style={{ margin: 0, fontSize: 15, fontWeight: 900 }}>👥 Canta a dúo</p>
-              <p style={{ margin: '4px 0 0', fontSize: 12, opacity: 0.9, lineHeight: 1.45 }}>
-                Únete a un dúo y canta la otra parte sobre su grabación, o abre el tuyo: en Cantar elige una canción → Dúo.
-              </p>
+              <p style={{ margin: 0, fontSize: 15, fontWeight: 900 }}>{tr('👥 Canta a dúo')}</p>
+              <p style={{ margin: '4px 0 0', fontSize: 12, opacity: 0.9, lineHeight: 1.45 }}>{tr('Únete a un dúo y canta la otra parte sobre su grabación, o abre el tuyo: en Cantar elige una canción → Dúo.')}</p>
             </div>
             {duets === null && <Spinner />}
-            {duets?.length === 0 && <Empty icon="👥" title="No hay dúos abiertos" text="¡Abre el primero! Elige una canción, pulsa Canta y escoge Dúo." />}
+            {duets?.length === 0 && <Empty icon="👥" title={tr('No hay dúos abiertos')} text={tr('¡Abre el primero! Elige una canción, pulsa Canta y escoge Dúo.')} />}
             {duets?.map(d => (
               <DuetRow key={d.id} duet={d} mine={d.userId === user?.id}
                 onJoin={() => navigate(`/karaoke/cantar/${d.songId}?unirse=${d.id}`)} />
@@ -178,20 +177,20 @@ export default function KaraokePage() {
                 <button onClick={() => setCreating(true)} style={{
                   width: '100%', padding: 15, border: 'none', borderRadius: 14, cursor: 'pointer', color: 'white',
                   background: `linear-gradient(135deg, ${RED}, #ec4899)`, fontSize: 16, fontWeight: 900,
-                }}>＋ Crear sala de karaoke</button>
+                }}>{tr('＋ Crear sala de karaoke')}</button>
               ) : (
                 <div style={{ display: 'flex', gap: 8 }}>
                   <input autoFocus value={roomTitle} onChange={e => setRoomTitle(e.target.value)} maxLength={60}
-                    placeholder={`Karaoke de ${user?.name || 'OldFace'}`}
+                    placeholder={tr('Karaoke de {p0}', { p0: user?.name || 'OldFace' })}
                     onKeyDown={e => e.key === 'Enter' && createRoom()}
                     style={{ flex: 1, minWidth: 0, padding: '12px 14px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: 14, outline: 'none' }} />
-                  <button onClick={createRoom} style={{ background: RED, color: 'white', border: 'none', borderRadius: 12, padding: '0 16px', fontWeight: 900 }}>Crear</button>
+                  <button onClick={createRoom} style={{ background: RED, color: 'white', border: 'none', borderRadius: 12, padding: '0 16px', fontWeight: 900 }}>{tr('Crear')}</button>
                 </div>
               )}
             </div>
 
             {rooms === null && <Spinner />}
-            {rooms?.length === 0 && <Empty icon="🎤" title="No hay salas abiertas" text="¡Crea la primera y anima a tus amigos a cantar!" />}
+            {rooms?.length === 0 && <Empty icon="🎤" title={tr('No hay salas abiertas')} text={tr('¡Crea la primera y anima a tus amigos a cantar!')} />}
             {rooms?.length > 0 && (
               <>
                 <div className="scroll-hide" style={{ display: 'flex', gap: 14, overflowX: 'auto', padding: '2px 14px 12px' }}>
@@ -201,7 +200,7 @@ export default function KaraokePage() {
                         <span style={{ display: 'flex', width: '100%', height: '100%', borderRadius: '50%', background: BRAND, color: 'white', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 22 }}>
                           {(r.current?.singer || r.hostName || '?')[0]?.toUpperCase()}
                         </span>
-                        <span style={{ position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)', background: RED, color: 'white', fontSize: 8, fontWeight: 900, padding: '2px 5px', borderRadius: 6, whiteSpace: 'nowrap' }}>EN VIVO</span>
+                        <span style={{ position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)', background: RED, color: 'white', fontSize: 8, fontWeight: 900, padding: '2px 5px', borderRadius: 6, whiteSpace: 'nowrap' }}>{tr('EN VIVO')}</span>
                       </span>
                       <span className="text-gray-600" style={{ fontSize: 11, fontWeight: 700, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 4 }}>{r.hostName}</span>
                     </button>
@@ -219,7 +218,7 @@ export default function KaraokePage() {
         {tab === 'grabaciones' && (
           <>
             {recs === null && <Spinner />}
-            {recs?.length === 0 && <Empty icon="🎧" title="Aún no tienes grabaciones" text="Elige una canción en Cantar, pulsa Canta y al terminar guarda tu grabación." />}
+            {recs?.length === 0 && <Empty icon="🎧" title={tr('Aún no tienes grabaciones')} text={tr('Elige una canción en Cantar, pulsa Canta y al terminar guarda tu grabación.')} />}
             {recs?.map(r => <RecordingRow key={r.id} rec={r} userId={user?.id} onDeleted={loadRecs} />)}
           </>
         )}
@@ -241,8 +240,8 @@ export function SongRow({ song, onSing, cta = 'Canta' }) {
       <SongCover song={song} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <p className="text-gray-800" style={{ margin: 0, fontSize: 15, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{song.title}</p>
-        <p className="text-gray-500" style={{ margin: '1px 0 0', fontSize: 12 }}>{song.artist || 'Artista desconocido'}{song.duration ? ` · ${fmtTime(song.duration)}` : ''}</p>
-        <p className="text-gray-400" style={{ margin: '2px 0 0', fontSize: 11 }}>🎙 {song.recordings || 0} grabaci{song.recordings === 1 ? 'ón' : 'ones'}</p>
+        <p className="text-gray-500" style={{ margin: '1px 0 0', fontSize: 12 }}>{song.artist || tr('Artista desconocido')}{song.duration ? ` · ${fmtTime(song.duration)}` : ''}</p>
+        <p className="text-gray-400" style={{ margin: '2px 0 0', fontSize: 11 }}>🎙 {song.recordings === 1 ? tr('1 grabación') : tr('{n} grabaciones', { n: song.recordings || 0 })}</p>
       </div>
       <button onClick={onSing} style={{ background: '#D5E6F0', color: BRAND, border: 'none', borderRadius: 18, padding: '8px 16px', fontWeight: 900, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>{cta}</button>
     </div>
@@ -257,14 +256,14 @@ function RoomCard({ room, onOpen }) {
       display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
     }}>
       <span style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-        <span style={{ background: RED, fontSize: 9, fontWeight: 900, padding: '3px 6px', borderRadius: 6 }}>● EN VIVO</span>
+        <span style={{ background: RED, fontSize: 9, fontWeight: 900, padding: '3px 6px', borderRadius: 6 }}>{tr('● EN VIVO')}</span>
         <span style={{ background: 'rgba(0,0,0,0.3)', fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 10 }}>👂 {room.listeners}</span>
       </span>
       <span style={{ fontSize: 40, textAlign: 'center' }}>🎤</span>
       <span>
         <span style={{ display: 'block', fontSize: 14, fontWeight: 900, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{room.title}</span>
         <span style={{ display: 'block', fontSize: 11, opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
-          {room.current ? `🎵 ${room.current.singer}: ${room.current.title}` : `${room.queue} en cola · ${room.hostName}`}
+          {room.current ? `🎵 ${room.current.singer}: ${room.current.title}` : tr('{queue} en cola · {hostName}', { queue: room.queue, hostName: room.hostName })}
         </span>
       </span>
     </button>
@@ -273,20 +272,20 @@ function RoomCard({ room, onOpen }) {
 
 function RecordingRow({ rec, userId, onDeleted }) {
   const share = async () => {
-    const text = `🎤 ${rec.video ? 'Mira' : 'Escucha'} cómo canto "${rec.songTitle}" en OldFace`;
+    const text = tr('🎤 {p0} cómo canto "{songTitle}" en OldFace', { p0: rec.video ? 'Mira' : 'Escucha', songTitle: rec.songTitle });
     const url = absUrl(rec.audioUrl);
     try {
       const { Capacitor } = await import('@capacitor/core');
       if (Capacitor.isNativePlatform()) {
         const { Share } = await import('@capacitor/share');
-        await Share.share({ title: rec.songTitle, text, url, dialogTitle: 'Compartir grabación' });
+        await Share.share({ title: rec.songTitle, text, url, dialogTitle: tr('Compartir grabación') });
         return;
       }
     } catch { /* web */ }
     try { if (navigator.share) await navigator.share({ title: rec.songTitle, text, url }); else await navigator.clipboard.writeText(`${text}\n${url}`); } catch {}
   };
   const remove = async () => {
-    if (!window.confirm?.('¿Borrar esta grabación?')) return;
+    if (!window.confirm?.(tr('¿Borrar esta grabación?'))) return;
     await fetch(`${BACKEND}/karaoke/recordings/${rec.id}?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' }).catch(() => {});
     onDeleted();
   };
@@ -299,12 +298,12 @@ function RecordingRow({ rec, userId, onDeleted }) {
             {rec.songTitle}
             {rec.score !== null && rec.score !== undefined && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 900, color: '#b45309', background: '#fef3c7', borderRadius: 8, padding: '1px 6px' }}>⭐ {rec.score}</span>}
           </p>
-          <p className="text-gray-500" style={{ margin: 0, fontSize: 12 }}>{new Date(rec.createdAt).toLocaleDateString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}{rec.duration ? ` · ${fmtTime(rec.duration)}` : ''}</p>
-          {rec.duetOf && <p style={{ margin: '2px 0 0', fontSize: 11, fontWeight: 800, color: '#be185d' }}>👥 Dúo con {rec.partnerName}</p>}
-          {rec.duetPart && !rec.duetOf && <p style={{ margin: '2px 0 0', fontSize: 11, fontWeight: 800, color: '#be185d' }}>👥 Dúo abierto (parte {rec.duetPart}) · {rec.duetJoins} se {rec.duetJoins === 1 ? 'ha' : 'han'} unido</p>}
+          <p className="text-gray-500" style={{ margin: 0, fontSize: 12 }}>{new Date(rec.createdAt).toLocaleDateString(LOCALE, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}{rec.duration ? ` · ${fmtTime(rec.duration)}` : ''}</p>
+          {rec.duetOf && <p style={{ margin: '2px 0 0', fontSize: 11, fontWeight: 800, color: '#be185d' }}>{tr('👥 Dúo con')}{' '}{rec.partnerName}</p>}
+          {rec.duetPart && !rec.duetOf && <p style={{ margin: '2px 0 0', fontSize: 11, fontWeight: 800, color: '#be185d' }}>{tr('👥 Dúo abierto (parte')}{' '}{rec.duetPart}) · {rec.duetJoins === 1 ? tr('1 se ha unido') : tr('{n} se han unido', { n: rec.duetJoins || 0 })}</p>}
         </div>
-        <button onClick={share} aria-label="Compartir" style={{ background: '#D5E6F0', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer' }}>↗</button>
-        <button onClick={remove} aria-label="Borrar" style={{ background: '#fee2e2', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer' }}>🗑</button>
+        <button onClick={share} aria-label={tr('Compartir')} style={{ background: '#D5E6F0', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer' }}>↗</button>
+        <button onClick={remove} aria-label={tr('Borrar')} style={{ background: '#fee2e2', border: 'none', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer' }}>🗑</button>
       </div>
       {rec.video
         ? <video controls playsInline preload="metadata" src={`${absUrl(rec.audioUrl)}#t=0.5`} style={{ width: '100%', maxHeight: 420, marginTop: 10, borderRadius: 12, background: '#000' }} />
@@ -321,15 +320,15 @@ function DuetRow({ duet, mine, onJoin }) {
         <SongCover song={{ coverUrl: duet.coverUrl }} size={52} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <p className="text-gray-800" style={{ margin: 0, fontWeight: 800, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{duet.songTitle}</p>
-          <p className="text-gray-500" style={{ margin: 0, fontSize: 12 }}>{mine ? 'Tú' : duet.userName} · parte {duet.duetPart}{duet.duetJoins ? ` · ${duet.duetJoins} dúo${duet.duetJoins === 1 ? '' : 's'}` : ''}</p>
+          <p className="text-gray-500" style={{ margin: 0, fontSize: 12 }}>{mine ? tr('Tú') : duet.userName}{' '}{tr('· parte')}{' '}{duet.duetPart}{duet.duetJoins ? (duet.duetJoins === 1 ? tr(' · 1 dúo') : tr(' · {n} dúos', { n: duet.duetJoins })) : ''}</p>
           <button onClick={() => setOpen(o => !o)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 2, color: BRAND, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
-            {open ? 'Ocultar' : duet.video ? '▶ Ver su parte' : '▶ Escuchar su parte'}
+            {open ? tr('Ocultar') : duet.video ? '▶ Ver su parte' : '▶ Escuchar su parte'}
           </button>
         </div>
         <button onClick={onJoin} disabled={mine} style={{
           background: mine ? '#e2e8f0' : `linear-gradient(135deg, ${BRAND}, #be185d)`, color: mine ? '#64748b' : 'white',
           border: 'none', borderRadius: 18, padding: '9px 16px', fontWeight: 900, fontSize: 13, cursor: mine ? 'default' : 'pointer', flexShrink: 0,
-        }}>{mine ? 'Tuyo' : 'Unirme'}</button>
+        }}>{mine ? tr('Tuyo') : tr('Unirme')}</button>
       </div>
       {open && (duet.video
         ? <video controls playsInline autoPlay src={absUrl(duet.audioUrl)} style={{ width: '100%', maxHeight: 360, marginTop: 10, borderRadius: 12, background: '#000' }} />

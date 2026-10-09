@@ -5,6 +5,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { tr } from '../i18n';
 
 const BRAND = '#3D5A80';
 
@@ -14,7 +15,7 @@ const BRAND = '#3D5A80';
 // ──────────────────────────────────────────────────────────────────────────
 const ITEMS = {
   calls: {
-    label: 'Llamada',
+    label: tr('Llamada'),
     route: '/contacts?action=call',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21
@@ -22,14 +23,14 @@ const ITEMS = {
          l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z"/>`
   },
   videocalls: {
-    label: 'Videollamada',
+    label: tr('Videollamada'),
     route: '/contacts?action=video',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894
          L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>`
   },
   directo: {
-    label: 'Directo',
+    label: tr('Directo'),
     route: '/directo',
     highlight: true,
     icon: `<circle cx="12" cy="12" r="3" stroke-width="1.8"/>
@@ -38,14 +39,14 @@ const ITEMS = {
          M3.515 3.515a13 13 0 000 16.97M20.485 3.515a13 13 0 010 16.97"/>`
   },
   social: {
-    label: 'Social',
+    label: tr('Social'),
     action: 'soon',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M4 5a2 2 0 012-2h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V5z
          M8 8h8M8 12h8M8 16h5"/>`
   },
   chats: {
-    label: 'Chats',
+    label: tr('Chats'),
     route: '/',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8
@@ -53,7 +54,7 @@ const ITEMS = {
          C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>`
   },
   taxi: {
-    label: 'Taxi',
+    label: tr('Taxi'),
     route: '/taxi',     // 1ª vez: elegir Cliente o Conductor; después abre directamente esa parte
     taxi: true,         // colores típicos del taxi: fondo amarillo, icono negro
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
@@ -64,7 +65,7 @@ const ITEMS = {
       <circle cx="16" cy="15" r="0.8" fill="currentColor" stroke-width="1"/>`
   },
   poll: {
-    label: 'Poll',
+    label: tr('Poll'),
     route: '/poll',
     primary: true,
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
@@ -73,14 +74,14 @@ const ITEMS = {
          m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>`
   },
   groups: {
-    label: 'Grupos',
+    label: tr('Grupos'),
     action: 'groups',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1z
          m0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>`
   },
   contacts: {
-    label: 'Contactos',
+    label: tr('Contactos'),
     route: '/contacts',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2
@@ -89,14 +90,14 @@ const ITEMS = {
          M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>`
   },
   karaoke: {
-    label: 'Karaoke',
+    label: tr('Karaoke'),
     route: '/karaoke',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M12 3a3 3 0 00-3 3v5a3 3 0 006 0V6a3 3 0 00-3-3z
          M19 11a7 7 0 01-14 0M12 18v3M8 21h8"/>`
   },
   settings: {
-    label: 'Ajustes',
+    label: tr('Ajustes'),
     route: '/settings',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066
@@ -111,7 +112,7 @@ const ITEMS = {
       d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>`
   },
   archived: {
-    label: 'Archivos',
+    label: tr('Archivos'),
     action: 'soon',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8
@@ -140,7 +141,7 @@ export default function PopupMenu({ onClose, onGroups }) {
   const handleItem = (item) => {
     // Próximamente: avisar sin cerrar el menú
     if (item.action === 'soon') {
-      setSoonMsg(`${item.label}: próximamente`);
+      setSoonMsg(tr('{label}: próximamente', { label: item.label }));
       clearTimeout(soonTimer.current);
       soonTimer.current = setTimeout(() => setSoonMsg(''), 2000);
       return;
@@ -197,8 +198,8 @@ export default function PopupMenu({ onClose, onGroups }) {
               />
             </div>
             <div>
-              <p style={{ fontSize: 15, fontWeight: 900, color: '#293241', lineHeight: 1.2 }}>OldFace</p>
-              <p style={{ fontSize: 10, fontWeight: 700, color: BRAND }}>Elige una acción</p>
+              <p style={{ fontSize: 15, fontWeight: 900, color: '#293241', lineHeight: 1.2 }}>{tr('OldFace')}</p>
+              <p style={{ fontSize: 10, fontWeight: 700, color: BRAND }}>{tr('Elige una acción')}</p>
             </div>
           </div>
           <button

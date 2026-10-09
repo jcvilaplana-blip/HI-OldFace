@@ -2,6 +2,7 @@
  * Piezas visuales comunes del taxi (cliente y conductor): cabecera, botones, hojas inferiores, avisos.
  */
 import React from 'react';
+import { tr } from '../../i18n';
 
 export const BRAND = '#3D5A80';
 export const C = { bg: '#f1f5f9', card: '#ffffff', text: '#293241', muted: '#64748b', line: '#e2e8f0', ok: '#16a34a', danger: '#dc2626' };
@@ -11,7 +12,7 @@ export function Header({ title, subtitle, onBack, right }) {
     <div style={{ background: BRAND, color: 'white', flexShrink: 0, paddingTop: 'var(--sat)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 5 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px 12px' }}>
         {onBack && (
-          <button onClick={onBack} aria-label="Volver" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+          <button onClick={onBack} aria-label={tr('Volver')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 19l-7-7 7-7" /></svg>
           </button>
         )}

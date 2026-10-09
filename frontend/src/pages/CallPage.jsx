@@ -11,6 +11,7 @@ import { RtcCall }       from '../utils/rtcCall';
 import { ensureRtcConnected } from '../utils/rtcClient';
 import { useChatStore }  from '../store/chatStore';
 import { playRingSound } from '../utils/sounds';
+import { tr } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -46,6 +47,13 @@ export default function CallPage() {
   const [showInvite, setShowInvite] = useState(false);
   const [inviteSent, setInviteSent] = useState({});
   const [animKey,    setAnimKey]   = useState(0); // fuerza remount de animaciones al volver de background
+  // Pasar a videollamada sin colgar: mi cámara y el vídeo de los demás
+  const [camOn,       setCamOn]       = useState(false);
+  const [localStream, setLocalStream] = useState(null);
+  const [facing,      setFacing]      = useState('user');
+  const [remoteVids,  setRemoteVids]  = useState({});   // peerId → { stream, off }
+  const [camBusy,     setCamBusy]     = useState(false);
+  const [camError,    setCamError]    = useState(false);
 
   const isIncoming = state?.isIncoming || false;
   const calleeName = state?.chat?.name || userId;
@@ -89,14 +97,19 @@ export default function CallPage() {
 
   // ── Recuperación al volver al primer plano ────────────────────────────────
   useEffect(() => {
-    const onVisible = () => {
+    const onVisible = async () => {
       if (document.hidden) return;
       // Reiniciar animaciones CSS que se congelen en background
       setAnimKey(k => k + 1);
       if (status !== 'active') return;
-      if (!speakerOnRef.current) window.OldFaceAudio?.setEarpiece();
+      if (speakerOnRef.current) window.OldFaceAudio?.enableSpeaker();
+      else window.OldFaceAudio?.setEarpiece();
+      // Si Android cortó el micro o la cámara al minimizar, abrirlos otra vez
+      const call = rtcCallRef.current;
+      if (call) { const s = await call.recoverMedia(); if (s) setLocalStream(s); }
       // Reanudar la reproducción si el WebView la pausó
       audioBoxRef.current?.querySelectorAll('audio').forEach(a => a.play().catch(() => {}));
+      document.querySelectorAll('video[data-vc]').forEach(v => v.play().catch(() => {}));
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -178,8 +191,20 @@ export default function CallPage() {
     const call = new RtcCall({
       roomId,
       video: false,
-      onPeerStream: (peerId, stream) => { attachAudio(peerId, stream); onCallActive(); },
+      onPeerStream: (peerId, stream) => {
+        attachAudio(peerId, stream);
+        // El otro ha encendido la cámara → se ve su vídeo
+        if (stream.getVideoTracks().length) {
+          setRemoteVids(prev => ({ ...prev, [peerId]: { stream, off: prev[peerId]?.off || false } }));
+        }
+        onCallActive();
+      },
+      onPeerMedia: (peerId, { kind, paused }) => {
+        if (kind !== 'video') return;
+        setRemoteVids(prev => prev[peerId] ? { ...prev, [peerId]: { ...prev[peerId], off: paused } } : prev);
+      },
       onPeerLeft: (peerId) => {
+        setRemoteVids(prev => { const n = { ...prev }; delete n[peerId]; return n; });
         audioBoxRef.current?.querySelector(`audio[data-peer="${peerId}"]`)?.remove();
         // Sin nadie más en la sala → la llamada ha terminado
         if (call.remoteCount === 0 && activeRef.current && !cancelledRef.current) {
@@ -190,6 +215,9 @@ export default function CallPage() {
     });
     rtcCallRef.current = call;
     await call.join();
+    // Llamada en curso: el micro sigue funcionando con la app minimizada
+    window.OldFaceAudio?.startCallService?.(false, calleeName);
+    setLocalStream(call.localStream);
     if (!micOnRef.current) call.setMic(false);
   };
 
@@ -255,23 +283,52 @@ export default function CallPage() {
   };
 
   // ── Speaker toggle ────────────────────────────────────────────────────────
-  const handleSpeakerToggle = () => {
-    const next = !speakerOn;
-    speakerOnRef.current = next;
-    setSpeakerOn(next);
-    if (next) {
-      window.OldFaceAudio?.enableSpeaker();   // altavoz ON, para el poller
-    } else {
-      window.OldFaceAudio?.setEarpiece();     // auricular ON, reinicia el poller
+  // enableSpeaker: altavoz ON, para el poller · setEarpiece: auricular ON, reinicia el poller
+  const handleSpeakerToggle = () => setSpeaker(!speakerOn);
+
+  // ── Pasar a videollamada (encender / apagar mi cámara) ─────────────────────
+  const setSpeaker = (on) => {
+    speakerOnRef.current = on;
+    setSpeakerOn(on);
+    if (on) window.OldFaceAudio?.enableSpeaker(); else window.OldFaceAudio?.setEarpiece();
+  };
+
+  const handleCamToggle = async () => {
+    const call = rtcCallRef.current;
+    if (!call || camBusy) return;
+    if (camOn) { setCamOn(false); call.setCamera(false); return; }
+    setCamBusy(true);
+    try {
+      const s = await call.enableVideo();
+      setLocalStream(s);
+      setFacing(call.facingMode);
+      setCamOn(true);
+      if (!speakerOnRef.current) setSpeaker(true);           // con vídeo, altavoz (como en WhatsApp)
+      window.OldFaceAudio?.startCallService?.(true, calleeName); // la cámara también sigue al minimizar
+    } catch {
+      setCamError(true);
+      setTimeout(() => setCamError(false), 3000);
+    } finally {
+      setCamBusy(false);
     }
   };
+
+  const handleFlip = async () => {
+    const call = rtcCallRef.current;
+    if (!call || !camOn) return;
+    try { setLocalStream(await call.switchCamera()); } catch { setLocalStream(call.localStream); /* sin otra cámara */ }
+    setFacing(call.facingMode);
+  };
+
+  const remoteVideo = Object.entries(remoteVids).find(([, v]) => !v.off);
+  const videoMode = status === 'active' && (camOn || !!remoteVideo);
 
   const fmt = (s) =>
     `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
   const statusText =
-    status === 'calling' ? (isIncoming ? 'Conectando...' : 'Llamando...')
-    : status === 'error' ? 'Error al conectar'
+    status === 'calling' ? (isIncoming ? tr('Conectando...') : tr('Llamando...'))
+    : status === 'error' ? tr('Error al conectar')
     : fmt(duration);
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -281,19 +338,34 @@ export default function CallPage() {
       {/* Elementos <audio> de los participantes (sin UI) */}
       <div ref={audioBoxRef} style={{ display: 'none' }} />
 
+      {/* ── Vídeo (al pasar a videollamada): el del otro a pantalla completa, el mío en miniatura ── */}
+      {videoMode && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: '#000' }}>
+          {remoteVideo
+            ? <VideoEl stream={remoteVideo[1].stream} />
+            : <VideoEl stream={localStream} mirror={facing === 'user'} />}
+          {remoteVideo && camOn && (
+            <div style={{ position: 'absolute', zIndex: 3, top: 'calc(env(safe-area-inset-top, 44px) + 70px)', right: 14,
+                          width: 104, height: 146, borderRadius: 14, overflow: 'hidden',
+                          border: '2px solid rgba(255,255,255,0.35)', boxShadow: '0 4px 18px rgba(0,0,0,0.45)', background: '#1f2937' }}>
+              <VideoEl stream={localStream} mirror={facing === 'user'} />
+            </div>
+          )}
+          {/* Degradados para leer la cabecera y los controles sobre la imagen */}
+          <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 160, background: 'linear-gradient(rgba(0,0,0,0.55), transparent)' }} />
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 220, background: 'linear-gradient(transparent, rgba(0,0,0,0.6))' }} />
+        </div>
+      )}
+
 
       {/* ── Error ── */}
       {status === 'error' && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-          <p style={{ color: '#f87171', fontWeight: 700, fontSize: 16, margin: 0 }}>No se pudo conectar</p>
+          <p style={{ color: '#f87171', fontWeight: 700, fontSize: 16, margin: 0 }}>{tr('No se pudo conectar')}</p>
           <button onClick={() => { setStatus('calling'); startCall(); }}
-            style={{ background: '#3D5A80', color: 'white', border: 'none', borderRadius: 18, padding: '12px 28px', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
-            Reintentar
-          </button>
+            style={{ background: '#3D5A80', color: 'white', border: 'none', borderRadius: 18, padding: '12px 28px', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>{tr('Reintentar')}</button>
           <button onClick={handleEnd}
-            style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14 }}>
-            Volver
-          </button>
+            style={{ color: 'rgba(255,255,255,0.45)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14 }}>{tr('Volver')}</button>
         </div>
       )}
 
@@ -317,12 +389,20 @@ export default function CallPage() {
             <p style={{ margin: '3px 0 0', color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 500 }}>{statusText}</p>
           </div>
 
-          <div style={{ width: 44 }} />
+          {camOn ? (
+            <button onClick={handleFlip} aria-label={tr('Girar cámara')} title={tr('Girar cámara')}
+              style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(255,255,255,0.18)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 7h-3l-2-3H9L7 7H4a2 2 0 00-2 2v9a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/>
+                <path d="M9 13a3 3 0 015-2.2M15 13a3 3 0 01-5 2.2"/>
+              </svg>
+            </button>
+          ) : <div style={{ width: 44 }} />}
         </div>
 
-        {/* ── Avatar ── */}
+        {/* ── Avatar (oculto en videollamada) ── */}
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'relative', display: videoMode ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {status === 'calling' && (
               <>
                 <div key={`p1-${animKey}`} style={{ position: 'absolute', inset: -32, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', animation: 'ocPulse 2.4s ease-out infinite' }} />
@@ -337,6 +417,24 @@ export default function CallPage() {
             </div>
           </div>
         </div>
+
+        {/* ── El otro ha encendido la cámara y yo no ── */}
+        {status === 'active' && remoteVideo && !camOn && (
+          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(0,0,0,0.55)',
+                        borderRadius: 22, padding: '6px 6px 6px 14px', maxWidth: 'calc(100% - 32px)' }}>
+            <span style={{ color: 'white', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {calleeName}{' '}{tr('ha activado la cámara')}</span>
+            <button onClick={handleCamToggle} disabled={camBusy}
+              style={{ flexShrink: 0, background: '#3D5A80', color: 'white', border: 'none', borderRadius: 16, padding: '7px 12px',
+                       fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+              {camBusy ? '…' : tr('Activar la mía')}
+            </button>
+          </div>
+        )}
+
+        {camError && (
+          <div style={{ marginBottom: 12, background: 'rgba(15,15,25,0.92)', color: 'white', padding: '8px 16px', borderRadius: 18, fontSize: 13, fontWeight: 600 }}>{tr('No se pudo encender la cámara')}</div>
+        )}
 
         {/* ── Botón Añadir participante ── */}
         {status === 'active' && (
@@ -356,9 +454,7 @@ export default function CallPage() {
                 <circle cx="9" cy="7" r="4"/>
                 <line x1="19" y1="8" x2="19" y2="14"/>
                 <line x1="22" y1="11" x2="16" y2="11"/>
-              </svg>
-              Añadir participante
-            </button>
+              </svg>{tr('Añadir participante')}</button>
           </div>
         )}
 
@@ -367,7 +463,7 @@ export default function CallPage() {
           <div style={{
             background: 'rgba(44,44,46,0.97)',
             borderRadius: 60,
-            padding: '16px 24px',
+            padding: '16px 14px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-around',
@@ -376,7 +472,7 @@ export default function CallPage() {
           }}>
 
             {/* Micrófono */}
-            <CtrlBtn active={!micOn} onPress={handleMicToggle} label={micOn ? 'Silenciar' : 'Activar mic'}>
+            <CtrlBtn active={!micOn} onPress={handleMicToggle} label={micOn ? tr('Silenciar') : tr('Activar mic')}>
               {micOn
                 ? <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
@@ -388,6 +484,19 @@ export default function CallPage() {
                     <path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"/>
                     <path d="M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23"/>
                     <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+              }
+            </CtrlBtn>
+
+            {/* Vídeo: pasar a videollamada sin colgar (y volver a voz) */}
+            <CtrlBtn active={camOn} onPress={handleCamToggle} label={camOn ? tr('Apagar cámara') : tr('Pasar a videollamada')} disabled={status !== 'active' || camBusy}>
+              {camOn
+                ? <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+                  </svg>
+                : <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 16v1a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2h2m5.66 0H14a2 2 0 012 2v3.34l1 1L23 7v10"/>
+                    <line x1="1" y1="1" x2="23" y2="23"/>
                   </svg>
               }
             </CtrlBtn>
@@ -405,7 +514,7 @@ export default function CallPage() {
             </button>
 
             {/* Altavoz */}
-            <CtrlBtn active={speakerOn} onPress={handleSpeakerToggle} label={speakerOn ? 'Auricular' : 'Altavoz'}>
+            <CtrlBtn active={speakerOn} onPress={handleSpeakerToggle} label={speakerOn ? tr('Auricular') : tr('Altavoz')}>
               {speakerOn
                 ? <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
@@ -446,7 +555,7 @@ export default function CallPage() {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 16px' }}>
-              <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'white' }}>Añadir participante</p>
+              <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'white' }}>{tr('Añadir participante')}</p>
               <button onClick={() => setShowInvite(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2.5" strokeLinecap="round">
                   <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -455,9 +564,7 @@ export default function CallPage() {
             </div>
             <div style={{ overflowY: 'auto', flex: 1 }}>
               {inviteContacts.length === 0 ? (
-                <p style={{ color: 'rgba(255,255,255,0.45)', textAlign: 'center', fontSize: 14, margin: '24px 0' }}>
-                  No hay más contactos disponibles
-                </p>
+                <p style={{ color: 'rgba(255,255,255,0.45)', textAlign: 'center', fontSize: 14, margin: '24px 0' }}>{tr('No hay más contactos disponibles')}</p>
               ) : (
                 inviteContacts.map(contact => {
                   const sentState = inviteSent[contact.id];
@@ -487,7 +594,7 @@ export default function CallPage() {
                           color: sentState === 'sent' ? '#4ade80' : sentState === 'error' ? '#f87171' : 'white',
                         }}
                       >
-                        {sentState === 'sent' ? 'Invitado' : sentState === 'sending' ? '...' : sentState === 'error' ? 'Error' : 'Invitar'}
+                        {sentState === 'sent' ? tr('Invitado') : sentState === 'sending' ? '...' : sentState === 'error' ? tr('Error') : tr('Invitar')}
                       </button>
                     </div>
                   );
@@ -508,10 +615,24 @@ export default function CallPage() {
   );
 }
 
-function CtrlBtn({ children, active, onPress, label }) {
+/** Vídeo de la llamada (sin sonido: el audio va por los <audio> ocultos) */
+function VideoEl({ stream, mirror }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el && el.srcObject !== stream) { el.srcObject = stream || null; el.play().catch(() => {}); }
+  }, [stream]);
   return (
-    <button onClick={onPress} title={label} style={{
-      width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: 'pointer',
+    <video ref={ref} data-vc="1" autoPlay playsInline muted
+      style={{ width: '100%', height: '100%', objectFit: 'cover', transform: mirror ? 'scaleX(-1)' : undefined }} />
+  );
+}
+
+function CtrlBtn({ children, active, onPress, label, disabled }) {
+  return (
+    <button onClick={onPress} title={label} aria-label={label} disabled={disabled} style={{
+      opacity: disabled ? 0.4 : 1,
+      width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: disabled ? 'default' : 'pointer',
       background: active ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.08)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       transition: 'background 0.15s', flexShrink: 0,

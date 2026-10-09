@@ -15,12 +15,13 @@ import Avatar from '../components/Avatar.jsx';
 import GroupsSheet from '../components/GroupsSheet.jsx';
 import StatusList from '../components/StatusList.jsx';
 import { GroupCreateSheet } from '../components/GroupSheets.jsx';
+import { tr, LOCALE } from '../i18n';
 
 const BRAND   = '#3D5A80';
 const APP_URL = 'https://oldface.app';
 
 async function inviteContact(contact) {
-  const text = `¡Hola ${contact.name}! Te invito a OldFace, la app para conectar con quienes más quieres. Descárgala aquí: ${APP_URL}`;
+  const text = tr('¡Hola {name}! Te invito a OldFace, la app para conectar con quienes más quieres. Descárgala aquí: {APP_URL}', { name: contact.name, APP_URL });
   try {
     if (navigator.share) {
       await navigator.share({ title: 'OldFace', text, url: APP_URL });
@@ -73,10 +74,10 @@ export default function HomePage() {
   const groupsUnread = chats.reduce((n, c) => n + (isGroupChat(c) ? (c.unread || 0) : 0), 0);
 
   const tabs = [
-    { key: 'chats',     label: 'CHATS' },
-    { key: 'estados',   label: 'ESTADOS' },
-    { key: 'llamadas',  label: 'LLAMADAS' },
-    { key: 'contactos', label: 'CONTACTOS' },
+    { key: 'chats',     label: tr('CHATS') },
+    { key: 'estados',   label: tr('ESTADOS') },
+    { key: 'llamadas',  label: tr('LLAMADAS') },
+    { key: 'contactos', label: tr('CONTACTOS') },
   ];
 
   return (
@@ -96,7 +97,7 @@ export default function HomePage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Avatar name={user?.name} src={user?.avatar || null} size="sm" />
             <div>
-              <h1 style={{ fontSize: 17, fontWeight: 900, color: T.textPrimary, lineHeight: 1.1, margin: 0 }}>OldFace</h1>
+              <h1 style={{ fontSize: 17, fontWeight: 900, color: T.textPrimary, lineHeight: 1.1, margin: 0 }}>{tr('OldFace')}</h1>
               <p style={{ fontSize: 11, color: T.textSecondary, fontWeight: 600, margin: 0 }}>{user?.name}</p>
             </div>
           </div>
@@ -149,7 +150,7 @@ export default function HomePage() {
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Buscar conversación..."
+                placeholder={tr('Buscar conversación...')}
                 style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 14, color: T.textPrimary, fontWeight: 500 }}
               />
               {searchQuery && (
@@ -211,7 +212,7 @@ export default function HomePage() {
       {/* ══ FAB "+" centrado: abre el menú emergente hacia arriba ══════════════ */}
       <button
         onClick={() => setShowMenu(true)}
-        aria-label="Abrir menú"
+        aria-label={tr('Abrir menú')}
         style={{
           position: 'fixed',
           bottom: 'calc(var(--sab) + 76px)',
@@ -309,7 +310,7 @@ function ContactosTab({ T, isDark }) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 300, gap: 12 }}>
         <div style={{ width: 40, height: 40, borderRadius: '50%', border: `3px solid ${T.border}`, borderTopColor: BRAND, animation: 'spin 0.8s linear infinite' }} />
-        <p style={{ fontSize: 13, color: T.textSecondary, fontWeight: 600 }}>Cargando contactos...</p>
+        <p style={{ fontSize: 13, color: T.textSecondary, fontWeight: 600 }}>{tr('Cargando contactos...')}</p>
         <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
       </div>
     );
@@ -324,16 +325,10 @@ function ContactosTab({ T, isDark }) {
             <line x1="17" y1="11" x2="23" y2="11"/>
           </svg>
         </div>
-        <p style={{ fontSize: 15, fontWeight: 800, color: T.textPrimary, margin: 0 }}>Permiso de contactos denegado</p>
-        <p style={{ fontSize: 12, color: T.textSecondary, margin: 0, lineHeight: 1.6 }}>
-          Ve a <strong>Ajustes → Aplicaciones → OldFace → Permisos → Contactos</strong> y actívalo.
-        </p>
-        <button onClick={openSettings} style={{ background: BRAND, color: 'white', border: 'none', borderRadius: 14, padding: '12px 28px', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
-          Abrir Ajustes
-        </button>
-        <button onClick={loadContacts} style={{ background: 'transparent', color: BRAND, border: `1.5px solid ${BRAND}`, borderRadius: 14, padding: '10px 24px', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-          Ya lo activé — Reintentar
-        </button>
+        <p style={{ fontSize: 15, fontWeight: 800, color: T.textPrimary, margin: 0 }}>{tr('Permiso de contactos denegado')}</p>
+        <p style={{ fontSize: 12, color: T.textSecondary, margin: 0, lineHeight: 1.6 }}>{tr('Ve a')}{' '}<strong>{tr('Ajustes → Aplicaciones → OldFace → Permisos → Contactos')}</strong>{' '}{tr('y actívalo.')}</p>
+        <button onClick={openSettings} style={{ background: BRAND, color: 'white', border: 'none', borderRadius: 14, padding: '12px 28px', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>{tr('Abrir Ajustes')}</button>
+        <button onClick={loadContacts} style={{ background: 'transparent', color: BRAND, border: `1.5px solid ${BRAND}`, borderRadius: 14, padding: '10px 24px', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{tr('Ya lo activé — Reintentar')}</button>
       </div>
     );
   }
@@ -341,7 +336,7 @@ function ContactosTab({ T, isDark }) {
   // JSX inline — NO definir como componente dentro del render (causa remount en cada render → cierra el teclado)
   const phoneSearchBlock = (
     <div style={{ background: T.bgSurface, padding: '14px 16px', borderBottom: `1px solid ${T.border}` }}>
-      <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, letterSpacing: '0.5px', margin: '0 0 8px' }}>BUSCAR POR TELÉFONO</p>
+      <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, letterSpacing: '0.5px', margin: '0 0 8px' }}>{tr('BUSCAR POR TELÉFONO')}</p>
       <div style={{ display: 'flex', gap: 8 }}>
         <input
           value={searchPhone}
@@ -356,11 +351,9 @@ function ContactosTab({ T, isDark }) {
             background: T.bgInput, color: T.textPrimary,
           }}
         />
-        <button onClick={handlePhoneSearch} style={{ background: BRAND, color: 'white', border: 'none', borderRadius: 12, padding: '10px 18px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
-          Buscar
-        </button>
+        <button onClick={handlePhoneSearch} style={{ background: BRAND, color: 'white', border: 'none', borderRadius: 12, padding: '10px 18px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>{tr('Buscar')}</button>
       </div>
-      {searchResult === 'searching' && <p style={{ fontSize: 12, color: T.textSecondary, margin: '8px 0 0' }}>Buscando...</p>}
+      {searchResult === 'searching' && <p style={{ fontSize: 12, color: T.textSecondary, margin: '8px 0 0' }}>{tr('Buscando...')}</p>}
       {searchResult?.found && (
         <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 12, background: T.accentDim, borderRadius: 12, padding: '10px 14px' }}>
           <div style={{ width: 40, height: 40, borderRadius: '50%', background: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 900, fontSize: 16, flexShrink: 0 }}>
@@ -368,11 +361,11 @@ function ContactosTab({ T, isDark }) {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: 14, fontWeight: 800, color: T.textPrimary, margin: 0 }}>{searchResult.name}</p>
-            <p style={{ fontSize: 11, color: BRAND, margin: 0, fontWeight: 600 }}>● En OldFace</p>
+            <p style={{ fontSize: 11, color: BRAND, margin: 0, fontWeight: 600 }}>{tr('● En OldFace')}</p>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => navigate(`/chat/${searchResult.userId}`, { state: { chat: { id: searchResult.userId, name: searchResult.name, participantId: searchResult.userId } } })}
-              style={{ background: BRAND, color: 'white', border: 'none', borderRadius: 20, padding: '7px 14px', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>Chat</button>
+              style={{ background: BRAND, color: 'white', border: 'none', borderRadius: 20, padding: '7px 14px', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>{tr('Chat')}</button>
             <ActionBtn onClick={() => sendVideoCall(searchResult.userId, searchResult.name)} T={T}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
             </ActionBtn>
@@ -383,7 +376,7 @@ function ContactosTab({ T, isDark }) {
         </div>
       )}
       {searchResult?.found === false && (
-        <p style={{ fontSize: 12, color: '#ef4444', margin: '8px 0 0', fontWeight: 600 }}>Este número no está registrado en OldFace</p>
+        <p style={{ fontSize: 12, color: '#ef4444', margin: '8px 0 0', fontWeight: 600 }}>{tr('Este número no está registrado en OldFace')}</p>
       )}
     </div>
   );
@@ -396,11 +389,8 @@ function ContactosTab({ T, isDark }) {
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 12px', display: 'block' }}>
             <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
           </svg>
-          <p style={{ fontSize: 14, fontWeight: 700, color: T.textSecondary, margin: '0 0 6px' }}>Contactos solo disponibles en la app</p>
-          <p style={{ fontSize: 12, color: T.textMuted, margin: 0, lineHeight: 1.6 }}>
-            Usa el buscador para encontrar usuarios.<br/>
-            Para ver tus contactos del móvil, instala la app nativa.
-          </p>
+          <p style={{ fontSize: 14, fontWeight: 700, color: T.textSecondary, margin: '0 0 6px' }}>{tr('Contactos solo disponibles en la app')}</p>
+          <p style={{ fontSize: 12, color: T.textMuted, margin: 0, lineHeight: 1.6 }}>{tr('Usa el buscador para encontrar usuarios.')}<br/>{tr('Para ver tus contactos del móvil, instala la app nativa.')}</p>
         </div>
       </div>
     );
@@ -411,10 +401,10 @@ function ContactosTab({ T, isDark }) {
       <div style={{ paddingBottom: 16 }}>
         {phoneSearchBlock}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 24px', gap: 14, textAlign: 'center' }}>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: 0 }}>No se pudieron cargar los contactos</p>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', margin: 0 }}>{tr('No se pudieron cargar los contactos')}</p>
           <p style={{ fontSize: 11, color: T.textMuted, margin: 0, fontFamily: 'monospace', background: T.bgHover, padding: '6px 12px', borderRadius: 8 }}>{error}</p>
-          <button onClick={loadContacts} style={{ background: BRAND, color: 'white', border: 'none', borderRadius: 14, padding: '11px 28px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>Reintentar</button>
-          <button onClick={openSettings} style={{ background: 'transparent', color: T.textSecondary, border: `1.5px solid ${T.borderStrong}`, borderRadius: 14, padding: '9px 20px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>Abrir Ajustes del sistema</button>
+          <button onClick={loadContacts} style={{ background: BRAND, color: 'white', border: 'none', borderRadius: 14, padding: '11px 28px', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>{tr('Reintentar')}</button>
+          <button onClick={openSettings} style={{ background: 'transparent', color: T.textSecondary, border: `1.5px solid ${T.borderStrong}`, borderRadius: 14, padding: '9px 20px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>{tr('Abrir Ajustes del sistema')}</button>
         </div>
       </div>
     );
@@ -436,13 +426,13 @@ function ContactosTab({ T, isDark }) {
             <path d="M12 4v16M4 12h16" />
           </svg>
         </div>
-        <p style={{ fontSize: 14, fontWeight: 800, color: BRAND, margin: 0 }}>Ver todos los contactos</p>
+        <p style={{ fontSize: 14, fontWeight: 800, color: BRAND, margin: 0 }}>{tr('Ver todos los contactos')}</p>
       </button>
 
       {oldFaceContacts.length > 0 && (
         <>
           <div style={{ padding: '10px 16px 6px', background: T.bgSection }}>
-            <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, letterSpacing: '0.5px', margin: 0 }}>EN OLDFACE</p>
+            <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, letterSpacing: '0.5px', margin: 0 }}>{tr('EN OLDFACE')}</p>
           </div>
           {oldFaceContacts.map(c => {
             const participantId = toUserId(c.phone);
@@ -460,7 +450,7 @@ function ContactosTab({ T, isDark }) {
       {others.length > 0 && (
         <>
           <div style={{ padding: '10px 16px 6px', background: T.bgSection }}>
-            <p style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, letterSpacing: '0.5px', margin: 0 }}>INVITAR A OLDFACE</p>
+            <p style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, letterSpacing: '0.5px', margin: 0 }}>{tr('INVITAR A OLDFACE')}</p>
           </div>
           {others.slice(0, 6).map(c => (
             <ContactRow key={c.id} contact={c} T={T} isInvite />
@@ -470,10 +460,8 @@ function ContactosTab({ T, isDark }) {
 
       {contacts.length === 0 && (
         <div style={{ textAlign: 'center', padding: 40, color: T.textSecondary }}>
-          <p style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px' }}>No se encontraron contactos</p>
-          <button onClick={loadContacts} style={{ background: 'transparent', color: BRAND, border: `1.5px solid ${BRAND}`, borderRadius: 14, padding: '8px 20px', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-            Reintentar
-          </button>
+          <p style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px' }}>{tr('No se encontraron contactos')}</p>
+          <button onClick={loadContacts} style={{ background: 'transparent', color: BRAND, border: `1.5px solid ${BRAND}`, borderRadius: 14, padding: '8px 20px', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{tr('Reintentar')}</button>
         </div>
       )}
     </div>
@@ -503,9 +491,7 @@ function ContactRow({ contact, onChat, onCall, onVideo, isInvite, T }) {
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/>
-            </svg>
-            Invitar
-          </button>
+            </svg>{tr('Invitar')}</button>
         ) : (
           <>
             <ActionBtn onClick={onVideo} T={T}>
@@ -565,7 +551,7 @@ function CallsTab({ T, user, isDark }) {
   };
 
   const clearAll = async () => {
-    if (!window.confirm('¿Borrar todo el historial de llamadas?')) return;
+    if (!window.confirm(tr('¿Borrar todo el historial de llamadas?'))) return;
     setCalls([]);
     await fetch(`${BACKEND_HOME}/call-log?userId=${encodeURIComponent(user.id)}`, {
       method: 'DELETE',
@@ -573,7 +559,7 @@ function CallsTab({ T, user, isDark }) {
   };
 
   const fmtDuration = (s) => {
-    if (!s || s < 1) return 'No contestada';
+    if (!s || s < 1) return tr('No contestada');
     if (s < 60) return `${s}s`;
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   };
@@ -583,10 +569,10 @@ function CallsTab({ T, user, isDark }) {
     const d = new Date(ts);
     const now = new Date();
     const diffDays = Math.floor((now - d) / 86400000);
-    if (diffDays === 0) return d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
-    if (diffDays === 1) return 'Ayer';
-    if (diffDays < 7) return d.toLocaleDateString('es', { weekday: 'short' });
-    return d.toLocaleDateString('es', { day: '2-digit', month: '2-digit' });
+    if (diffDays === 0) return d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
+    if (diffDays === 1) return tr('Ayer');
+    if (diffDays < 7) return d.toLocaleDateString(LOCALE, { weekday: 'short' });
+    return d.toLocaleDateString(LOCALE, { day: '2-digit', month: '2-digit' });
   };
 
   if (loading) {
@@ -604,8 +590,8 @@ function CallsTab({ T, user, isDark }) {
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z" />
         </svg>
-        <p style={{ fontSize: 15, fontWeight: 700, color: T.textSecondary, margin: 0 }}>Sin llamadas recientes</p>
-        <p style={{ fontSize: 12, color: T.textMuted, margin: 0, textAlign: 'center' }}>Tus llamadas aparecerán aquí cuando realices o recibas alguna</p>
+        <p style={{ fontSize: 15, fontWeight: 700, color: T.textSecondary, margin: 0 }}>{tr('Sin llamadas recientes')}</p>
+        <p style={{ fontSize: 12, color: T.textMuted, margin: 0, textAlign: 'center' }}>{tr('Tus llamadas aparecerán aquí cuando realices o recibas alguna')}</p>
       </div>
     );
   }
@@ -618,9 +604,7 @@ function CallsTab({ T, user, isDark }) {
           style={{ background: 'none', border: `1px solid #ef4444`, borderRadius: 20, padding: '5px 14px', fontSize: 12, fontWeight: 700, color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>
-          </svg>
-          Borrar historial
-        </button>
+          </svg>{tr('Borrar historial')}</button>
       </div>
 
       {calls.map((call) => {

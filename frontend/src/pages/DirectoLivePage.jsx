@@ -12,6 +12,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { RtcCall } from '../utils/rtcCall';
 import { ensureRtcConnected, rtcRequest, onRtc } from '../utils/rtcClient';
+import { tr, LOCALE } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const RED     = '#ef4444';
@@ -102,7 +103,7 @@ export default function DirectoLivePage() {
     try {
       setStatus('loading');
       const res = await fetch(`${BACKEND}/directos/${encodeURIComponent(directoId)}`);
-      if (!res.ok) throw new Error('Directo no encontrado');
+      if (!res.ok) throw new Error(tr('Directo no encontrado'));
       const d = await res.json();
       setDirecto(d);
       const amHost = d.creatorId === user?.id;
@@ -147,7 +148,7 @@ export default function DirectoLivePage() {
       setStatus('live');
     } catch (err) {
       console.error('[Directo] error:', err);
-      setErrMsg(err?.message || 'Error desconocido');
+      setErrMsg(err?.message || tr('Error desconocido'));
       setStatus('error');
     }
   };
@@ -163,13 +164,13 @@ export default function DirectoLivePage() {
       onRtc('live:ended',   (p) => { if (mine(p)) { cleanup(); setStatus('ended'); } }),
       onRtc('live:hostAway', (p) => { if (mine(p)) setHostAway(true); }),
       onRtc('live:hostBack', (p) => { if (mine(p)) setHostAway(false); }),
-      onRtc('live:approved', (p) => { if (mine(p)) { setApproved(true); setRequested(false); showToast('¡El anfitrión te ha aceptado!'); } }),
-      onRtc('live:rejected', (p) => { if (mine(p)) { setRequested(false); showToast('El anfitrión no ha aceptado tu solicitud'); } }),
+      onRtc('live:approved', (p) => { if (mine(p)) { setApproved(true); setRequested(false); showToast(tr('¡El anfitrión te ha aceptado!')); } }),
+      onRtc('live:rejected', (p) => { if (mine(p)) { setRequested(false); showToast(tr('El anfitrión no ha aceptado tu solicitud')); } }),
       onRtc('live:removed',  (p) => { if (mine(p)) leaveStage(true); }),
       ...(amHost ? [onRtc('live:joinRequest', (p) => {
         if (!mine(p)) return;
         setRequests(r => r.some(x => x.userId === p.userId) ? r : [...r, { userId: p.userId, name: p.name }]);
-        showToast(`${p.name} quiere unirse al directo`);
+        showToast(tr('{name} quiere unirse al directo', { name: p.name }));
       })] : []),
     ];
   };
@@ -203,25 +204,25 @@ export default function DirectoLivePage() {
 
   const share = async () => {
     const url = `https://oldface.app/directo/${directoId}/live`;
-    const title = directo?.title || 'Directo en OldFace';
-    const msg = `🔴 ${directo?.creatorName || 'Alguien'} está en directo en OldFace: ${title}`;
+    const title = directo?.title || tr('Directo en OldFace');
+    const msg = tr('🔴 {p0} está en directo en OldFace: {title}', { p0: directo?.creatorName || 'Alguien', title });
     try {
       const { Capacitor } = await import('@capacitor/core');
       if (Capacitor.isNativePlatform()) {
         const { Share } = await import('@capacitor/share');
-        await Share.share({ title, text: msg, url, dialogTitle: 'Compartir directo' });
+        await Share.share({ title, text: msg, url, dialogTitle: tr('Compartir directo') });
         return;
       }
     } catch { /* web */ }
     try {
       if (navigator.share) { await navigator.share({ title, text: msg, url }); return; }
       await navigator.clipboard.writeText(`${msg}\n${url}`);
-      showToast('Enlace copiado');
+      showToast(tr('Enlace copiado'));
     } catch { /* cancelado */ }
   };
 
   const requestJoin = async () => {
-    try { await rtcRequest('live:requestJoin', { liveId: directoId }); setRequested(true); showToast('Solicitud enviada al anfitrión'); }
+    try { await rtcRequest('live:requestJoin', { liveId: directoId }); setRequested(true); showToast(tr('Solicitud enviada al anfitrión')); }
     catch (err) { showToast(err.message); }
   };
 
@@ -241,7 +242,7 @@ export default function DirectoLivePage() {
     setLocalStream(null);
     setOnStage(false);
     setApproved(false);
-    if (removedByHost) showToast('Has salido del escenario');
+    if (removedByHost) showToast(tr('Has salido del escenario'));
     else rtcRequest('live:removeGuest', { liveId: directoId }).catch(() => {});
   };
 
@@ -259,7 +260,7 @@ export default function DirectoLivePage() {
   const toggleMic = () => { const n = !micOn; setMicOn(n); callRef.current?.setMic(n); };
   const toggleCam = () => { const n = !camOn; setCamOn(n); callRef.current?.setCamera(n); };
   const flipCam   = async () => {
-    try { setLocalStream(await callRef.current.switchCamera()); } catch { showToast('No se pudo cambiar de cámara'); }
+    try { setLocalStream(await callRef.current.switchCamera()); } catch { setLocalStream(callRef.current?.localStream); showToast(tr('No se pudo cambiar de cámara')); }
   };
 
   const endLive = async () => {
@@ -279,13 +280,13 @@ export default function DirectoLivePage() {
   const stage = [];
   if (hostId) {
     stage.push(isHost
-      ? { id: hostId, name: 'Tú', stream: localStream, local: true, videoOff: !camOn }
-      : { id: hostId, name: directo?.creatorName || 'Anfitrión', ...(streams[hostId] || {}) });
+      ? { id: hostId, name: tr('Tú'), stream: localStream, local: true, videoOff: !camOn }
+      : { id: hostId, name: directo?.creatorName || tr('Anfitrión'), ...(streams[hostId] || {}) });
   }
   for (const g of guests) {
     if (g.userId === hostId) continue;
     if (g.userId === user?.id) {
-      if (onStage) stage.push({ id: g.userId, name: 'Tú', stream: localStream, local: true, videoOff: !camOn });
+      if (onStage) stage.push({ id: g.userId, name: tr('Tú'), stream: localStream, local: true, videoOff: !camOn });
     } else {
       stage.push({ id: g.userId, name: g.name, ...(streams[g.userId] || {}) });
     }
@@ -331,33 +332,29 @@ export default function DirectoLivePage() {
           </div>
           <div style={{ minWidth: 0 }}>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
-              {isHost ? 'Tu directo' : directo?.creatorName || 'Directo'}
+              {isHost ? tr('Tu directo') : directo?.creatorName || tr('Directo')}
             </p>
             <p style={{ margin: 0, fontSize: 10, opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>{directo?.title}</p>
           </div>
         </div>
-        <span style={{ background: RED, fontSize: 11, fontWeight: 900, padding: '4px 9px', borderRadius: 6, letterSpacing: 0.5 }}>EN VIVO</span>
+        <span style={{ background: RED, fontSize: 11, fontWeight: 900, padding: '4px 9px', borderRadius: 6, letterSpacing: 0.5 }}>{tr('EN VIVO')}</span>
         <span style={{ background: 'rgba(0,0,0,0.4)', fontSize: 11, fontWeight: 700, padding: '4px 8px', borderRadius: 6, fontFamily: 'monospace' }}>{fmtElapsed(now - (startedAt || now))}</span>
         <div style={{ flex: 1 }} />
         <span style={{ background: 'rgba(0,0,0,0.4)', fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 4 }}>
           <EyeIcon /> {viewers}
         </span>
-        <button onClick={close} aria-label="Cerrar" style={iconBtn(36)}>✕</button>
+        <button onClick={close} aria-label={tr('Cerrar')} style={iconBtn(36)}>✕</button>
       </div>
 
       {hostAway && !isHost && (
         <div style={{ position: 'absolute', top: '40%', left: 0, right: 0, textAlign: 'center', zIndex: 4 }}>
-          <span style={{ background: 'rgba(0,0,0,0.6)', padding: '10px 16px', borderRadius: 14, fontSize: 13, fontWeight: 700 }}>
-            El anfitrión se ha desconectado un momento…
-          </span>
+          <span style={{ background: 'rgba(0,0,0,0.6)', padding: '10px 16px', borderRadius: 14, fontSize: 13, fontWeight: 700 }}>{tr('El anfitrión se ha desconectado un momento…')}</span>
         </div>
       )}
 
       {needsTap && (
         <button onClick={() => { document.querySelectorAll('video[data-live]').forEach(v => { if (!v.dataset.local) { v.muted = false; v.play().catch(() => {}); } }); setNeedsTap(false); }}
-          style={{ position: 'absolute', top: '45%', left: '50%', transform: 'translateX(-50%)', zIndex: 6, background: 'white', color: '#111', border: 'none', borderRadius: 24, padding: '12px 20px', fontWeight: 800, fontSize: 14 }}>
-          🔊 Toca para activar el sonido
-        </button>
+          style={{ position: 'absolute', top: '45%', left: '50%', transform: 'translateX(-50%)', zIndex: 6, background: 'white', color: '#111', border: 'none', borderRadius: 24, padding: '12px 20px', fontWeight: 800, fontSize: 14 }}>{tr('🔊 Toca para activar el sonido')}</button>
       )}
 
       {/* ── Corazones flotantes ── */}
@@ -379,7 +376,7 @@ export default function DirectoLivePage() {
         {chat.map(m => (
           <div key={m.id} style={{ margin: '0 0 6px', fontSize: 13, lineHeight: 1.35, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
             <span style={{ fontWeight: 800, color: m.userId === hostId ? '#fca5a5' : '#D5E6F0', marginRight: 6 }}>
-              {m.userId === user?.id ? 'Tú' : m.name}
+              {m.userId === user?.id ? tr('Tú') : m.name}
             </span>
             <span>{m.text}</span>
           </div>
@@ -390,31 +387,31 @@ export default function DirectoLivePage() {
       {/* ── Columna de acciones (derecha) ── */}
       <div style={{ position: 'absolute', right: 10, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, zIndex: 7 }}>
         {isHost && (
-          <SideBtn label="Solicitudes" badge={requests.length} onPress={() => setShowRequests(true)}>
+          <SideBtn label={tr('Solicitudes')} badge={requests.length} onPress={() => setShowRequests(true)}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
           </SideBtn>
         )}
         {(isHost || onStage) && (
           <>
-            <SideBtn label="Girar" onPress={flipCam}>
+            <SideBtn label={tr('Girar')} onPress={flipCam}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 7h-3l-2-3H9L7 7H4a2 2 0 00-2 2v9a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M9 13a3 3 0 015-2.2M15 13a3 3 0 01-5 2.2"/></svg>
             </SideBtn>
-            <SideBtn label={micOn ? 'Micro' : 'Sin micro'} active={!micOn} onPress={toggleMic}>
+            <SideBtn label={micOn ? tr('Micro') : tr('Sin micro')} active={!micOn} onPress={toggleMic}>
               {micOn
                 ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
                 : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23M12 19v4M8 23h8"/></svg>}
             </SideBtn>
-            <SideBtn label={camOn ? 'Cámara' : 'Sin cámara'} active={!camOn} onPress={toggleCam}>
+            <SideBtn label={camOn ? tr('Cámara') : tr('Sin cámara')} active={!camOn} onPress={toggleCam}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>{!camOn && <line x1="1" y1="1" x2="23" y2="23"/>}</svg>
             </SideBtn>
           </>
         )}
         {!isHost && !onStage && !approved && (
-          <SideBtn label={requested ? 'Enviada' : 'Unirse'} onPress={requested ? undefined : requestJoin} active={requested}>
+          <SideBtn label={requested ? tr('Enviada') : tr('Unirse')} onPress={requested ? undefined : requestJoin} active={requested}>
             <span style={{ fontSize: 22 }}>🙋</span>
           </SideBtn>
         )}
-        <SideBtn label="Compartir" onPress={share}>
+        <SideBtn label={tr('Compartir')} onPress={share}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
         </SideBtn>
         <SideBtn label={likes > 999 ? `${(likes / 1000).toFixed(1)}K` : String(likes)} onPress={like} big>
@@ -429,28 +426,22 @@ export default function DirectoLivePage() {
       }}>
         <input
           value={text} onChange={e => setText(e.target.value)} maxLength={200}
-          placeholder="Comenta…" enterKeyHint="send"
+          placeholder={tr('Comenta…')} enterKeyHint="send"
           style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.25)', color: 'white', borderRadius: 24, padding: '11px 16px', fontSize: 14, outline: 'none' }}
         />
         {text.trim() && (
-          <button type="submit" style={{ ...iconBtn(42), background: RED }} aria-label="Enviar">
+          <button type="submit" style={{ ...iconBtn(42), background: RED }} aria-label={tr('Enviar')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
           </button>
         )}
         {!text.trim() && isHost && (
-          <button type="button" onClick={endLive} style={{ background: RED, color: 'white', border: 'none', borderRadius: 22, padding: '11px 16px', fontWeight: 900, fontSize: 13, whiteSpace: 'nowrap' }}>
-            Finalizar
-          </button>
+          <button type="button" onClick={endLive} style={{ background: RED, color: 'white', border: 'none', borderRadius: 22, padding: '11px 16px', fontWeight: 900, fontSize: 13, whiteSpace: 'nowrap' }}>{tr('Finalizar')}</button>
         )}
         {!text.trim() && approved && !onStage && (
-          <button type="button" onClick={goOnStage} style={{ background: '#22c55e', color: 'white', border: 'none', borderRadius: 22, padding: '11px 16px', fontWeight: 900, fontSize: 13, whiteSpace: 'nowrap' }}>
-            Subir al directo
-          </button>
+          <button type="button" onClick={goOnStage} style={{ background: '#22c55e', color: 'white', border: 'none', borderRadius: 22, padding: '11px 16px', fontWeight: 900, fontSize: 13, whiteSpace: 'nowrap' }}>{tr('Subir al directo')}</button>
         )}
         {!text.trim() && onStage && (
-          <button type="button" onClick={() => leaveStage(false)} style={{ background: 'rgba(255,255,255,0.2)', color: 'white', border: '1px solid rgba(255,255,255,0.35)', borderRadius: 22, padding: '11px 16px', fontWeight: 800, fontSize: 13, whiteSpace: 'nowrap' }}>
-            Bajar
-          </button>
+          <button type="button" onClick={() => leaveStage(false)} style={{ background: 'rgba(255,255,255,0.2)', color: 'white', border: '1px solid rgba(255,255,255,0.35)', borderRadius: 22, padding: '11px 16px', fontWeight: 800, fontSize: 13, whiteSpace: 'nowrap' }}>{tr('Bajar')}</button>
         )}
       </form>
 
@@ -458,23 +449,23 @@ export default function DirectoLivePage() {
       {showRequests && (
         <div onClick={() => setShowRequests(false)} style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end' }}>
           <div onClick={e => e.stopPropagation()} style={{ width: '100%', background: '#111827', borderRadius: '22px 22px 0 0', padding: '18px 16px calc(env(safe-area-inset-bottom, 0px) + 20px)', maxHeight: '60vh', overflowY: 'auto' }}>
-            <p style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 900 }}>Solicitudes para unirse</p>
-            {requests.length === 0 && <p style={{ opacity: 0.6, fontSize: 13 }}>Nadie ha pedido unirse todavía. Los espectadores pueden pulsar 🙋.</p>}
+            <p style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 900 }}>{tr('Solicitudes para unirse')}</p>
+            {requests.length === 0 && <p style={{ opacity: 0.6, fontSize: 13 }}>{tr('Nadie ha pedido unirse todavía. Los espectadores pueden pulsar 🙋.')}</p>}
             {requests.map(r => (
               <div key={r.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                 <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#3D5A80', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900 }}>{r.name?.[0]?.toUpperCase()}</div>
                 <p style={{ flex: 1, margin: 0, fontWeight: 700 }}>{r.name}</p>
-                <button onClick={() => reject(r)} style={pill('rgba(255,255,255,0.12)')}>Rechazar</button>
-                <button onClick={() => approve(r)} style={pill('#22c55e')}>Aceptar</button>
+                <button onClick={() => reject(r)} style={pill('rgba(255,255,255,0.12)')}>{tr('Rechazar')}</button>
+                <button onClick={() => approve(r)} style={pill('#22c55e')}>{tr('Aceptar')}</button>
               </div>
             ))}
             {guests.length > 0 && (
               <>
-                <p style={{ margin: '16px 0 8px', fontSize: 13, fontWeight: 800, opacity: 0.8 }}>En el directo contigo</p>
+                <p style={{ margin: '16px 0 8px', fontSize: 13, fontWeight: 800, opacity: 0.8 }}>{tr('En el directo contigo')}</p>
                 {guests.map(g => (
                   <div key={g.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0' }}>
                     <p style={{ flex: 1, margin: 0 }}>{g.name}</p>
-                    <button onClick={() => removeGuest(g)} style={pill(RED)}>Quitar</button>
+                    <button onClick={() => removeGuest(g)} style={pill(RED)}>{tr('Quitar')}</button>
                   </div>
                 ))}
               </>
@@ -523,14 +514,14 @@ function StageTile({ stream, name, local, videoOff, showName, onRemove, onAutopl
           <div style={{ width: 96, height: 96, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, fontWeight: 900 }}>
             {name?.[0]?.toUpperCase() || '?'}
           </div>
-          {!stream && <p style={{ margin: 0, fontSize: 12, opacity: 0.7 }}>Conectando…</p>}
+          {!stream && <p style={{ margin: 0, fontSize: 12, opacity: 0.7 }}>{tr('Conectando…')}</p>}
         </div>
       )}
       {showName && (
         <span style={{ position: 'absolute', left: 10, bottom: 10, background: 'rgba(0,0,0,0.5)', padding: '3px 9px', borderRadius: 10, fontSize: 12, fontWeight: 700 }}>{name}</span>
       )}
       {onRemove && (
-        <button onClick={onRemove} style={{ position: 'absolute', right: 10, top: 10, ...pill('rgba(239,68,68,0.85)') }}>Quitar</button>
+        <button onClick={onRemove} style={{ position: 'absolute', right: 10, top: 10, ...pill('rgba(239,68,68,0.85)') }}>{tr('Quitar')}</button>
       )}
     </div>
   );
@@ -553,10 +544,10 @@ function SideBtn({ children, label, onPress, badge, active, big }) {
 
 function FullMessage({ status, errMsg, isHost, directo, onRetry, onBack }) {
   const texts = {
-    loading:    { title: isHost ? 'Iniciando tu directo…' : 'Entrando al directo…', sub: '' },
-    notStarted: { title: 'El directo aún no ha empezado', sub: directo?.scheduledAt ? `Programado: ${new Date(directo.scheduledAt).toLocaleString('es', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'Vuelve en un rato' },
-    ended:      { title: 'El directo ha terminado', sub: 'Gracias por acompañar' },
-    error:      { title: 'No se pudo conectar al directo', sub: errMsg },
+    loading:    { title: isHost ? tr('Iniciando tu directo…') : tr('Entrando al directo…'), sub: '' },
+    notStarted: { title: tr('El directo aún no ha empezado'), sub: directo?.scheduledAt ? tr('Programado: {p0}', { p0: new Date(directo.scheduledAt).toLocaleString(LOCALE, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) }) : tr('Vuelve en un rato') },
+    ended:      { title: tr('El directo ha terminado'), sub: tr('Gracias por acompañar') },
+    error:      { title: tr('No se pudo conectar al directo'), sub: errMsg },
   }[status] || { title: '', sub: '' };
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'linear-gradient(to bottom, #1e1035, #293241)', color: 'white', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32, textAlign: 'center' }}>
@@ -570,8 +561,8 @@ function FullMessage({ status, errMsg, isHost, directo, onRetry, onBack }) {
       </div>
       <p style={{ fontSize: 19, fontWeight: 900, margin: 0 }}>{texts.title}</p>
       {texts.sub && <p style={{ fontSize: 13, opacity: 0.65, margin: 0 }}>{texts.sub}</p>}
-      {status === 'error' && <button onClick={onRetry} style={{ ...pill(RED), padding: '12px 26px', fontSize: 14 }}>Reintentar</button>}
-      <button onClick={onBack} style={{ ...pill('rgba(255,255,255,0.12)'), padding: '10px 24px', fontSize: 13 }}>Volver</button>
+      {status === 'error' && <button onClick={onRetry} style={{ ...pill(RED), padding: '12px 26px', fontSize: 14 }}>{tr('Reintentar')}</button>}
+      <button onClick={onBack} style={{ ...pill('rgba(255,255,255,0.12)'), padding: '10px 24px', fontSize: 13 }}>{tr('Volver')}</button>
       <style>{'@keyframes liveRipple { 0%,100% { transform:scale(1); opacity:0.5 } 50% { transform:scale(1.6); opacity:0 } }'}</style>
     </div>
   );

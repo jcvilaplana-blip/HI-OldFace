@@ -17,6 +17,7 @@ import { RtcCall } from '../utils/rtcCall';
 import { ensureRtcConnected } from '../utils/rtcClient';
 import { playRingSound } from '../utils/sounds';
 import { fetchGroup, fetchGroupCall, inviteToGroupCall, leaveGroupCall } from '../utils/groupsApi';
+import { tr } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const RING_MAX_MS = 45_000;   // el tono de "llamando" suena mientras estoy solo, como mucho esto
@@ -135,10 +136,12 @@ export default function GroupCallPage() {
         callRef.current = call;
         await call.join();
         setCamOn(false);
-        setCallError('No se pudo usar la cámara: entras solo con voz');
+        setCallError(tr('No se pudo usar la cámara: entras solo con voz'));
       } else throw err;
     }
     if (leftRef.current) { call.leave(); return; }
+    // Llamada en curso: micro (y cámara) siguen funcionando con la app minimizada
+    window.OldFaceAudio?.startCallService?.(!!call.producers.video, state?.groupName || 'Grupo');
     setLocalStream(call.localStream);
     setStatus(s => s === 'connecting' ? (call.remoteCount > 0 ? 'active' : 'waiting') : s);
     if (call.remoteCount > 0) onSomeoneJoined();
@@ -187,10 +190,13 @@ export default function GroupCallPage() {
 
   // Volver al primer plano: reanudar vídeos y la salida de audio
   useEffect(() => {
-    const onVis = () => {
+    const onVis = async () => {
       if (document.hidden) return;
-      document.querySelectorAll('video[data-gc]').forEach(v => v.play().catch(() => {}));
       applyAudioRoute();
+      // Si Android cortó el micro o la cámara al minimizar, abrirlos otra vez (los demás me veían congelado)
+      const call = callRef.current;
+      if (call) { const s = await call.recoverMedia(); if (s) setLocalStream(s); }
+      document.querySelectorAll('video[data-gc]').forEach(v => v.play().catch(() => {}));
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
@@ -225,13 +231,14 @@ export default function GroupCallPage() {
       const s = await call.enableVideo();
       setLocalStream(s);
       setCamOn(true);
+      window.OldFaceAudio?.startCallService?.(true, groupName);   // la cámara también sigue al minimizar
     } catch {
-      setCallError('No se pudo encender la cámara');
+      setCallError(tr('No se pudo encender la cámara'));
     }
   };
 
   const flipCam = async () => {
-    try { setLocalStream(await callRef.current?.switchCamera()); } catch { /* sin cámara trasera */ }
+    try { setLocalStream(await callRef.current?.switchCamera()); } catch { setLocalStream(callRef.current?.localStream); /* sin cámara trasera */ }
   };
 
   const toggleSpeaker = () => {
@@ -255,16 +262,16 @@ export default function GroupCallPage() {
 
   // ── Cuadrícula ───────────────────────────────────────────────────────────
   const tiles = [
-    { id: user?.id, name: 'Tú', stream: localStream, videoOff: !camOn, micOff: !micOn, local: true },
+    { id: user?.id, name: tr('Tú'), stream: localStream, videoOff: !camOn, micOff: !micOn, local: true },
     ...peers,
   ];
   const n = tiles.length;
   const cols = n <= 2 ? 1 : n <= 6 ? 2 : 3;
   const rows = Math.ceil(n / cols);
 
-  const statusText = status === 'connecting' ? 'Conectando…'
-    : status === 'waiting' ? (isIncoming ? 'Esperando a los demás…' : 'Llamando al grupo…')
-    : status === 'active' ? (peers.length === 0 ? `Te has quedado solo · ${fmtDuration(duration)}` : fmtDuration(duration))
+  const statusText = status === 'connecting' ? tr('Conectando…')
+    : status === 'waiting' ? (isIncoming ? tr('Esperando a los demás…') : tr('Llamando al grupo…'))
+    : status === 'active' ? (peers.length === 0 ? tr('Te has quedado solo · {p0}', { p0: fmtDuration(duration) }) : fmtDuration(duration))
     : '';
 
   if (status === 'ended' || status === 'error') {
@@ -272,17 +279,13 @@ export default function GroupCallPage() {
       <div style={{ position: 'fixed', inset: 0, background: '#111827', zIndex: 50, display: 'flex', flexDirection: 'column',
                     alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24, textAlign: 'center' }}>
         <p style={{ color: status === 'error' ? '#f87171' : 'white', fontWeight: 800, fontSize: 17, margin: 0 }}>
-          {status === 'error' ? 'No se pudo conectar con la llamada' : 'La llamada del grupo ya ha terminado'}
+          {status === 'error' ? tr('No se pudo conectar con la llamada') : tr('La llamada del grupo ya ha terminado')}
         </p>
         {status === 'error' && (
           <button onClick={retry}
-            style={{ background: '#3D5A80', color: 'white', border: 'none', borderRadius: 18, padding: '12px 28px', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
-            Reintentar
-          </button>
+            style={{ background: '#3D5A80', color: 'white', border: 'none', borderRadius: 18, padding: '12px 28px', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>{tr('Reintentar')}</button>
         )}
-        <button onClick={exit} style={{ color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, fontWeight: 600 }}>
-          Volver
-        </button>
+        <button onClick={exit} style={{ color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, fontWeight: 600 }}>{tr('Volver')}</button>
       </div>
     );
   }
@@ -297,10 +300,10 @@ export default function GroupCallPage() {
             {groupName}
           </p>
           <p style={{ margin: 0, color: 'rgba(255,255,255,0.65)', fontSize: 12, fontWeight: 600 }}>
-            {callType === 'video' ? 'Videollamada de grupo' : 'Llamada de grupo'}{statusText ? ` · ${statusText}` : ''}
+            {callType === 'video' ? tr('Videollamada de grupo') : tr('Llamada de grupo')}{statusText ? ` · ${statusText}` : ''}
           </p>
         </div>
-        <button onClick={() => setShowPeople(true)} aria-label="Participantes"
+        <button onClick={() => setShowPeople(true)} aria-label={tr('Participantes')}
           style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.14)', border: 'none',
                    borderRadius: 18, padding: '7px 12px', color: 'white', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
           <PeopleIcon /> {n}
@@ -319,17 +322,17 @@ export default function GroupCallPage() {
       {/* Controles */}
       <div style={{ flexShrink: 0, padding: '14px 6px', paddingBottom: 'calc(var(--sab, 0px) + 18px)',
                     display: 'flex', justifyContent: 'space-evenly', alignItems: 'flex-start' }}>
-        <Ctrl label={micOn ? 'Silenciar' : 'Activar mic'} off={!micOn} onPress={toggleMic}>{micOn ? <MicIcon /> : <MicOffIcon />}</Ctrl>
-        <Ctrl label={camOn ? 'Apagar cám.' : 'Cámara'} off={!camOn} onPress={toggleCam}>{camOn ? <CamIcon /> : <CamOffIcon />}</Ctrl>
-        <Ctrl label={speakerOn ? 'Altavoz' : 'Auricular'} on={speakerOn} onPress={toggleSpeaker}><SpeakerIcon /></Ctrl>
-        {!group?.guest && <Ctrl label="Añadir" onPress={() => setShowPeople(true)}><AddPersonIcon /></Ctrl>}
+        <Ctrl label={micOn ? tr('Silenciar') : tr('Activar mic')} off={!micOn} onPress={toggleMic}>{micOn ? <MicIcon /> : <MicOffIcon />}</Ctrl>
+        <Ctrl label={camOn ? tr('Apagar cám.') : tr('Cámara')} off={!camOn} onPress={toggleCam}>{camOn ? <CamIcon /> : <CamOffIcon />}</Ctrl>
+        <Ctrl label={speakerOn ? tr('Altavoz') : tr('Auricular')} on={speakerOn} onPress={toggleSpeaker}><SpeakerIcon /></Ctrl>
+        {!group?.guest && <Ctrl label={tr('Añadir')} onPress={() => setShowPeople(true)}><AddPersonIcon /></Ctrl>}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: 62 }}>
-          <button onClick={exit} aria-label="Salir de la llamada"
+          <button onClick={exit} aria-label={tr('Salir de la llamada')}
             style={{ width: 52, height: 52, borderRadius: '50%', background: '#ef4444', border: 'none', cursor: 'pointer',
                      display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 22px rgba(239,68,68,0.55)' }}>
             <HangIcon />
           </button>
-          <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: 700 }}>Salir</span>
+          <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: 700 }}>{tr('Salir')}</span>
         </div>
       </div>
 
@@ -396,7 +399,7 @@ function Tile({ tile, onFlip }) {
         )}
       </div>
       {onFlip && (
-        <button onClick={onFlip} aria-label="Cambiar de cámara"
+        <button onClick={onFlip} aria-label={tr('Cambiar de cámara')}
           style={{ position: 'absolute', top: 8, right: 8, width: 34, height: 34, borderRadius: '50%', border: 'none', cursor: 'pointer',
                    background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <FlipIcon />
@@ -437,7 +440,7 @@ function PeopleSheet({ me, tiles, group, chats, invited, onInvite, onClose }) {
       <button onClick={() => onInvite([id])} disabled={st === 'sending' || st === 'sent'}
         style={{ border: 'none', borderRadius: 16, padding: '7px 14px', fontWeight: 800, fontSize: 12, cursor: st === 'sending' || st === 'sent' ? 'default' : 'pointer',
                  background: st === 'sent' ? 'rgba(34,197,94,0.22)' : '#3D5A80', color: st === 'sent' ? '#4ade80' : st === 'error' ? '#fecaca' : 'white' }}>
-        {st === 'sent' ? 'Llamando…' : st === 'sending' ? '…' : st === 'error' ? 'Reintentar' : 'Llamar'}
+        {st === 'sent' ? tr('Llamando…') : st === 'sending' ? '…' : st === 'error' ? tr('Reintentar') : tr('Llamar')}
       </button>
     );
   };
@@ -452,14 +455,14 @@ function PeopleSheet({ me, tiles, group, chats, invited, onInvite, onClose }) {
         style={{ width: '100%', maxHeight: '75vh', background: '#1a2340', borderRadius: '22px 22px 0 0', display: 'flex', flexDirection: 'column',
                  paddingBottom: 'calc(var(--sab, 0px) + 12px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px 6px' }}>
-          <p style={{ flex: 1, margin: 0, color: 'white', fontWeight: 800, fontSize: 16 }}>Participantes</p>
-          <button onClick={onClose} aria-label="Cerrar" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+          <p style={{ flex: 1, margin: 0, color: 'white', fontWeight: 800, fontSize: 16 }}>{tr('Participantes')}</p>
+          <button onClick={onClose} aria-label={tr('Cerrar')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1 }}>
-          {section(`EN LA LLAMADA (${tiles.length})`)}
-          {tiles.map(t => row(t.id, t.local ? `${me?.name || 'Tú'} (tú)` : t.name, (
+          {section(tr('EN LA LLAMADA ({length})', { length: tiles.length }))}
+          {tiles.map(t => row(t.id, t.local ? tr('{p0} (tú)', { p0: me?.name || 'Tú' }) : t.name, (
             <span style={{ display: 'flex', gap: 8 }}>
               {t.micOff && <MicOffIcon size={16} color="#f87171" />}
               {!t.videoOff && t.stream?.getVideoTracks().length > 0 && <CamIcon size={16} color="#98C1D9" />}
@@ -468,23 +471,21 @@ function PeopleSheet({ me, tiles, group, chats, invited, onInvite, onClose }) {
 
           {missingMembers.length > 0 && <>
             <div style={{ display: 'flex', alignItems: 'center', paddingRight: 20 }}>
-              <div style={{ flex: 1 }}>{section('DEL GRUPO, FUERA DE LA LLAMADA')}</div>
+              <div style={{ flex: 1 }}>{section(tr('DEL GRUPO, FUERA DE LA LLAMADA'))}</div>
               {missingMembers.length > 1 && (
                 <button onClick={() => onInvite(missingMembers.filter(id => invited[id] !== 'sent'))}
-                  style={{ marginTop: 10, background: 'none', border: 'none', color: '#98C1D9', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>
-                  Llamar a todos
-                </button>
+                  style={{ marginTop: 10, background: 'none', border: 'none', color: '#98C1D9', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>{tr('Llamar a todos')}</button>
               )}
             </div>
             {missingMembers.map(id => row(id, memberNames[id] || id, inviteBtn(id)))}
           </>}
 
           {others.length > 0 && <>
-            {section('INVITAR A OTROS CONTACTOS')}
+            {section(tr('INVITAR A OTROS CONTACTOS'))}
             {others.map(o => row(o.id, o.name, inviteBtn(o.id)))}
           </>}
 
-          {!group && <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, textAlign: 'center', margin: '16px 0' }}>Cargando miembros…</p>}
+          {!group && <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, textAlign: 'center', margin: '16px 0' }}>{tr('Cargando miembros…')}</p>}
         </div>
       </div>
     </div>

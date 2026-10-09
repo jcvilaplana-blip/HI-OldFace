@@ -5,6 +5,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { takePendingLink } from '../utils/deepLinks';
+import { deviceInfo } from '../utils/devices';
+import LinkDevicePanel from '../components/LinkDevicePanel.jsx';
+import { tr } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -36,7 +39,7 @@ export default function LoginPage() {
   const [phoneNormalized, setPhoneNormalized] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [step, setStep] = useState('form'); // form | otp | loading
+  const [step, setStep] = useState('form'); // form | otp | loading | link
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -76,7 +79,7 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || 'Error enviando el código');
+        setError(data.error || tr('Error enviando el código'));
         setLoading(false);
         return;
       }
@@ -85,7 +88,7 @@ export default function LoginPage() {
       setStep('otp');
       startResendCooldown();
     } catch (err) {
-      setError(`Error de red: ${err.message || 'Sin respuesta del servidor'}`);
+      setError(tr('Error de red: {p0}', { p0: err.message || 'Sin respuesta del servidor' }));
     } finally {
       setLoading(false);
     }
@@ -100,12 +103,12 @@ export default function LoginPage() {
       const res = await fetch(`${BACKEND}/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phoneNormalized, code: otp.trim(), name: name.trim() }),
+        body: JSON.stringify({ phone: phoneNormalized, code: otp.trim(), name: name.trim(), ...deviceInfo() }),
       });
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || 'Código incorrecto');
+        setError(data.error || tr('Código incorrecto'));
         setLoading(false);
         return;
       }
@@ -144,7 +147,7 @@ export default function LoginPage() {
       navigate(takePendingLink() || '/', { replace: true });
 
     } catch {
-      setError('Error de conexión. Inténtalo de nuevo.');
+      setError(tr('Error de conexión. Inténtalo de nuevo.'));
       setLoading(false);
     }
   };
@@ -163,13 +166,13 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || 'Error reenviando el código');
+        setError(data.error || tr('Error reenviando el código'));
       } else {
         setSentChannel(data.channel || 'email');
         startResendCooldown();
       }
     } catch {
-      setError('Error de conexión.');
+      setError(tr('Error de conexión.'));
     } finally {
       setLoading(false);
     }
@@ -196,7 +199,7 @@ export default function LoginPage() {
             <img src="/logo-oldface.png" alt="OldFace" className="w-28 h-28 object-contain drop-shadow-2xl"
                  onError={(e) => { e.target.style.display='none'; }} />
           </div>
-          <p className="text-oldface-500 text-sm mt-1 font-medium">Conecta con quien más quieres</p>
+          <p className="text-oldface-500 text-sm mt-1 font-medium">{tr('Conecta con quien más quieres')}</p>
         </div>
 
         {/* Card */}
@@ -205,28 +208,28 @@ export default function LoginPage() {
         {step === 'loading' && (
           <div className="flex flex-col items-center py-8">
             <div className="w-16 h-16 border-4 border-oldface-200 border-t-oldface-500 rounded-full animate-spin mb-4" />
-            <p className="text-oldface-600 font-semibold">Iniciando sesión...</p>
+            <p className="text-oldface-600 font-semibold">{tr('Iniciando sesión...')}</p>
           </div>
         )}
 
         {step === 'form' && (
           <>
-            <h2 className="text-xl font-bold text-gray-800 mb-6">Tu número de teléfono</h2>
+            <h2 className="text-xl font-bold text-gray-800 mb-6">{tr('Tu número de teléfono')}</h2>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-2">Tu nombre</label>
+                <label className="block text-sm font-semibold text-gray-600 mb-2">{tr('Tu nombre')}</label>
                 <input
                   type="text"
                   value={name}
                   onChange={e => setName(e.target.value)}
-                  placeholder="Ej: María García"
+                  placeholder={tr('Ej: María García')}
                   className="w-full px-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-oldface-400 outline-none text-gray-800 font-medium transition-colors"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-2">Teléfono</label>
+                <label className="block text-sm font-semibold text-gray-600 mb-2">{tr('Teléfono')}</label>
                 <input
                   type="tel"
                   value={phone}
@@ -234,7 +237,7 @@ export default function LoginPage() {
                   placeholder="+34 600 000 000"
                   className="w-full px-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-oldface-400 outline-none text-gray-800 font-medium transition-colors"
                 />
-                <p className="text-xs text-gray-400 mt-1">Incluye el prefijo internacional (ej: +34)</p>
+                <p className="text-xs text-gray-400 mt-1">{tr('Incluye el prefijo internacional (ej: +34)')}</p>
               </div>
 
               {error && (
@@ -242,15 +245,15 @@ export default function LoginPage() {
               )}
 
               <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-2">Email</label>
+                <label className="block text-sm font-semibold text-gray-600 mb-2">{tr('Email')}</label>
                 <input
                   type="email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  placeholder="tu@email.com"
+                  placeholder={tr('tu@email.com')}
                   className="w-full px-4 py-3 rounded-2xl border-2 border-gray-100 focus:border-oldface-400 outline-none text-gray-800 font-medium transition-colors"
                 />
-                <p className="text-xs text-gray-400 mt-1">Recibirás el código aquí</p>
+                <p className="text-xs text-gray-400 mt-1">{tr('Recibirás el código aquí')}</p>
               </div>
 
               {/* Checkbox de aceptación legal */}
@@ -264,21 +267,13 @@ export default function LoginPage() {
                     accentColor: '#3D5A80', cursor: 'pointer',
                   }}
                 />
-                <span style={{ fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
-                  He leído y acepto los{' '}
-                  <Link to="/terms" style={{ color: '#3D5A80', fontWeight: 600, textDecoration: 'underline' }}>
-                    Términos y condiciones
-                  </Link>
-                  {', '}la{' '}
-                  <Link to="/privacy" style={{ color: '#3D5A80', fontWeight: 600, textDecoration: 'underline' }}>
-                    Política de privacidad
-                  </Link>
-                  {' '}y la{' '}
-                  <Link to="/cookies" style={{ color: '#3D5A80', fontWeight: 600, textDecoration: 'underline' }}>
-                    Política de cookies
-                  </Link>
-                  {' '}de OldFace.
-                </span>
+                <span style={{ fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>{tr('He leído y acepto los')}{' '}
+                  <Link to="/terms" style={{ color: '#3D5A80', fontWeight: 600, textDecoration: 'underline' }}>{tr('Términos y condiciones')}</Link>
+                  {', '}{tr('la')}{' '}
+                  <Link to="/privacy" style={{ color: '#3D5A80', fontWeight: 600, textDecoration: 'underline' }}>{tr('Política de privacidad')}</Link>
+                  {' '}{tr('y la')}{' '}
+                  <Link to="/cookies" style={{ color: '#3D5A80', fontWeight: 600, textDecoration: 'underline' }}>{tr('Política de cookies')}</Link>
+                  {' '}{tr('de OldFace.')}</span>
               </label>
 
               <button
@@ -286,22 +281,46 @@ export default function LoginPage() {
                 disabled={!phone.trim() || !name.trim() || !email.trim() || !termsAccepted || loading}
                 className="w-full py-4 bg-oldface-500 text-white rounded-2xl font-bold text-lg disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all shadow-lg shadow-blue-100"
               >
-                {loading ? 'Enviando...' : 'Enviar código →'}
+                {loading ? tr('Enviando...') : tr('Enviar código →')}
               </button>
+
+              {/* Ordenador o tablet: entrar con la cuenta del móvil escaneando un QR */}
+              <div className="pt-2 border-t border-gray-100">
+                <button
+                  onClick={() => { setError(''); setStep('link'); }}
+                  className="w-full py-3 rounded-2xl font-bold text-sm text-oldface-500 bg-oldface-50 active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
+                    <path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/>
+                  </svg>{tr('Vincular con mi móvil (QR)')}</button>
+                <p className="text-xs text-gray-400 mt-1 text-center">{tr('Para usar OldFace en el ordenador o en una tablet')}</p>
+              </div>
             </div>
           </>
         )}
 
+        {step === 'link' && (
+          <LinkDevicePanel
+            onBack={() => setStep('form')}
+            onLinked={(r) => {
+              setStep('loading');
+              if (r.rtcToken) useAuthStore.getState().setRtcToken(r.rtcToken);
+              setUser({
+                id: r.user.userId, name: r.user.name, phone: r.user.phone, avatar: r.user.avatar,
+                status: r.user.status || undefined, createdAt: Date.now(),
+              });
+              navigate(takePendingLink() || '/', { replace: true });
+            }}
+          />
+        )}
+
         {step === 'otp' && (
           <>
-            <button onClick={() => { setStep('form'); setError(''); }} className="mb-4 text-oldface-500 font-semibold text-sm flex items-center gap-1">
-              ← Atrás
-            </button>
+            <button onClick={() => { setStep('form'); setError(''); }} className="mb-4 text-oldface-500 font-semibold text-sm flex items-center gap-1">{tr('← Atrás')}</button>
 
-            <h2 className="text-xl font-bold text-gray-800 mb-2">Verificar código</h2>
-            <p className="text-gray-500 text-sm mb-6">
-              Código enviado a <strong>{email.trim() || phoneNormalized}</strong>. Revisa tu bandeja de entrada.
-            </p>
+            <h2 className="text-xl font-bold text-gray-800 mb-2">{tr('Verificar código')}</h2>
+            <p className="text-gray-500 text-sm mb-6">{tr('Código enviado a')}{' '}<strong>{email.trim() || phoneNormalized}</strong>{tr('. Revisa tu bandeja de entrada.')}</p>
 
             <input
               type="number"
@@ -321,7 +340,7 @@ export default function LoginPage() {
               disabled={otp.length < 6 || loading}
               className="w-full py-4 bg-oldface-500 text-white rounded-2xl font-bold text-lg disabled:opacity-50 active:scale-95 transition-all shadow-lg shadow-blue-100 mb-4"
             >
-              {loading ? 'Verificando...' : 'Verificar ✓'}
+              {loading ? tr('Verificando...') : tr('Verificar ✓')}
             </button>
 
             <button
@@ -329,7 +348,7 @@ export default function LoginPage() {
               disabled={resendCooldown > 0 || loading}
               className="w-full py-2 text-sm text-oldface-500 font-semibold disabled:opacity-40"
             >
-              {resendCooldown > 0 ? `Reenviar en ${resendCooldown}s` : 'No recibí el código — Reenviar'}
+              {resendCooldown > 0 ? tr('Reenviar en {resendCooldown}s', { resendCooldown }) : tr('No recibí el código — Reenviar')}
             </button>
           </>
         )}
@@ -337,13 +356,13 @@ export default function LoginPage() {
 
         {/* Footer legal */}
         <footer style={{ width: '100%', maxWidth: 384, textAlign: 'center', padding: '28px 0 32px', color: '#9ca3af', fontSize: 11 }}>
-          <p style={{ marginBottom: 10 }}>© {new Date().getFullYear()} OldFace. Todos los derechos reservados.</p>
+          <p style={{ marginBottom: 10 }}>© {new Date().getFullYear()}{' '}{tr('OldFace. Todos los derechos reservados.')}</p>
           <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '6px 14px' }}>
-            <Link to="/terms" style={{ color: '#3D5A80', textDecoration: 'none', fontWeight: 500 }}>Términos y condiciones</Link>
+            <Link to="/terms" style={{ color: '#3D5A80', textDecoration: 'none', fontWeight: 500 }}>{tr('Términos y condiciones')}</Link>
             <span style={{ color: '#d1d5db' }}>·</span>
-            <Link to="/privacy" style={{ color: '#3D5A80', textDecoration: 'none', fontWeight: 500 }}>Privacidad</Link>
+            <Link to="/privacy" style={{ color: '#3D5A80', textDecoration: 'none', fontWeight: 500 }}>{tr('Privacidad')}</Link>
             <span style={{ color: '#d1d5db' }}>·</span>
-            <Link to="/cookies" style={{ color: '#3D5A80', textDecoration: 'none', fontWeight: 500 }}>Cookies</Link>
+            <Link to="/cookies" style={{ color: '#3D5A80', textDecoration: 'none', fontWeight: 500 }}>{tr('Cookies')}</Link>
           </div>
         </footer>
 

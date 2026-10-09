@@ -10,6 +10,7 @@
 import { io } from 'socket.io-client';
 import { useAuthStore } from '../store/authStore';
 import { getRtcToken } from './rtcClient';
+import { tr } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 // En producción el taxi vive en el mismo dominio (/taxi/…); VITE_TAXI_URL solo para desarrollo local
@@ -21,7 +22,7 @@ export const taxiUrl = (p) => (!p ? p : /^(https?|data|blob):/.test(p) ? p : `${
 
 async function token(force = false) {
   const user = useAuthStore.getState().user;
-  if (!user?.id) throw new Error('Inicia sesión en OldFace');
+  if (!user?.id) throw new Error(tr('Inicia sesión en OldFace'));
   return getRtcToken(user.id, { force });
 }
 
@@ -34,7 +35,7 @@ export async function taxiApi(path, { method = 'GET', body, raw, retried } = {})
   });
   if (res.status === 401 && !retried) { await token(true); return taxiApi(path, { method, body, raw, retried: true }); }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) { const e = new Error(data.error || tx('Error de conexión')); e.status = res.status; e.data = data; throw e; }
+  if (!res.ok) { const e = new Error(data.error || tx(tr('Error de conexión'))); e.status = res.status; e.data = data; throw e; }
   return data;
 }
 
@@ -98,14 +99,14 @@ export function watchPosition(onPos, onError) {
       if (Capacitor.isNativePlatform()) {
         const { Geolocation } = await import('@capacitor/geolocation');
         const perm = await Geolocation.requestPermissions();
-        if (perm.location !== 'granted') { onError?.(new Error(tx('Permiso de ubicación denegado'))); return; }
+        if (perm.location !== 'granted') { onError?.(new Error(tx(tr('Permiso de ubicación denegado')))); return; }
         const id = await Geolocation.watchPosition({ enableHighAccuracy: true, timeout: 15000 }, (p, e) => { if (p) handle(p.coords); else if (e) onError?.(e); });
         stop = () => Geolocation.clearWatch({ id });
         if (stopped) stop();
         return;
       }
     } catch { /* sigue con el navegador */ }
-    if (!navigator.geolocation) { onError?.(new Error(tx('Ubicación no disponible'))); return; }
+    if (!navigator.geolocation) { onError?.(new Error(tx(tr('Ubicación no disponible')))); return; }
     const id = navigator.geolocation.watchPosition((p) => handle(p.coords), (e) => onError?.(e), { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
     stop = () => navigator.geolocation.clearWatch(id);
     if (stopped) stop();
@@ -130,14 +131,14 @@ export function trackDriver(onPos, onError) {
     bgPlugin ||= registerPlugin('BackgroundGeolocation');
     let last = { t: 0, lat: 0, lng: 0 };
     const id = await bgPlugin.addWatcher({
-      backgroundTitle: tx('OldFace Taxi: estás conectado'),
-      backgroundMessage: tx('Compartiendo tu ubicación para recibir viajes. Desconéctate en la app para pararlo.'),
+      backgroundTitle: tx(tr('OldFace Taxi: estás conectado')),
+      backgroundMessage: tx(tr('Compartiendo tu ubicación para recibir viajes. Desconéctate en la app para pararlo.')),
       requestPermissions: true,
       stale: false,
       distanceFilter: 0,
     }, async (loc, error) => {
       if (error) {
-        if (error.code === 'NOT_AUTHORIZED') onError?.(new Error(tx('Permite la ubicación a OldFace para recibir viajes')));
+        if (error.code === 'NOT_AUTHORIZED') onError?.(new Error(tx(tr('Permite la ubicación a OldFace para recibir viajes'))));
         return;
       }
       const p = { lat: loc.latitude, lng: loc.longitude, heading: Number.isFinite(loc.bearing) ? loc.bearing : null };
@@ -178,8 +179,8 @@ export async function currentPosition() {
     }
   } catch { /* sigue con el navegador */ }
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) return reject(new Error(tx('Ubicación no disponible')));
+    if (!navigator.geolocation) return reject(new Error(tx(tr('Ubicación no disponible'))));
     navigator.geolocation.getCurrentPosition(p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      () => reject(new Error(tx('No se pudo obtener tu ubicación'))), { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+      () => reject(new Error(tx(tr('No se pudo obtener tu ubicación')))), { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
   });
 }

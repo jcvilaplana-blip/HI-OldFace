@@ -11,14 +11,15 @@
  * Sin servicios externos: Web Audio + AudioWorklet + MediaRecorder del propio WebView.
  */
 import { detectPitch } from './karaokeScore';
+import { tr } from '../i18n';
 
 const DEFAULT_MONITOR = 70; // con auriculares el cantante se oye a sí mismo desde el principio
 
 /** Tipos de reverb: duración (s) y pre-retardo (s) */
 export const REVERB_PRESETS = {
-  estudio: { label: 'Estudio', decay: 1.2, pre: 0.012 },
-  sala:    { label: 'Sala',    decay: 2.2, pre: 0.025 },
-  hall:    { label: 'Hall',    decay: 3.6, pre: 0.04 },
+  estudio: { label: tr('Estudio'), decay: 1.2, pre: 0.012 },
+  sala:    { label: tr('Sala'),    decay: 2.2, pre: 0.025 },
+  hall:    { label: tr('Hall'),    decay: 3.6, pre: 0.04 },
 };
 
 // Cambio de tono sin cambiar la velocidad: dos lecturas con retardo variable y fundido cruzado.
@@ -141,9 +142,9 @@ export class KaraokeEngine {
     this.audio.preservesPitch = true; this.audio.webkitPreservesPitch = true; // la velocidad no cambia el tono
     if (this.audio.readyState < 3) {
       await new Promise((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error('No se pudo cargar la canción')), 25000);
+        const t = setTimeout(() => reject(new Error(tr('No se pudo cargar la canción'))), 25000);
         this.audio.addEventListener('canplay', () => { clearTimeout(t); resolve(); }, { once: true });
-        this.audio.addEventListener('error', () => { clearTimeout(t); reject(new Error('No se pudo cargar la canción')); }, { once: true });
+        this.audio.addEventListener('error', () => { clearTimeout(t); reject(new Error(tr('No se pudo cargar la canción'))); }, { once: true });
         this.audio.load();
       });
     }

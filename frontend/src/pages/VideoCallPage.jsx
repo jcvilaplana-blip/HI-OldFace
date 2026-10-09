@@ -15,6 +15,7 @@ import { useChatStore }  from '../store/chatStore';
 import { RtcCall }       from '../utils/rtcCall';
 import { ensureRtcConnected } from '../utils/rtcClient';
 import { playRingSound } from '../utils/sounds';
+import { tr } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -34,10 +35,12 @@ export default function VideoCallPage() {
   const startTimeRef    = useRef(null);
   const loggedRef       = useRef(false);
   const cameraOnRef     = useRef(true);   // ref síncrona — usada al reconectar
+  const keepAliveRef    = useRef(null);   // AudioContext silencioso → evita throttling en background
 
   const [uiStatus,    setUiStatus]    = useState('connecting');
   const [micOn,       setMicOn]       = useState(true);
   const [cameraOn,    setCameraOn]    = useState(true);
+  const [facing,      setFacing]      = useState('user');   // 'user' (frontal) | 'environment' (trasera)
   const [showInvite,  setShowInvite]  = useState(false);
   const [inviteSent,  setInviteSent]  = useState({});  // { contactId: true } tras enviar invitación
 
@@ -97,12 +100,18 @@ export default function VideoCallPage() {
 
   // ── Al volver al primer plano: reactivar altavoz + descongelar vídeo ────────
   useEffect(() => {
-    const onVisible = () => {
+    const onVisible = async () => {
       if (document.hidden || uiStatus !== 'active') return;
 
       // 1. Reactivar altavoz (videollamada usa altavoz por defecto)
       window.OldFaceAudio?.enableSpeaker();
-      // 2. Reanudar vídeos que el WebView haya pausado en segundo plano
+      // 2. Si Android cortó la cámara o el micro al minimizar, abrirlos otra vez (el otro dejaba de verme)
+      const call = rtcCallRef.current;
+      if (call) {
+        const s = await call.recoverMedia();
+        if (localVideoRef.current && s && localVideoRef.current.srcObject !== s) localVideoRef.current.srcObject = s;
+      }
+      // 3. Reanudar vídeos que el WebView haya pausado en segundo plano
       document.querySelectorAll('video[data-rtc]').forEach(v => v.play().catch(() => {}));
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -145,6 +154,15 @@ export default function VideoCallPage() {
     startTimeRef.current = Date.now();
     window.OldFaceAudio?.setCallActive(true);
     window.OldFaceAudio?.enableSpeaker(); // videollamada: altavoz por defecto
+    // Tono silencioso → el WebView no se congela al minimizar (como en la llamada de voz)
+    if (!keepAliveRef.current) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator(), gain = ctx.createGain();
+        gain.gain.value = 0.001; osc.connect(gain); gain.connect(ctx.destination); osc.start();
+        keepAliveRef.current = { ctx, osc };
+      } catch { /* sin AudioContext */ }
+    }
   };
 
   const startOwnCall = async () => {
@@ -177,7 +195,10 @@ export default function VideoCallPage() {
       },
     });
     rtcCallRef.current = call;
+    setFacing(call.facingMode);
     await call.join();
+    // Llamada en curso: micro y cámara siguen funcionando con la app minimizada
+    window.OldFaceAudio?.startCallService?.(true, calleeName);
     if (localVideoRef.current) localVideoRef.current.srcObject = call.localStream;
     if (!micOn) call.setMic(false);
     if (!cameraOnRef.current) call.setCamera(false);
@@ -193,6 +214,8 @@ export default function VideoCallPage() {
   const doCleanup = useCallback(() => {
     if (cleanedRef.current) return;
     cleanedRef.current = true;
+    try { keepAliveRef.current?.osc?.stop(); keepAliveRef.current?.ctx?.close(); } catch {}
+    keepAliveRef.current = null;
     window.OldFaceAudio?.setCallActive(false);
     rtcCallRef.current?.leave();
     rtcCallRef.current = null;
@@ -222,6 +245,19 @@ export default function VideoCallPage() {
     cameraOnRef.current = next;
     setCameraOn(next);
     rtcCallRef.current?.setCamera(next);
+  };
+
+  // ── Voltear la cámara (frontal ↔ trasera) ─────────────────────────────────
+  const handleFlip = async () => {
+    const call = rtcCallRef.current;
+    if (!call || !cameraOn) return;
+    try {
+      const s = await call.switchCamera();
+      if (localVideoRef.current) localVideoRef.current.srcObject = s;
+    } catch {
+      if (localVideoRef.current) localVideoRef.current.srcObject = call.localStream;   // sin otra cámara: sigue la de antes
+    }
+    setFacing(call.facingMode);
   };
 
   // ── Invitar contacto a la videollamada en curso ───────────────────────────
@@ -277,7 +313,7 @@ export default function VideoCallPage() {
           position: 'absolute', top: 'max(env(safe-area-inset-top, 16px), 16px)', right: 14, zIndex: 30,
           width: 104, height: 146, objectFit: 'cover', borderRadius: 14,
           border: '2px solid rgba(255,255,255,0.35)', background: '#1f2937',
-          transform: 'scaleX(-1)', boxShadow: '0 4px 18px rgba(0,0,0,0.45)',
+          transform: facing === 'user' ? 'scaleX(-1)' : 'none', boxShadow: '0 4px 18px rgba(0,0,0,0.45)',
           visibility: cameraOn && uiStatus === 'active' ? 'visible' : 'hidden',
         }}
       />
@@ -327,7 +363,7 @@ export default function VideoCallPage() {
               fontSize: 14, color: 'rgba(255,255,255,0.6)', margin: 0,
               animation: 'vcFade 1.4s ease-in-out infinite',
             }}>
-              {isIncoming ? 'Conectando...' : 'Llamando...'}
+              {isIncoming ? tr('Conectando...') : tr('Llamando...')}
             </p>
           </div>
         </div>
@@ -351,7 +387,7 @@ export default function VideoCallPage() {
             <PhoneIcon size={30} />
           </button>
           <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', margin: '8px 0 0' }}>
-            {isIncoming ? 'Colgar' : 'Cancelar llamada'}
+            {isIncoming ? tr('Colgar') : tr('Cancelar llamada')}
           </p>
         </div>
       )}
@@ -382,9 +418,7 @@ export default function VideoCallPage() {
               <circle cx="9" cy="7" r="4"/>
               <line x1="19" y1="8" x2="19" y2="14"/>
               <line x1="22" y1="11" x2="16" y2="11"/>
-            </svg>
-            Añadir participante
-          </button>
+            </svg>{tr('Añadir participante')}</button>
         </div>
       )}
 
@@ -399,13 +433,22 @@ export default function VideoCallPage() {
           zIndex: 200,
           pointerEvents: 'none',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          gap: 28,
+          gap: 18,
         }}>
+          <CallButton
+            active={false}
+            onPress={handleFlip}
+            label={tr('Girar cámara')}
+            disabled={!cameraOn}
+          >
+            <FlipCameraIcon />
+          </CallButton>
+
           <CallButton
             active={!micOn}
             activeColor="rgba(255,255,255,0.35)"
             onPress={handleMicToggle}
-            label={micOn ? 'Silenciar' : 'Activar mic'}
+            label={micOn ? tr('Silenciar') : tr('Activar mic')}
           >
             {micOn ? <MicOnIcon /> : <MicOffIcon />}
           </CallButton>
@@ -428,7 +471,7 @@ export default function VideoCallPage() {
             active={!cameraOn}
             activeColor="rgba(255,255,255,0.35)"
             onPress={handleCameraToggle}
-            label={cameraOn ? 'Apagar cám.' : 'Activar cám.'}
+            label={cameraOn ? tr('Apagar cám.') : tr('Activar cám.')}
           >
             {cameraOn ? <CameraOnIcon /> : <CameraOffIcon />}
           </CallButton>
@@ -456,9 +499,7 @@ export default function VideoCallPage() {
           >
             {/* Cabecera */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px 16px' }}>
-              <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'white' }}>
-                Añadir participante
-              </p>
+              <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'white' }}>{tr('Añadir participante')}</p>
               <button
                 onClick={() => setShowInvite(false)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
@@ -472,9 +513,7 @@ export default function VideoCallPage() {
             {/* Lista de contactos */}
             <div style={{ overflowY: 'auto', flex: 1 }}>
               {inviteContacts.length === 0 ? (
-                <p style={{ color: 'rgba(255,255,255,0.45)', textAlign: 'center', fontSize: 14, margin: '24px 0' }}>
-                  No hay más contactos disponibles
-                </p>
+                <p style={{ color: 'rgba(255,255,255,0.45)', textAlign: 'center', fontSize: 14, margin: '24px 0' }}>{tr('No hay más contactos disponibles')}</p>
               ) : (
                 inviteContacts.map(contact => {
                   const sentState = inviteSent[contact.id];
@@ -520,10 +559,10 @@ export default function VideoCallPage() {
                             : 'white',
                         }}
                       >
-                        {sentState === 'sent'    ? 'Invitado'
+                        {sentState === 'sent'    ? tr('Invitado')
                           : sentState === 'sending' ? '...'
-                          : sentState === 'error'   ? 'Error'
-                          : 'Invitar'}
+                          : sentState === 'error'   ? tr('Error')
+                          : tr('Invitar')}
                       </button>
                     </div>
                   );
@@ -542,21 +581,15 @@ export default function VideoCallPage() {
           display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center', gap: 16,
         }}>
-          <p style={{ color: '#f87171', fontWeight: 700, fontSize: 16, margin: 0 }}>
-            No se pudo conectar
-          </p>
+          <p style={{ color: '#f87171', fontWeight: 700, fontSize: 16, margin: 0 }}>{tr('No se pudo conectar')}</p>
           <button onClick={handleRetry} style={{
             background: '#3D5A80', color: 'white',
             border: 'none', borderRadius: 18,
             padding: '12px 28px', fontWeight: 800, fontSize: 15, cursor: 'pointer',
-          }}>
-            Reintentar
-          </button>
+          }}>{tr('Reintentar')}</button>
           <button onClick={handleCancel} style={{
             color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14,
-          }}>
-            Volver
-          </button>
+          }}>{tr('Volver')}</button>
         </div>
       )}
 
@@ -610,14 +643,17 @@ function RemoteTile({ stream, name, videoOff, showName }) {
   );
 }
 
-function CallButton({ children, active, activeColor, onPress, label }) {
+function CallButton({ children, active, activeColor, onPress, label, disabled }) {
   return (
     <button
       onClick={onPress}
       title={label}
+      aria-label={label}
+      disabled={disabled}
       style={{
         pointerEvents: 'all',
-        width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: 'pointer',
+        width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
         background: active ? activeColor : 'rgba(255,255,255,0.15)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         flexShrink: 0,
@@ -662,6 +698,17 @@ function CameraOnIcon() {
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M23 7l-7 5 7 5V7z"/>
       <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+    </svg>
+  );
+}
+
+function FlipCameraIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 7h-3l-2-3H9L7 7H4a2 2 0 00-2 2v9a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/>
+      <path d="M9 13a3 3 0 015-2.2M15 13a3 3 0 01-5 2.2"/>
+      <polyline points="14 9 14 10.8 12.2 10.8"/>
+      <polyline points="10 17 10 15.2 11.8 15.2"/>
     </svg>
   );
 }

@@ -8,6 +8,7 @@
  */
 import { io } from 'socket.io-client';
 import { useAuthStore } from '../store/authStore';
+import { tr } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 // El servidor RTC vive en el mismo dominio que el backend, bajo /rtc/ (VITE_RTC_URL solo para desarrollo local)
@@ -29,7 +30,8 @@ export async function getRtcToken(userId, { force = false } = {}) {
   const res = await fetch(`${BACKEND}/rtc-token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId }),
+    // deviceId: el servidor solo renueva el token a dispositivos de la cuenta (ver utils/devices.js)
+    body: JSON.stringify({ userId, deviceId: (() => { try { return localStorage.getItem('oldface-device-id'); } catch { return null; } })() }),
   });
   if (!res.ok) throw new Error(`rtc-token ${res.status}`);
   const { token } = await res.json();
@@ -91,7 +93,7 @@ export async function ensureRtcConnected(user, timeoutMs = 8000) {
   if (!socket || currentUserId !== user.id) await connectRtc(user);
   if (socket.connected) return;
   await new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('Sin conexión con el servidor de llamadas')), timeoutMs);
+    const t = setTimeout(() => reject(new Error(tr('Sin conexión con el servidor de llamadas'))), timeoutMs);
     socket.once('connect', () => { clearTimeout(t); resolve(); });
   });
 }
@@ -99,10 +101,10 @@ export async function ensureRtcConnected(user, timeoutMs = 8000) {
 /** Petición con respuesta al servidor RTC (rtc:join, rtc:produce…). Rechaza con el error del servidor. */
 export function rtcRequest(event, data = {}, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
-    if (!socket?.connected) return reject(new Error('Sin conexión con el servidor de llamadas'));
+    if (!socket?.connected) return reject(new Error(tr('Sin conexión con el servidor de llamadas')));
     socket.timeout(timeoutMs).emit(event, data, (err, res) => {
-      if (err) return reject(new Error('El servidor de llamadas no responde'));
-      if (!res?.ok) return reject(new Error(res?.error || 'Error del servidor de llamadas'));
+      if (err) return reject(new Error(tr('El servidor de llamadas no responde')));
+      if (!res?.ok) return reject(new Error(res?.error || tr('Error del servidor de llamadas')));
       resolve(res);
     });
   });

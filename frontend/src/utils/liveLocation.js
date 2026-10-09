@@ -1,3 +1,4 @@
+import { tr } from '../i18n';
 /**
  * Ubicación en tiempo real del chat (como WhatsApp): quien la comparte manda su posición al backend
  * (POST /messages/:chatId/:msgId/live) cada ~15 s o al moverse más de ~25 m, hasta la hora elegida o hasta
@@ -59,8 +60,8 @@ async function watch() {
     if (Capacitor.isNativePlatform()) {
       bgPlugin ||= registerPlugin('BackgroundGeolocation');
       const id = await bgPlugin.addWatcher({
-        backgroundTitle: 'OldFace: compartiendo tu ubicación',
-        backgroundMessage: 'Ubicación en tiempo real en un chat. Para pararla, pulsa "Dejar de compartir" en el chat.',
+        backgroundTitle: tr('OldFace: compartiendo tu ubicación'),
+        backgroundMessage: tr('Ubicación en tiempo real en un chat. Para pararla, pulsa "Dejar de compartir" en el chat.'),
         requestPermissions: true, stale: false, distanceFilter: 10,
       }, (loc, error) => { if (!error && loc) onPosition({ lat: loc.latitude, lng: loc.longitude }); });
       stop = () => bgPlugin.removeWatcher({ id });

@@ -11,6 +11,7 @@ import { taxiApi, setTaxiLanguage, tx, closeTaxiSocket } from '../../utils/taxiA
 import { BRAND, C, Header, Btn, Card, Field, inputStyle, Spinner, Center } from './ui.jsx';
 import CustomerApp from './CustomerApp.jsx';
 import DriverApp from './DriverApp.jsx';
+import { tr } from '../../i18n';
 
 export default function TaxiPage() {
   const navigate = useNavigate();
@@ -40,20 +41,20 @@ export default function TaxiPage() {
 
   if (error) return (
     <Screen>
-      <Header title="Taxi" onBack={exit} />
+      <Header title={tr('Taxi')} onBack={exit} />
       <Center>
         <span style={{ fontSize: 44 }}>🚕</span>
         <p style={{ fontWeight: 700 }}>{error}</p>
-        <div style={{ width: 220 }}><Btn onClick={load}>{tx('Reintentar')}</Btn></div>
+        <div style={{ width: 220 }}><Btn onClick={load}>{tx(tr('Reintentar'))}</Btn></div>
       </Center>
     </Screen>
   );
-  if (!boot) return <Screen><Header title="Taxi" onBack={exit} /><Center><Spinner /></Center></Screen>;
+  if (!boot) return <Screen><Header title={tr('Taxi')} onBack={exit} /><Center><Spinner /></Center></Screen>;
 
   if (boot.settings.app?.maintenance) return (
     <Screen>
-      <Header title={boot.settings.app.name || 'Taxi'} onBack={exit} />
-      <Center><span style={{ fontSize: 44 }}>🛠️</span><p style={{ fontWeight: 700 }}>{tx('Estamos haciendo mejoras. Vuelve a intentarlo en unos minutos.')}</p></Center>
+      <Header title={boot.settings.app.name || tr('Taxi')} onBack={exit} />
+      <Center><span style={{ fontSize: 44 }}>🛠️</span><p style={{ fontWeight: 700 }}>{tx(tr('Estamos haciendo mejoras. Vuelve a intentarlo en unos minutos.'))}</p></Center>
     </Screen>
   );
 
@@ -89,15 +90,15 @@ function RoleChooser({ boot, onDone, onExit }) {
 
   if (!role) return (
     <Screen>
-      <Header title={boot.settings.app?.name || 'OldFace Taxi'} onBack={onExit} />
+      <Header title={boot.settings.app?.name || tr('OldFace Taxi')} onBack={onExit} />
       <div style={{ flex: 1, overflowY: 'auto', padding: '22px 16px calc(var(--sab) + 20px)' }}>
-        <p style={{ fontSize: 22, fontWeight: 900, margin: '0 0 6px' }}>{tx('¿Cómo quieres entrar?')}</p>
-        <p style={{ color: C.muted, margin: '0 0 20px', fontSize: 14 }}>{tx('Elige una opción para empezar a usar el taxi de OldFace.')}</p>
-        <RoleCard icon="🙋" title={tx('Entrar como Cliente')} text={tx('Pide un taxi, sigue al conductor en el mapa y paga en efectivo, con el monedero o con tarjeta.')} onClick={() => setRole('customer')} />
-        <RoleCard icon="🚖" title={tx('Entrar como Conductor')} text={tx('Regístrate con tu vehículo y tus documentos, conéctate y gana dinero haciendo viajes.')} onClick={() => setRole('driver')} />
+        <p style={{ fontSize: 22, fontWeight: 900, margin: '0 0 6px' }}>{tx(tr('¿Cómo quieres entrar?'))}</p>
+        <p style={{ color: C.muted, margin: '0 0 20px', fontSize: 14 }}>{tx(tr('Elige una opción para empezar a usar el taxi de OldFace.'))}</p>
+        <RoleCard icon="🙋" title={tx(tr('Entrar como Cliente'))} text={tx(tr('Pide un taxi, sigue al conductor en el mapa y paga en efectivo, con el monedero o con tarjeta.'))} onClick={() => setRole('customer')} />
+        <RoleCard icon="🚖" title={tx(tr('Entrar como Conductor'))} text={tx(tr('Regístrate con tu vehículo y tus documentos, conéctate y gana dinero haciendo viajes.'))} onClick={() => setRole('driver')} />
         <div style={{ display: 'flex', gap: 10, background: '#fef3c7', color: '#92400e', borderRadius: 14, padding: 12, fontSize: 13, fontWeight: 600, marginTop: 6 }}>
           <span>⚠️</span>
-          <span>{tx('Solo puedes elegir una vez: un cliente no puede ser conductor y un conductor no puede ser cliente.')}</span>
+          <span>{tx(tr('Solo puedes elegir una vez: un cliente no puede ser conductor y un conductor no puede ser cliente.'))}</span>
         </div>
       </div>
     </Screen>
@@ -106,30 +107,30 @@ function RoleChooser({ boot, onDone, onExit }) {
   const isDriver = role === 'driver';
   return (
     <Screen>
-      <Header title={isDriver ? tx('Entrar como Conductor') : tx('Entrar como Cliente')} onBack={() => { setRole(null); setAgree(false); setError(''); }} />
+      <Header title={isDriver ? tx(tr('Entrar como Conductor')) : tx(tr('Entrar como Cliente'))} onBack={() => { setRole(null); setAgree(false); setError(''); }} />
       <div style={{ flex: 1, overflowY: 'auto', padding: '18px 16px calc(var(--sab) + 20px)' }}>
         <Card>
-          <Field label={tx('Nombre')}><input style={inputStyle} value={form.name} onChange={set('name')} maxLength={80} /></Field>
-          <Field label={tx('Teléfono')}><input style={inputStyle} value={form.phone} onChange={set('phone')} inputMode="tel" maxLength={30} /></Field>
-          <Field label={tx('País')}>
+          <Field label={tx(tr('Nombre'))}><input style={inputStyle} value={form.name} onChange={set('name')} maxLength={80} /></Field>
+          <Field label={tx(tr('Teléfono'))}><input style={inputStyle} value={form.phone} onChange={set('phone')} inputMode="tel" maxLength={30} /></Field>
+          <Field label={tx(tr('País'))}>
             <select style={inputStyle} value={form.countryId} onChange={set('countryId')}>
               {boot.countries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </Field>
-          <Field label={tx('Código de invitación (opcional)')}><input style={{ ...inputStyle, textTransform: 'uppercase' }} value={form.referralCode} onChange={set('referralCode')} maxLength={20} /></Field>
+          <Field label={tx(tr('Código de invitación (opcional)'))}><input style={{ ...inputStyle, textTransform: 'uppercase' }} value={form.referralCode} onChange={set('referralCode')} maxLength={20} /></Field>
         </Card>
         {isDriver && (
           <p style={{ fontSize: 13, color: C.muted, margin: '12px 4px 0' }}>
-            {tx('Después tendrás que añadir tu vehículo y subir tus documentos. Podrás conectarte cuando el equipo los apruebe.')}
+            {tx(tr('Después tendrás que añadir tu vehículo y subir tus documentos. Podrás conectarte cuando el equipo los apruebe.'))}
           </p>
         )}
         <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', margin: '16px 4px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
           <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} style={{ width: 20, height: 20, accentColor: BRAND, flexShrink: 0 }} />
-          <span>{isDriver ? tx('Entiendo que mi cuenta será de conductor y no podré pedir viajes como cliente.')
-                          : tx('Entiendo que mi cuenta será de cliente y no podré ser conductor.')}</span>
+          <span>{isDriver ? tx(tr('Entiendo que mi cuenta será de conductor y no podré pedir viajes como cliente.'))
+                          : tx(tr('Entiendo que mi cuenta será de cliente y no podré ser conductor.'))}</span>
         </label>
         {error && <p style={{ color: C.danger, fontWeight: 700, fontSize: 14, margin: '0 4px 12px' }}>{error}</p>}
-        <Btn onClick={submit} disabled={!agree || busy || !form.name.trim()}>{busy ? tx('Un momento…') : isDriver ? tx('Empezar como Conductor') : tx('Empezar como Cliente')}</Btn>
+        <Btn onClick={submit} disabled={!agree || busy || !form.name.trim()}>{busy ? tx(tr('Un momento…')) : isDriver ? tx(tr('Empezar como Conductor')) : tx(tr('Empezar como Cliente'))}</Btn>
       </div>
     </Screen>
   );

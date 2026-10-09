@@ -14,6 +14,7 @@ import { KaraokeEngine } from '../utils/karaokeEngine';
 import { parseLrc } from '../utils/lrc';
 import LyricsView, { KARAOKE_ACCENT } from '../components/LyricsView';
 import { absUrl, SongRow } from './KaraokePage';
+import { tr } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const RED = '#ef4444';
@@ -112,7 +113,7 @@ export default function KaraokeRoomPage() {
       setStatus('live');
       rafRef.current = requestAnimationFrame(tick);
     } catch (e) {
-      setError(e.message || 'No se pudo entrar en la sala');
+      setError(e.message || tr('No se pudo entrar en la sala'));
       setStatus(/no existe/.test(e.message || '') ? 'closed' : 'error');
     }
   };
@@ -131,7 +132,7 @@ export default function KaraokeRoomPage() {
       onRtc('karaoke:chat', (p) => { if (mine(p)) setChat(c => [...c.slice(-99), p.msg]); }),
       onRtc('karaoke:like', (p) => { if (mine(p)) { setLikes(p.likes); if (p.from !== user?.id) spawnHeart(); } }),
       onRtc('karaoke:listeners', (p) => { if (mine(p)) setListeners(p.listeners); }),
-      onRtc('karaoke:yourTurn', (p) => { if (mine(p)) showToast('🎤 ¡Te toca cantar!'); }),
+      onRtc('karaoke:yourTurn', (p) => { if (mine(p)) showToast(tr('🎤 ¡Te toca cantar!')); }),
       onRtc('karaoke:songEnded', (p) => { if (mine(p) && engineRef.current) stopSinging(false); }),
       onRtc('karaoke:closed', (p) => { if (mine(p)) { cleanup(); setStatus('closed'); } }),
     ];
@@ -224,7 +225,7 @@ export default function KaraokeRoomPage() {
       engineRef.current?.destroy();
       engineRef.current = null;
       setLocalPreview(null);
-      showToast(e?.name === 'NotAllowedError' ? 'Necesitamos permiso para el micrófono y la cámara' : (e.message || 'No se pudo empezar'));
+      showToast(e?.name === 'NotAllowedError' ? tr('Necesitamos permiso para el micrófono y la cámara') : (e.message || tr('No se pudo empezar')));
     }
   };
 
@@ -248,7 +249,7 @@ export default function KaraokeRoomPage() {
   const toggleMonitor = () => {
     const e = engineRef.current;
     if (!e) return;
-    if (!e.headphones && !monitorOn) { showToast('🎧 Oír tu voz solo funciona con auriculares'); return; }
+    if (!e.headphones && !monitorOn) { showToast(tr('🎧 Oír tu voz solo funciona con auriculares')); return; }
     e.setMonitor(monitorOn ? 0 : 70);
     setMonitorOn(!monitorOn);
   };
@@ -258,7 +259,7 @@ export default function KaraokeRoomPage() {
     try {
       await rtcRequest('karaoke:queue', { roomId, song });
       setSheet(null);
-      showToast(`"${song.title}" añadida a la cola`);
+      showToast(tr('"{title}" añadida a la cola', { title: song.title }));
     } catch (e) { showToast(e.message); }
   };
   const unqueue = (entryId) => rtcRequest('karaoke:unqueue', { roomId, entryId }).catch(e => showToast(e.message));
@@ -291,10 +292,10 @@ export default function KaraokeRoomPage() {
       <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: BG, color: 'white', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 30, textAlign: 'center' }}>
         <div style={{ fontSize: 50 }}>{status === 'loading' ? '🎤' : status === 'closed' ? '🌙' : '⚠️'}</div>
         <p style={{ fontSize: 18, fontWeight: 900, margin: 0 }}>
-          {status === 'loading' ? 'Entrando en la sala…' : status === 'closed' ? 'Esta sala de karaoke se ha cerrado' : 'No se pudo entrar en la sala'}
+          {status === 'loading' ? tr('Entrando en la sala…') : status === 'closed' ? tr('Esta sala de karaoke se ha cerrado') : tr('No se pudo entrar en la sala')}
         </p>
         {status === 'error' && <p style={{ opacity: 0.7, fontSize: 13, margin: 0 }}>{error}</p>}
-        {status !== 'loading' && <button onClick={() => navigate('/karaoke?tab=salas', { replace: true })} style={pillBtn('rgba(255,255,255,0.15)')}>Ver otras salas</button>}
+        {status !== 'loading' && <button onClick={() => navigate('/karaoke?tab=salas', { replace: true })} style={pillBtn('rgba(255,255,255,0.15)')}>{tr('Ver otras salas')}</button>}
       </div>
     );
   }
@@ -321,10 +322,10 @@ export default function KaraokeRoomPage() {
           <div style={{ width: 38, height: 38, borderRadius: '50%', background: RED, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, flexShrink: 0 }}>{room?.hostName?.[0]?.toUpperCase()}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: 0, fontSize: 15, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{room?.title}</p>
-            <p style={{ margin: 0, fontSize: 11, opacity: 0.75 }}>Anfitrión: {isHost ? 'tú' : room?.hostName} · 👂 {listeners} · ❤ {likes}</p>
+            <p style={{ margin: 0, fontSize: 11, opacity: 0.75 }}>{tr('Anfitrión:')}{' '}{isHost ? tr('tú') : room?.hostName} · 👂 {listeners} · ❤ {likes}</p>
           </div>
-          {isHost && <button onClick={closeRoom} style={pillBtn('rgba(239,68,68,0.85)')}>Cerrar sala</button>}
-          <button onClick={leave} aria-label="Salir" style={{ ...pillBtn('rgba(255,255,255,0.15)'), width: 36, height: 36, padding: 0, borderRadius: '50%' }}>✕</button>
+          {isHost && <button onClick={closeRoom} style={pillBtn('rgba(239,68,68,0.85)')}>{tr('Cerrar sala')}</button>}
+          <button onClick={leave} aria-label={tr('Salir')} style={{ ...pillBtn('rgba(255,255,255,0.15)'), width: 36, height: 36, padding: 0, borderRadius: '50%' }}>✕</button>
         </div>
       </div>
 
@@ -338,23 +339,23 @@ export default function KaraokeRoomPage() {
             </div>
           </div>}
           <p style={{ margin: bgStream ? '2px 0 0' : '10px 0 0', fontSize: 15, fontWeight: 900 }}>
-            {current ? (singerIsMe ? 'Estás cantando' : `${current.name} está cantando`) : 'Nadie está cantando'}
+            {current ? (singerIsMe ? tr('Estás cantando') : tr('{name} está cantando', { name: current.name })) : tr('Nadie está cantando')}
           </p>
           <p style={{ margin: '2px 0 0', fontSize: 12, opacity: 0.75 }}>
-            {current ? `♫ ${current.song.title}${current.song.artist ? ' - ' + current.song.artist : ''}` : queue.length ? `Siguiente: ${queue[0].name}` : '¡Elige una canción y canta!'}
+            {current ? `♫ ${current.song.title}${current.song.artist ? ' - ' + current.song.artist : ''}` : queue.length ? tr('Siguiente: {name}', { name: queue[0].name }) : tr('¡Elige una canción y canta!')}
           </p>
           {current && (isHost || singerIsMe) && (
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               {singerIsMe && singing && (
                 <>
-                  <button onClick={toggleMonitor} style={pillBtn(monitorOn ? KARAOKE_ACCENT : 'rgba(0,0,0,0.35)')}>🎧 Mi voz {monitorOn ? 'ON' : 'OFF'}</button>
+                  <button onClick={toggleMonitor} style={pillBtn(monitorOn ? KARAOKE_ACCENT : 'rgba(0,0,0,0.35)')}>{tr('🎧 Mi voz')}{' '}{monitorOn ? 'ON' : 'OFF'}</button>
                   {engineRef.current?.hasVideo && (
-                    <button onClick={toggleCamera} style={pillBtn(camOn ? 'rgba(0,0,0,0.35)' : 'rgba(239,68,68,0.85)')}>📷 {camOn ? 'Cámara' : 'Sin cámara'}</button>
+                    <button onClick={toggleCamera} style={pillBtn(camOn ? 'rgba(0,0,0,0.35)' : 'rgba(239,68,68,0.85)')}>📷 {camOn ? tr('Cámara') : tr('Sin cámara')}</button>
                   )}
                 </>
               )}
               <button onClick={singerIsMe ? () => stopSinging(true) : skip} style={pillBtn('rgba(0,0,0,0.35)')}>
-                {singerIsMe ? 'Terminar' : 'Saltar canción'}
+                {singerIsMe ? tr('Terminar') : tr('Saltar canción')}
               </button>
             </div>
           )}
@@ -370,7 +371,7 @@ export default function KaraokeRoomPage() {
       <div style={{ position: 'absolute', left: 12, right: 70, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 70px)', maxHeight: '22vh', overflowY: 'auto', pointerEvents: 'none', WebkitMaskImage: 'linear-gradient(transparent, black 30%)', maskImage: 'linear-gradient(transparent, black 30%)' }}>
         {chat.slice(-12).map(m => (
           <div key={m.id} style={{ fontSize: 13, margin: '0 0 4px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-            <b style={{ color: m.userId === room?.hostId ? '#fca5a5' : '#c7d2fe', marginRight: 6 }}>{m.userId === user?.id ? 'Tú' : m.name}</b>{m.text}
+            <b style={{ color: m.userId === room?.hostId ? '#fca5a5' : '#c7d2fe', marginRight: 6 }}>{m.userId === user?.id ? tr('Tú') : m.name}</b>{m.text}
           </div>
         ))}
       </div>
@@ -385,52 +386,52 @@ export default function KaraokeRoomPage() {
         <div style={{ position: 'absolute', left: 14, right: 14, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 74px)', zIndex: 6, background: `linear-gradient(135deg, #4E7D96, ${KARAOKE_ACCENT})`, borderRadius: 18, padding: 14, display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.4)' }}>
           <span style={{ fontSize: 30 }}>🎤</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ margin: 0, fontWeight: 900 }}>¡Te toca!</p>
+            <p style={{ margin: 0, fontWeight: 900 }}>{tr('¡Te toca!')}</p>
             <p style={{ margin: 0, fontSize: 12, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{queue[0].song.title}</p>
           </div>
-          <button onClick={() => setAskHeadphones(true)} style={pillBtn('white', '#1e1b4b')}>Empezar</button>
-          <button onClick={() => unqueue(queue[0].id)} style={pillBtn('rgba(0,0,0,0.25)')}>Pasar</button>
+          <button onClick={() => setAskHeadphones(true)} style={pillBtn('white', '#1e1b4b')}>{tr('Empezar')}</button>
+          <button onClick={() => unqueue(queue[0].id)} style={pillBtn('rgba(0,0,0,0.25)')}>{tr('Pasar')}</button>
         </div>
       )}
 
       {/* Barra inferior */}
       <form onSubmit={sendChat} style={{ position: 'relative', zIndex: 5, display: 'flex', gap: 8, alignItems: 'center', padding: '8px 12px calc(env(safe-area-inset-bottom, 0px) + 12px)', flexShrink: 0 }}>
-        <input value={text} onChange={e => setText(e.target.value)} maxLength={200} placeholder="Di algo…"
+        <input value={text} onChange={e => setText(e.target.value)} maxLength={200} placeholder={tr('Di algo…')}
           style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.13)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', borderRadius: 22, padding: '10px 14px', fontSize: 14, outline: 'none' }} />
         {text.trim()
-          ? <button type="submit" style={pillBtn(KARAOKE_ACCENT)}>Enviar</button>
+          ? <button type="submit" style={pillBtn(KARAOKE_ACCENT)}>{tr('Enviar')}</button>
           : <>
-              <button type="button" onClick={like} aria-label="Me gusta" style={{ ...pillBtn('rgba(255,255,255,0.13)'), fontSize: 18, padding: '7px 12px', color: KARAOKE_ACCENT }}>❤</button>
-              <button type="button" onClick={() => setSheet('queue')} style={pillBtn('rgba(255,255,255,0.13)')}>Cola ({queue.length})</button>
+              <button type="button" onClick={like} aria-label={tr('Me gusta')} style={{ ...pillBtn('rgba(255,255,255,0.13)'), fontSize: 18, padding: '7px 12px', color: KARAOKE_ACCENT }}>❤</button>
+              <button type="button" onClick={() => setSheet('queue')} style={pillBtn('rgba(255,255,255,0.13)')}>{tr('Cola (')}{queue.length})</button>
               <button type="button" onClick={() => setSheet('songs')} disabled={myCount >= 2}
-                style={{ ...pillBtn(`linear-gradient(135deg, #4E7D96, ${KARAOKE_ACCENT})`), opacity: myCount >= 2 ? 0.5 : 1 }}>🎵 Elegir</button>
+                style={{ ...pillBtn(`linear-gradient(135deg, #4E7D96, ${KARAOKE_ACCENT})`), opacity: myCount >= 2 ? 0.5 : 1 }}>{tr('🎵 Elegir')}</button>
             </>}
       </form>
 
       {/* Hoja: elegir canción */}
       {sheet === 'songs' && (
-        <Sheet title="Elige una canción" onClose={() => setSheet(null)}>
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar…" style={{ width: '100%', padding: '10px 14px', borderRadius: 14, border: 'none', marginBottom: 10, fontSize: 14, boxSizing: 'border-box' }} />
-          {filtered.length === 0 && <p style={{ opacity: 0.7, fontSize: 13 }}>{songs.length ? 'Sin resultados' : 'El catálogo está vacío'}</p>}
+        <Sheet title={tr('Elige una canción')} onClose={() => setSheet(null)}>
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder={tr('Buscar…')} style={{ width: '100%', padding: '10px 14px', borderRadius: 14, border: 'none', marginBottom: 10, fontSize: 14, boxSizing: 'border-box' }} />
+          {filtered.length === 0 && <p style={{ opacity: 0.7, fontSize: 13 }}>{songs.length ? tr('Sin resultados') : tr('El catálogo está vacío')}</p>}
           <div style={{ borderRadius: 14, overflow: 'hidden' }}>
-            {filtered.map(s => <SongRow key={s.id} song={s} cta="Añadir" onSing={() => addSong(s)} />)}
+            {filtered.map(s => <SongRow key={s.id} song={s} cta={tr('Añadir')} onSing={() => addSong(s)} />)}
           </div>
         </Sheet>
       )}
 
       {/* Hoja: cola */}
       {sheet === 'queue' && (
-        <Sheet title={`Cola de canciones (${queue.length})`} onClose={() => setSheet(null)}>
-          {queue.length === 0 && <p style={{ opacity: 0.7, fontSize: 13 }}>La cola está vacía. ¡Pulsa 🎵 Elegir para cantar!</p>}
+        <Sheet title={tr('Cola de canciones ({length})', { length: queue.length })} onClose={() => setSheet(null)}>
+          {queue.length === 0 && <p style={{ opacity: 0.7, fontSize: 13 }}>{tr('La cola está vacía. ¡Pulsa 🎵 Elegir para cantar!')}</p>}
           {queue.map((e, i) => (
             <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
               <span style={{ width: 26, textAlign: 'center', fontWeight: 900, color: current?.id === e.id ? KARAOKE_ACCENT : 'rgba(255,255,255,0.6)' }}>{current?.id === e.id ? '🎤' : i + 1}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ margin: 0, fontWeight: 800, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.song.title}</p>
-                <p style={{ margin: 0, fontSize: 12, opacity: 0.7 }}>{e.userId === user?.id ? 'Tú' : e.name}</p>
+                <p style={{ margin: 0, fontSize: 12, opacity: 0.7 }}>{e.userId === user?.id ? tr('Tú') : e.name}</p>
               </div>
               {(e.userId === user?.id || isHost) && current?.id !== e.id && (
-                <button onClick={() => unqueue(e.id)} style={pillBtn('rgba(239,68,68,0.8)')}>Quitar</button>
+                <button onClick={() => unqueue(e.id)} style={pillBtn('rgba(239,68,68,0.8)')}>{tr('Quitar')}</button>
               )}
             </div>
           ))}
@@ -442,19 +443,17 @@ export default function KaraokeRoomPage() {
         <div style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(5,8,25,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div style={{ width: '100%', maxWidth: 360, background: 'linear-gradient(160deg, #3D5A80, #4E7D96)', borderRadius: 22, padding: '24px 20px', textAlign: 'center' }}>
             <div style={{ fontSize: 44 }}>🎧</div>
-            <p style={{ margin: '6px 0', fontSize: 18, fontWeight: 900 }}>Se recomienda usar auriculares</p>
-            <p style={{ margin: '0 0 16px', fontSize: 13, opacity: 0.85, lineHeight: 1.5 }}>Así te oirás cantando y el público te oirá con la música limpia y sin eco. Se activará tu cámara para que te vean en directo.</p>
-            <button onClick={() => startSinging(true)} style={{ ...bigBtn, marginBottom: 10 }}>Tengo auriculares</button>
-            <button onClick={() => startSinging(false)} style={{ ...bigBtn, background: 'rgba(255,255,255,0.15)' }}>Cantar sin auriculares</button>
+            <p style={{ margin: '6px 0', fontSize: 18, fontWeight: 900 }}>{tr('Se recomienda usar auriculares')}</p>
+            <p style={{ margin: '0 0 16px', fontSize: 13, opacity: 0.85, lineHeight: 1.5 }}>{tr('Así te oirás cantando y el público te oirá con la música limpia y sin eco. Se activará tu cámara para que te vean en directo.')}</p>
+            <button onClick={() => startSinging(true)} style={{ ...bigBtn, marginBottom: 10 }}>{tr('Tengo auriculares')}</button>
+            <button onClick={() => startSinging(false)} style={{ ...bigBtn, background: 'rgba(255,255,255,0.15)' }}>{tr('Cantar sin auriculares')}</button>
           </div>
         </div>
       )}
 
       {needsTap && (
         <button onClick={() => { audioBoxRef.current?.querySelectorAll('audio').forEach(a => a.play().catch(() => {})); setNeedsTap(false); }}
-          style={{ position: 'absolute', top: '45%', left: '50%', transform: 'translateX(-50%)', zIndex: 15, ...pillBtn('white', '#111'), padding: '12px 20px', fontSize: 14 }}>
-          🔊 Toca para escuchar
-        </button>
+          style={{ position: 'absolute', top: '45%', left: '50%', transform: 'translateX(-50%)', zIndex: 15, ...pillBtn('white', '#111'), padding: '12px 20px', fontSize: 14 }}>{tr('🔊 Toca para escuchar')}</button>
       )}
 
       {toast && <div style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top, 12px), 12px) + 58px)', left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: 'rgba(17,24,39,0.92)', padding: '10px 16px', borderRadius: 20, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>{toast}</div>}

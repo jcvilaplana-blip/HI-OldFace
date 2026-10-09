@@ -8,6 +8,7 @@
  * Cada frase recibe su nota al terminar ("¡Perfecto!", "¡Genial!"…) y al final la media + letra (S/A/B/C/D).
  */
 import { isMyLine, lineIndexAt } from './lrc';
+import { tr } from '../i18n';
 
 /**
  * Frecuencia fundamental de la voz (Hz) con el algoritmo YIN, o 0 si no hay voz clara.
@@ -53,11 +54,11 @@ export function centsOff(hz) {
 }
 
 export function lineLabel(score) {
-  if (score >= 85) return { text: '¡Perfecto!', color: '#facc15' };
-  if (score >= 70) return { text: '¡Genial!',   color: '#4ade80' };
-  if (score >= 50) return { text: '¡Bien!',     color: '#60a5fa' };
-  if (score >= 20) return { text: 'Sigue así',  color: '#c4b5fd' };
-  return { text: '¡Canta!', color: '#fca5a5' };
+  if (score >= 85) return { text: tr('¡Perfecto!'), color: '#facc15' };
+  if (score >= 70) return { text: tr('¡Genial!'),   color: '#4ade80' };
+  if (score >= 50) return { text: tr('¡Bien!'),     color: '#60a5fa' };
+  if (score >= 20) return { text: tr('Sigue así'),  color: '#c4b5fd' };
+  return { text: tr('¡Canta!'), color: '#fca5a5' };
 }
 
 export function grade(score) {

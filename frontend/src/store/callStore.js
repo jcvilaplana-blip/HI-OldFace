@@ -12,6 +12,7 @@ import { create } from 'zustand';
 import { playMessageSound } from '../utils/sounds.js';
 import { connectRtc, ensureRtcConnected, sendSignal, isRtcConnected } from '../utils/rtcClient.js';
 import { groupIdFromRoom, startGroupCallApi } from '../utils/groupsApi.js';
+import { tr } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -210,7 +211,7 @@ export const useCallStore = create((set, get) => ({
   // ── Iniciar llamada saliente ──────────────────────────────────────────────
   sendVideoCall: async (calleeId, calleeName) => {
     if (!(await get()._ensureConnected())) {
-      get().setCallError('Sin conexión — espera un momento e inténtalo de nuevo');
+      get().setCallError(tr('Sin conexión — espera un momento e inténtalo de nuevo'));
       return;
     }
     const roomId = `room_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -220,7 +221,7 @@ export const useCallStore = create((set, get) => ({
 
   sendVoiceCall: async (calleeId, calleeName) => {
     if (!(await get()._ensureConnected())) {
-      get().setCallError('Sin conexión — espera un momento e inténtalo de nuevo');
+      get().setCallError(tr('Sin conexión — espera un momento e inténtalo de nuevo'));
       return;
     }
     notifyCall(calleeId, 'voice', '');
@@ -232,7 +233,7 @@ export const useCallStore = create((set, get) => ({
   /** Llamada de grupo: la crea (o se une a la que ya está en curso) y AppShell abre GroupCallPage */
   startGroupCall: async (groupId, groupName, callType = 'voice') => {
     if (!(await get()._ensureConnected())) {
-      get().setCallError('Sin conexión — espera un momento e inténtalo de nuevo');
+      get().setCallError(tr('Sin conexión — espera un momento e inténtalo de nuevo'));
       return;
     }
     try {
@@ -241,7 +242,7 @@ export const useCallStore = create((set, get) => ({
       const r = await startGroupCallApi(groupId, user.id, callType);
       set({ pendingCallOut: { groupId, groupName: r.groupName || groupName, callType: r.callType, roomId: r.roomId, joined: r.joined } });
     } catch (err) {
-      get().setCallError(err.message || 'No se pudo iniciar la llamada');
+      get().setCallError(err.message || tr('No se pudo iniciar la llamada'));
     }
   },
 

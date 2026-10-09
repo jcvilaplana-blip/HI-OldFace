@@ -7,17 +7,18 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { tr, LOCALE } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const BRAND   = '#3D5A80';
 
-const SEX_LABELS = { male: 'Hombre', female: 'Mujer', other: 'Otro', prefer_not_say: 'Prefiero no decirlo' };
+const SEX_LABELS = { male: 'Hombre', female: 'Mujer', other: 'Otro', prefer_not_say: tr('Prefiero no decirlo') };
 const AGE_ORDER  = ['< 18', '18-24', '25-34', '35-44', '45-54', '55+'];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmtDate(ts) {
   if (!ts) return '';
-  return new Date(ts).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+  return new Date(ts).toLocaleDateString(LOCALE, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function timeLeft(endsAt) {
@@ -25,9 +26,9 @@ function timeLeft(endsAt) {
   const ms = endsAt - Date.now();
   if (ms <= 0) return null;
   const h = Math.floor(ms / 3_600_000);
-  if (h >= 48) return `Quedan ${Math.floor(h / 24)} días`;
-  if (h >= 1)  return `Quedan ${h} h`;
-  return `Quedan ${Math.max(1, Math.floor(ms / 60_000))} min`;
+  if (h >= 48) return tr('Quedan {p0} días', { p0: Math.floor(h / 24) });
+  if (h >= 1)  return tr('Quedan {h} h', { h });
+  return tr('Quedan {p0} min', { p0: Math.max(1, Math.floor(ms / 60_000)) });
 }
 
 function videoEmbedUrl(url) {
@@ -45,7 +46,7 @@ async function api(path, opts) {
     headers: { 'Content-Type': 'application/json', ...(opts?.headers || {}) },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) { const e = new Error(data.error || 'Error de conexión'); e.data = data; throw e; }
+  if (!res.ok) { const e = new Error(data.error || tr('Error de conexión')); e.data = data; throw e; }
   return data;
 }
 
@@ -60,7 +61,7 @@ function Header({ title, subtitle, onBack, children }) {
   return (
     <div style={{ background: BRAND, color: 'white', flexShrink: 0, paddingTop: 'var(--sat)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px 12px' }}>
-        <button onClick={onBack} aria-label="Volver" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+        <button onClick={onBack} aria-label={tr('Volver')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M15 19l-7-7 7-7"/>
           </svg>
@@ -116,9 +117,9 @@ function PollList() {
 
   return (
     <div className="bg-gray-50" style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
-      <Header title="POLL" subtitle="Tu voz importa. Participa en encuestas." onBack={() => navigate(-1)}>
+      <Header title="POLL" subtitle={tr('Tu voz importa. Participa en encuestas.')} onBack={() => navigate(-1)}>
         <div style={{ display: 'flex', padding: '0 14px' }}>
-          {[['polls', 'Encuestas'], ['history', 'Mis votos']].map(([id, label]) => (
+          {[['polls', tr('Encuestas')], ['history', tr('Mis votos')]].map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)} style={{
               flex: 1, background: 'none', border: 'none', cursor: 'pointer', color: 'white',
               padding: '10px 0', fontSize: 14, fontWeight: tab === id ? 800 : 500,
@@ -138,7 +139,7 @@ function PollList() {
           <>
             {categories.length > 0 && (
               <div className="scroll-hide" style={{ display: 'flex', gap: 8, overflowX: 'auto', marginBottom: 14, paddingBottom: 2 }}>
-                <Chip active={!catFilter} onClick={() => setCatFilter(null)}>Todas</Chip>
+                <Chip active={!catFilter} onClick={() => setCatFilter(null)}>{tr('Todas')}</Chip>
                 {categories.map(c => (
                   <Chip key={c.id} active={catFilter === c.id} onClick={() => setCatFilter(c.id)}>
                     {c.icon ? `${c.icon} ` : ''}{c.name}
@@ -149,13 +150,13 @@ function PollList() {
 
             {current && <CurrentPollCard poll={current} onOpen={() => open(current)} />}
 
-            <Section title="En curso" count={active.length} />
-            {active.length === 0 && !current && <Empty text="No hay encuestas activas ahora mismo." />}
-            {active.length === 0 && current && <Empty text="No hay más encuestas en curso." />}
+            <Section title={tr('En curso')} count={active.length} />
+            {active.length === 0 && !current && <Empty text={tr('No hay encuestas activas ahora mismo.')} />}
+            {active.length === 0 && current && <Empty text={tr('No hay más encuestas en curso.')} />}
             {active.map(p => <PollRow key={p.id} poll={p} onOpen={() => open(p)} />)}
 
-            <Section title="Finalizadas" count={finished.length} />
-            {finished.length === 0 && <Empty text="Todavía no hay encuestas finalizadas." />}
+            <Section title={tr('Finalizadas')} count={finished.length} />
+            {finished.length === 0 && <Empty text={tr('Todavía no hay encuestas finalizadas.')} />}
             {finished.map(p => <PollRow key={p.id} poll={p} onOpen={() => open(p)} />)}
           </>
         )}
@@ -163,7 +164,7 @@ function PollList() {
         {tab === 'history' && (
           history === null ? <Spinner /> :
           history.length === 0
-            ? <Empty text="Aún no has votado en ninguna encuesta." />
+            ? <Empty text={tr('Aún no has votado en ninguna encuesta.')} />
             : history.map(p => <PollRow key={p.id} poll={p} onOpen={() => open(p)} />)
         )}
       </div>
@@ -180,9 +181,7 @@ function CurrentPollCard({ poll, onOpen }) {
       borderRadius: 20, padding: 18, marginBottom: 18, boxShadow: '0 8px 24px rgba(61,90,128,0.3)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ background: '#ef4444', fontSize: 10, fontWeight: 900, padding: '3px 8px', borderRadius: 20, letterSpacing: 0.6 }}>
-          ● ENCUESTA ACTUAL
-        </span>
+        <span style={{ background: '#ef4444', fontSize: 10, fontWeight: 900, padding: '3px 8px', borderRadius: 20, letterSpacing: 0.6 }}>{tr('● ENCUESTA ACTUAL')}</span>
         {poll.category && <span style={{ fontSize: 11, opacity: 0.8 }}>{poll.category.icon} {poll.category.name}</span>}
       </div>
       <p style={{ fontSize: 19, fontWeight: 900, margin: '0 0 6px', lineHeight: 1.25 }}>{poll.title}</p>
@@ -201,7 +200,7 @@ function CurrentPollCard({ poll, onOpen }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, fontSize: 12 }}>
         <span style={{ opacity: 0.8 }}>{poll.totalVotes} {poll.totalVotes === 1 ? 'voto' : 'votos'}{left ? ` · ${left}` : ''}</span>
         <span style={{ background: 'white', color: BRAND, fontWeight: 900, padding: '7px 14px', borderRadius: 20 }}>
-          {poll.myVote ? 'Ver resultados' : 'Votar ahora →'}
+          {poll.myVote ? tr('Ver resultados') : tr('Votar ahora →')}
         </span>
       </div>
     </button>
@@ -234,9 +233,9 @@ function PollRow({ poll, onOpen }) {
         </p>
       </div>
       {poll.myVote
-        ? <Badge color="#16a34a" bg="#dcfce7">Votado</Badge>
-        : closed ? <Badge color="#64748b" bg="#f1f5f9">Cerrada</Badge>
-        : <Badge color={BRAND} bg="#D5E6F0">Votar</Badge>}
+        ? <Badge color="#16a34a" bg="#dcfce7">{tr('Votado')}</Badge>
+        : closed ? <Badge color="#64748b" bg="#f1f5f9">{tr('Cerrada')}</Badge>
+        : <Badge color={BRAND} bg="#D5E6F0">{tr('Votar')}</Badge>}
     </button>
   );
 }
@@ -282,7 +281,7 @@ function PollDetail({ pollId }) {
 
   return (
     <div className="bg-gray-50" style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
-      <Header title="POLL" subtitle={poll?.category ? `${poll.category.icon || ''} ${poll.category.name}` : 'Encuesta'} onBack={() => navigate(-1)} />
+      <Header title="POLL" subtitle={poll?.category ? `${poll.category.icon || ''} ${poll.category.name}` : tr('Encuesta')} onBack={() => navigate(-1)} />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px calc(var(--sab) + 24px)' }}>
         {error && <ErrorBox msg={error} onRetry={load} />}
@@ -303,20 +302,20 @@ function PollDetail({ pollId }) {
               {embed && (
                 <div style={{ position: 'relative', paddingTop: '56.25%', marginTop: 14, borderRadius: 12, overflow: 'hidden', background: '#000' }}>
                   <iframe
-                    src={embed} title="Vídeo de la encuesta" allowFullScreen
+                    src={embed} title={tr('Vídeo de la encuesta')} allowFullScreen
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 }}
                   />
                 </div>
               )}
 
-              {poll.status === 'closed' && <Notice color="#64748b" bg="#f1f5f9">Esta encuesta está cerrada y ya no acepta votos.</Notice>}
-              {poll.myVote && <Notice color="#15803d" bg="#dcfce7">¡Gracias por participar! Tu voto ha sido registrado.</Notice>}
+              {poll.status === 'closed' && <Notice color="#64748b" bg="#f1f5f9">{tr('Esta encuesta está cerrada y ya no acepta votos.')}</Notice>}
+              {poll.myVote && <Notice color="#15803d" bg="#dcfce7">{tr('¡Gracias por participar! Tu voto ha sido registrado.')}</Notice>}
             </Card>
 
             {canVote && (
               <Card>
-                <p className="text-gray-800" style={{ fontSize: 15, fontWeight: 800, margin: '0 0 12px' }}>Participa con tu voto</p>
+                <p className="text-gray-800" style={{ fontSize: 15, fontWeight: 800, margin: '0 0 12px' }}>{tr('Participa con tu voto')}</p>
                 {poll.options.map(o => {
                   const on = selected === o.id;
                   return (
@@ -342,17 +341,15 @@ function PollDetail({ pollId }) {
                   background: selected ? BRAND : '#cbd5e1', color: 'white', fontSize: 15, fontWeight: 900,
                   cursor: selected && !voting ? 'pointer' : 'default',
                 }}>
-                  {voting ? 'Enviando…' : 'Votar'}
+                  {voting ? tr('Enviando…') : tr('Votar')}
                 </button>
-                <p className="text-gray-500" style={{ fontSize: 11, textAlign: 'center', margin: '8px 0 0' }}>
-                  Solo se permite un voto por persona. No se puede cambiar.
-                </p>
+                <p className="text-gray-500" style={{ fontSize: 11, textAlign: 'center', margin: '8px 0 0' }}>{tr('Solo se permite un voto por persona. No se puede cambiar.')}</p>
               </Card>
             )}
 
             <Card>
               <p className="text-gray-800" style={{ fontSize: 15, fontWeight: 800, margin: '0 0 12px' }}>
-                {poll.status === 'closed' ? 'Resultados finales' : 'Resultados actuales'}
+                {poll.status === 'closed' ? tr('Resultados finales') : tr('Resultados actuales')}
               </p>
               <Results poll={poll} />
             </Card>
@@ -400,11 +397,11 @@ function Demographics({ data }) {
   const nat = useMemo(() => Object.entries(data.nationality).sort((a, b) => b[1] - a[1]).slice(0, 6), [data]);
   return (
     <Card>
-      <p className="text-gray-800" style={{ fontSize: 15, fontWeight: 800, margin: '0 0 2px' }}>¿Quién ha votado?</p>
-      <p className="text-gray-500" style={{ fontSize: 12, margin: '0 0 14px' }}>Datos anónimos de {data.totalVoters} {data.totalVoters === 1 ? 'participante' : 'participantes'}</p>
-      <BarGroup title="Sexo" rows={sex} total={data.totalVoters} />
-      <BarGroup title="Edad" rows={age} total={data.totalVoters} />
-      <BarGroup title="Nacionalidad" rows={nat} total={data.totalVoters} />
+      <p className="text-gray-800" style={{ fontSize: 15, fontWeight: 800, margin: '0 0 2px' }}>{tr('¿Quién ha votado?')}</p>
+      <p className="text-gray-500" style={{ fontSize: 12, margin: '0 0 14px' }}>{tr('Datos anónimos de')}{' '}{data.totalVoters} {data.totalVoters === 1 ? 'participante' : 'participantes'}</p>
+      <BarGroup title={tr('Sexo')} rows={sex} total={data.totalVoters} />
+      <BarGroup title={tr('Edad')} rows={age} total={data.totalVoters} />
+      <BarGroup title={tr('Nacionalidad')} rows={nat} total={data.totalVoters} />
     </Card>
   );
 }
@@ -448,7 +445,7 @@ function ProfileModal({ userId, onClose, onSaved }) {
 
   const save = async (e) => {
     e.preventDefault();
-    if (!form.age || !form.sex || !form.postalCode || !form.nationality) { setError('Completa todos los campos'); return; }
+    if (!form.age || !form.sex || !form.postalCode || !form.nationality) { setError(tr('Completa todos los campos')); return; }
     setSaving(true); setError('');
     try {
       await api('/poll/profile', { method: 'POST', body: JSON.stringify({ userId, ...form }) });
@@ -465,31 +462,28 @@ function ProfileModal({ userId, onClose, onSaved }) {
         background: 'white', width: '100%', maxWidth: 480, borderRadius: '24px 24px 0 0',
         padding: '22px 20px calc(var(--sab) + 22px)', maxHeight: '92dvh', overflowY: 'auto',
       }}>
-        <p style={{ fontSize: 19, fontWeight: 900, color: '#293241', margin: '0 0 8px' }}>Completa tu perfil</p>
-        <p style={{ fontSize: 13, color: '#293241', background: '#E3EDF2', border: '1px solid #98C1D9', borderRadius: 12, padding: 12, margin: '0 0 16px', lineHeight: 1.5 }}>
-          Para mostrar resultados claros necesitamos tu sexo, edad, código postal y nacionalidad.
-          Se muestran solo de forma agregada y anónima. Solo se pide una vez.
-        </p>
+        <p style={{ fontSize: 19, fontWeight: 900, color: '#293241', margin: '0 0 8px' }}>{tr('Completa tu perfil')}</p>
+        <p style={{ fontSize: 13, color: '#293241', background: '#E3EDF2', border: '1px solid #98C1D9', borderRadius: 12, padding: 12, margin: '0 0 16px', lineHeight: 1.5 }}>{tr('Para mostrar resultados claros necesitamos tu sexo, edad, código postal y nacionalidad. Se muestran solo de forma agregada y anónima. Solo se pide una vez.')}</p>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={label} htmlFor="pp-age">Edad</label>
-          <input id="pp-age" type="number" inputMode="numeric" min="16" max="120" placeholder="Ej: 25" value={form.age} onChange={set('age')} style={input} />
+          <label style={label} htmlFor="pp-age">{tr('Edad')}</label>
+          <input id="pp-age" type="number" inputMode="numeric" min="16" max="120" placeholder={tr('Ej: 25')} value={form.age} onChange={set('age')} style={input} />
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={label} htmlFor="pp-sex">Sexo</label>
+          <label style={label} htmlFor="pp-sex">{tr('Sexo')}</label>
           <select id="pp-sex" value={form.sex} onChange={set('sex')} style={input}>
-            <option value="">Selecciona…</option>
+            <option value="">{tr('Selecciona…')}</option>
             {Object.entries(SEX_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </div>
         <div style={{ marginBottom: 12 }}>
-          <label style={label} htmlFor="pp-cp">Código postal</label>
-          <input id="pp-cp" type="text" placeholder="Ej: 28001" value={form.postalCode} onChange={set('postalCode')} style={input} />
+          <label style={label} htmlFor="pp-cp">{tr('Código postal')}</label>
+          <input id="pp-cp" type="text" placeholder={tr('Ej: 28001')} value={form.postalCode} onChange={set('postalCode')} style={input} />
         </div>
         <div style={{ marginBottom: 16 }}>
-          <label style={label} htmlFor="pp-nat">Nacionalidad</label>
+          <label style={label} htmlFor="pp-nat">{tr('Nacionalidad')}</label>
           <select id="pp-nat" value={form.nationality} onChange={set('nationality')} style={input}>
-            <option value="">Selecciona…</option>
+            <option value="">{tr('Selecciona…')}</option>
             {countries.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
@@ -497,11 +491,9 @@ function ProfileModal({ userId, onClose, onSaved }) {
         {error && <p style={{ color: '#dc2626', fontSize: 13, fontWeight: 600, margin: '0 0 10px' }}>{error}</p>}
 
         <div style={{ display: 'flex', gap: 10 }}>
-          <button type="button" onClick={onClose} style={{ flex: 1, padding: 14, borderRadius: 14, border: '1px solid #cbd5e1', background: 'white', color: '#475569', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
-            Cancelar
-          </button>
+          <button type="button" onClick={onClose} style={{ flex: 1, padding: 14, borderRadius: 14, border: '1px solid #cbd5e1', background: 'white', color: '#475569', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>{tr('Cancelar')}</button>
           <button type="submit" disabled={saving} style={{ flex: 2, padding: 14, borderRadius: 14, border: 'none', background: BRAND, color: 'white', fontWeight: 900, fontSize: 15, cursor: 'pointer' }}>
-            {saving ? 'Guardando…' : 'Guardar y votar'}
+            {saving ? tr('Guardando…') : tr('Guardar y votar')}
           </button>
         </div>
       </form>
@@ -561,7 +553,7 @@ function ErrorBox({ msg, onRetry }) {
   return (
     <div style={{ background: '#fee2e2', color: '#b91c1c', borderRadius: 14, padding: 14, marginBottom: 14, fontSize: 13, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
       <span>{msg}</span>
-      <button onClick={onRetry} style={{ background: '#b91c1c', color: 'white', border: 'none', borderRadius: 10, padding: '6px 12px', fontWeight: 800, cursor: 'pointer' }}>Reintentar</button>
+      <button onClick={onRetry} style={{ background: '#b91c1c', color: 'white', border: 'none', borderRadius: 10, padding: '6px 12px', fontWeight: 800, cursor: 'pointer' }}>{tr('Reintentar')}</button>
     </div>
   );
 }

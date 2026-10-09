@@ -27,6 +27,11 @@ import KaraokePage     from './pages/KaraokePage.jsx';
 import KaraokeSingPage from './pages/KaraokeSingPage.jsx';
 import KaraokeRoomPage from './pages/KaraokeRoomPage.jsx';
 import { listenDeepLinks, savePendingLink, takePendingLink } from './utils/deepLinks';
+import AppLock from './components/AppLock.jsx';
+import { syncTone, usePrefsStore } from './store/prefsStore';
+import { getDeviceId, heartbeat } from './utils/devices';
+import { onRtc } from './utils/rtcClient';
+import { tr } from './i18n';
 // El taxi (mapa MapLibre) se carga solo al abrirlo
 const TaxiPage = React.lazy(() => import('./pages/taxi/TaxiPage.jsx'));
 
@@ -50,8 +55,8 @@ const PERMISSIONS_LIST = [
         <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
       </svg>
     ),
-    title: 'Contactos',
-    desc: 'Para ver qué amigos usan OldFace y poder chatear con ellos directamente.',
+    title: tr('Contactos'),
+    desc: tr('Para ver qué amigos usan OldFace y poder chatear con ellos directamente.'),
   },
   {
     key: 'camera',
@@ -61,8 +66,8 @@ const PERMISSIONS_LIST = [
         <circle cx="12" cy="13" r="4"/>
       </svg>
     ),
-    title: 'Cámara y Micrófono',
-    desc: 'Necesarios para videollamadas, llamadas de voz y directos en vivo.',
+    title: tr('Cámara y Micrófono'),
+    desc: tr('Necesarios para videollamadas, llamadas de voz y directos en vivo.'),
   },
   {
     key: 'location',
@@ -72,8 +77,8 @@ const PERMISSIONS_LIST = [
         <circle cx="12" cy="10" r="3"/>
       </svg>
     ),
-    title: 'Ubicación',
-    desc: 'Para compartir tu ubicación en los chats cuando tú lo decidas.',
+    title: tr('Ubicación'),
+    desc: tr('Para compartir tu ubicación en los chats cuando tú lo decidas.'),
   },
   {
     key: 'notifications',
@@ -83,8 +88,8 @@ const PERMISSIONS_LIST = [
         <path d="M13.73 21a2 2 0 01-3.46 0"/>
       </svg>
     ),
-    title: 'Notificaciones',
-    desc: 'Para avisarte de mensajes, llamadas y directos aunque la app esté cerrada.',
+    title: tr('Notificaciones'),
+    desc: tr('Para avisarte de mensajes, llamadas y directos aunque la app esté cerrada.'),
   },
 ];
 
@@ -191,12 +196,8 @@ function PermissionsGate({ onDone }) {
           </svg>
         </div>
 
-        <h1 style={{ fontSize: 26, fontWeight: 900, color: '#293241', margin: '0 0 8px', textAlign: 'center' }}>
-          Bienvenido a OldFace
-        </h1>
-        <p style={{ fontSize: 14, color: '#64748b', margin: '0 0 32px', textAlign: 'center', lineHeight: 1.6, maxWidth: 300 }}>
-          Para que funcione correctamente, necesitamos que aceptes los siguientes permisos:
-        </p>
+        <h1 style={{ fontSize: 26, fontWeight: 900, color: '#293241', margin: '0 0 8px', textAlign: 'center' }}>{tr('Bienvenido a OldFace')}</h1>
+        <p style={{ fontSize: 14, color: '#64748b', margin: '0 0 32px', textAlign: 'center', lineHeight: 1.6, maxWidth: 300 }}>{tr('Para que funcione correctamente, necesitamos que aceptes los siguientes permisos:')}</p>
 
         {/* Lista de permisos */}
         <div style={{ width: '100%', maxWidth: 360, display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 32 }}>
@@ -221,12 +222,8 @@ function PermissionsGate({ onDone }) {
             border: 'none', borderRadius: 18, fontWeight: 900, fontSize: 16,
             cursor: 'pointer', boxShadow: '0 6px 20px rgba(119,189,148,0.5)',
           }}
-        >
-          Aceptar y continuar →
-        </button>
-        <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 12, textAlign: 'center' }}>
-          Puedes cambiar estos permisos en cualquier momento desde los Ajustes del sistema.
-        </p>
+        >{tr('Aceptar y continuar →')}</button>
+        <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 12, textAlign: 'center' }}>{tr('Puedes cambiar estos permisos en cualquier momento desde los Ajustes del sistema.')}</p>
       </div>
     );
   }
@@ -243,15 +240,14 @@ function PermissionsGate({ onDone }) {
           <div style={{ width: 64, height: 64, borderRadius: 20, background: '#E3EDF2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
             {current?.icon}
           </div>
-          <p style={{ fontSize: 16, fontWeight: 900, color: '#293241', margin: '0 0 8px' }}>
-            Permiso: {current?.title}
+          <p style={{ fontSize: 16, fontWeight: 900, color: '#293241', margin: '0 0 8px' }}>{tr('Permiso:')}{' '}{current?.title}
           </p>
           <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 20px', lineHeight: 1.6 }}>
             {current?.desc}
           </p>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
             <div style={{ width: 22, height: 22, border: `3px solid #e5e7eb`, borderTopColor: BRAND, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-            <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 600 }}>Esperando respuesta...</span>
+            <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 600 }}>{tr('Esperando respuesta...')}</span>
           </div>
           <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 20 }}>
             {PERMISSIONS_LIST.map((_, i) => (
@@ -281,7 +277,7 @@ function PermissionsGate({ onDone }) {
       </div>
 
       <h2 style={{ fontSize: 22, fontWeight: 900, color: '#293241', margin: '0 0 8px', textAlign: 'center' }}>
-        {allGranted ? '¡Todo listo!' : 'Configuración completada'}
+        {allGranted ? tr('¡Todo listo!') : tr('Configuración completada')}
       </h2>
 
       <div style={{ width: '100%', maxWidth: 360, display: 'flex', flexDirection: 'column', gap: 8, margin: '20px 0 28px' }}>
@@ -292,7 +288,7 @@ function PermissionsGate({ onDone }) {
             <div key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'white', borderRadius: 14, padding: '12px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
               <span style={{ fontSize: 18 }}>{ok ? '✅' : '⚠️'}</span>
               <p style={{ fontSize: 13, fontWeight: 700, color: '#293241', margin: 0, flex: 1 }}>{p.title}</p>
-              <span style={{ fontSize: 11, fontWeight: 600, color: ok ? BRAND : '#f59e0b' }}>{ok ? 'Concedido' : 'Denegado'}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: ok ? BRAND : '#f59e0b' }}>{ok ? tr('Concedido') : tr('Denegado')}</span>
             </div>
           );
         })}
@@ -300,9 +296,7 @@ function PermissionsGate({ onDone }) {
 
       {!contactsGranted && (
         <div style={{ background: '#fef9c3', borderRadius: 14, padding: '12px 16px', maxWidth: 360, width: '100%', marginBottom: 16 }}>
-          <p style={{ fontSize: 12, color: '#92400e', margin: 0, lineHeight: 1.5, fontWeight: 600 }}>
-            ⚠️ Sin permiso de Contactos no podrás ver qué amigos usan OldFace. Ve a <strong>Ajustes → OldFace → Permisos → Contactos</strong> y actívalo.
-          </p>
+          <p style={{ fontSize: 12, color: '#92400e', margin: 0, lineHeight: 1.5, fontWeight: 600 }}>{tr('⚠️ Sin permiso de Contactos no podrás ver qué amigos usan OldFace. Ve a')}{' '}<strong>{tr('Ajustes → OldFace → Permisos → Contactos')}</strong>{' '}{tr('y actívalo.')}</p>
         </div>
       )}
 
@@ -314,9 +308,7 @@ function PermissionsGate({ onDone }) {
           border: 'none', borderRadius: 18, fontWeight: 900, fontSize: 16,
           cursor: 'pointer', boxShadow: '0 6px 20px rgba(119,189,148,0.5)',
         }}
-      >
-        Empezar a usar OldFace →
-      </button>
+      >{tr('Empezar a usar OldFace →')}</button>
     </div>
   );
 }
@@ -381,7 +373,7 @@ export default function AppRoot() {
                     const ok = await fetch(`${BACKEND_PUSH}/register-fcm-token`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ userId, token: fcmToken }),
+                      body: JSON.stringify({ userId, token: fcmToken, deviceId: getDeviceId() }),
                     }).then(r => r.ok).catch(() => false);
                     if (ok) break;
                     await new Promise(r => setTimeout(r, 5000 * (i + 1)));
@@ -618,6 +610,29 @@ function AppShell() {
     };
   }, [isAuthenticated]);
 
+  // ── Tono de mensaje elegido → al servidor (los avisos con la app cerrada suenan con él) ──
+  useEffect(() => {
+    const uid = useAuthStore.getState().user?.id;
+    if (isAuthenticated && uid) syncTone(uid);
+  }, [isAuthenticated]);
+
+  // ── Dispositivos vinculados: este dispositivo sigue activo; si se cerró su sesión desde otro, salir ──
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const signOut = () => {
+      usePrefsStore.getState().disableLock();
+      useAuthStore.getState().logout();
+      navigate('/login', { replace: true });
+    };
+    const check = () => heartbeat().then(revoked => { if (revoked) signOut(); });
+    check();
+    const iv = setInterval(check, 10 * 60_000);
+    const onVis = () => { if (!document.hidden) check(); };
+    document.addEventListener('visibilitychange', onVis);
+    const off = onRtc('device:revoked', ({ deviceId } = {}) => { if (deviceId === getDeviceId()) signOut(); });
+    return () => { clearInterval(iv); document.removeEventListener('visibilitychange', onVis); off?.(); };
+  }, [isAuthenticated]); // eslint-disable-line
+
   // ── Ubicación en tiempo real del chat: retomar lo que se estaba compartiendo al volver a abrir la app ──
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -734,6 +749,9 @@ function AppShell() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
+      {/* ── Bloqueo de la app (PIN / huella) — por debajo de la llamada entrante ── */}
+      <AppLock />
+
       {/* ── Modal llamada entrante ─────────────────────────────────────── */}
       {incomingCall && (
         <IncomingCallModal
@@ -802,12 +820,10 @@ function OutgoingCallOverlay({ onCancel, callInfo }) {
         {name}
       </p>
       <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, margin: '0 0 8px', fontWeight: 500 }}>
-        {isVideo ? 'Videollamada saliente' : 'Llamada de voz saliente'}
+        {isVideo ? tr('Videollamada saliente') : tr('Llamada de voz saliente')}
       </p>
       <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, margin: '0 0 52px',
-                  animation: 'vcFade 1.4s ease-in-out infinite' }}>
-        Esperando respuesta...
-      </p>
+                  animation: 'vcFade 1.4s ease-in-out infinite' }}>{tr('Esperando respuesta...')}</p>
       <button onClick={onCancel} style={{
         width: 70, height: 70, borderRadius: '50%', background: '#ef4444',
         border: 'none', cursor: 'pointer',
@@ -818,7 +834,7 @@ function OutgoingCallOverlay({ onCancel, callInfo }) {
           <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
         </svg>
       </button>
-      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginTop: 10 }}>Cancelar llamada</p>
+      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginTop: 10 }}>{tr('Cancelar llamada')}</p>
       <style>{`
         @keyframes vcPulse { 0%{transform:scale(1);opacity:0.6} 100%{transform:scale(1.6);opacity:0} }
         @keyframes vcFade  { 0%,100%{opacity:0.5} 50%{opacity:1} }
@@ -891,23 +907,22 @@ function IncomingCallModal({ call, onAccept, onReject }) {
           textTransform: 'uppercase',
         }}>
           {call.groupId
-            ? (isVideo ? 'Videollamada de grupo' : 'Llamada de grupo')
+            ? (isVideo ? tr('Videollamada de grupo') : tr('Llamada de grupo'))
             : (isVideo ? '📹 Videollamada entrante' : '📞 Llamada de voz')}
         </p>
 
         {/* Nombre (en grupo: el grupo y quién llama) */}
         <p style={{ fontSize: 24, fontWeight: 900, color: 'white', margin: '0 0 4px' }}>
-          {call.groupId ? (call.groupName || 'Grupo') : (call.callerName || '?')}
+          {call.groupId ? (call.groupName || tr('Grupo')) : (call.callerName || '?')}
         </p>
         {call.groupId && (
           <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)', margin: '0 0 6px', fontWeight: 600 }}>
-            {String(call.callerName || '').split(' · ').pop()} te llama
-          </p>
+            {String(call.callerName || '').split(' · ').pop()}{' '}{tr('te llama')}</p>
         )}
 
         {/* Countdown */}
         <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', margin: '0 0 36px' }}>
-          {countdown > 0 ? `Expira en ${countdown}s` : 'Llamada perdida'}
+          {countdown > 0 ? tr('Expira en {countdown}s', { countdown }) : tr('Llamada perdida')}
         </p>
 
         {/* Botones */}
@@ -925,9 +940,7 @@ function IncomingCallModal({ call, onAccept, onReject }) {
                 <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
               </svg>
             </button>
-            <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', margin: '10px 0 0', fontWeight: 700 }}>
-              Rechazar
-            </p>
+            <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', margin: '10px 0 0', fontWeight: 700 }}>{tr('Rechazar')}</p>
           </div>
 
           {/* Aceptar */}
@@ -949,9 +962,7 @@ function IncomingCallModal({ call, onAccept, onReject }) {
                 </svg>
               )}
             </button>
-            <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', margin: '10px 0 0', fontWeight: 700 }}>
-              Aceptar
-            </p>
+            <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', margin: '10px 0 0', fontWeight: 700 }}>{tr('Aceptar')}</p>
           </div>
         </div>
       </div>

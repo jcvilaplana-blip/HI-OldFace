@@ -7,6 +7,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { tx } from '../../utils/taxiApi';
 import { BRAND, C, Btn, Spinner } from './ui.jsx';
+import { tr } from '../../i18n';
 
 let loading = null, loadedKey = null;
 function loadGateway(publishableKey, locale) {
@@ -19,7 +20,7 @@ function loadGateway(publishableKey, locale) {
     s.src = 'https://js.stripe.com/v3/';
     s.async = true;
     s.onload = ready;
-    s.onerror = () => { loading = null; reject(new Error(tx('No se pudo cargar el pago con tarjeta. Revisa tu conexión.'))); };
+    s.onerror = () => { loading = null; reject(new Error(tx(tr('No se pudo cargar el pago con tarjeta. Revisa tu conexión.')))); };
     document.head.appendChild(s);
   });
   return loading;
@@ -50,7 +51,7 @@ export default function CardPay({ card, title, note, payLabel, lang = 'es', onPa
   const pay = async () => {
     setBusy(true); setError('');
     const { error: e } = await gw.stripe.confirmPayment({ elements: gw.elements, redirect: 'if_required', confirmParams: { return_url: window.location.href } });
-    if (e) { setError(e.message || tx('La tarjeta no se ha podido confirmar')); setBusy(false); return; }
+    if (e) { setError(e.message || tx(tr('La tarjeta no se ha podido confirmar'))); setBusy(false); return; }
     try { await onPaid(); } catch (err) { setError(err.message); }
     setBusy(false);
   };
@@ -58,19 +59,19 @@ export default function CardPay({ card, title, note, payLabel, lang = 'es', onPa
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'flex-end' }}>
       <div style={{ width: '100%', maxHeight: '92%', overflowY: 'auto', background: 'white', borderRadius: '22px 22px 0 0', padding: '18px 16px calc(var(--sab) + 16px)' }}>
-        <p style={{ fontSize: 19, fontWeight: 900, margin: '0 0 4px' }}>💳 {title || tx('Tarjeta de crédito')}</p>
+        <p style={{ fontSize: 19, fontWeight: 900, margin: '0 0 4px' }}>💳 {title || tx(tr('Tarjeta de crédito'))}</p>
         {note && <p style={{ fontSize: 13, color: C.muted, margin: '0 0 12px' }}>{note}</p>}
         {card.testMode && (
           <div style={{ background: '#fef3c7', color: '#92400e', borderRadius: 12, padding: '10px 12px', fontSize: 13, fontWeight: 700, margin: '0 0 12px' }}>
-            🧪 {tx('Modo pruebas: no se cobra dinero real. Usa la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC.')}
+            🧪 {tx(tr('Modo pruebas: no se cobra dinero real. Usa la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC.'))}
           </div>
         )}
         {!ready && !error && <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}><Spinner /></div>}
         <div ref={box} style={{ minHeight: ready ? 0 : 1 }} />
         {error && <p style={{ color: C.danger, fontWeight: 700, fontSize: 14, margin: '12px 0 0' }}>{error}</p>}
-        <Btn onClick={pay} disabled={!ready || busy} style={{ marginTop: 16 }}>{busy ? tx('Un momento…') : payLabel || tx('Pagar')}</Btn>
-        <Btn variant="ghost" onClick={onCancel} disabled={busy} style={{ marginTop: 8 }}>{tx('Cancelar')}</Btn>
-        <p style={{ fontSize: 11, color: C.muted, textAlign: 'center', margin: '10px 0 0' }}>🔒 {tx('Pago seguro. Los datos de tu tarjeta no se guardan en OldFace.')}</p>
+        <Btn onClick={pay} disabled={!ready || busy} style={{ marginTop: 16 }}>{busy ? tx(tr('Un momento…')) : payLabel || tx(tr('Pagar'))}</Btn>
+        <Btn variant="ghost" onClick={onCancel} disabled={busy} style={{ marginTop: 8 }}>{tx(tr('Cancelar'))}</Btn>
+        <p style={{ fontSize: 11, color: C.muted, textAlign: 'center', margin: '10px 0 0' }}>🔒 {tx(tr('Pago seguro. Los datos de tu tarjeta no se guardan en OldFace.'))}</p>
       </div>
     </div>
   );

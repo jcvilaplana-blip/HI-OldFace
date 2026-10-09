@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
 import Avatar from './Avatar.jsx';
 import { useCandidates, PeoplePicker, Sheet, PrimaryBtn } from './GroupSheets.jsx';
+import { tr, LOCALE } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const BRAND = '#3D5A80';
@@ -26,18 +27,18 @@ const mediaSrc = (c) => (String(c || '').startsWith('/files/') ? `${BACKEND}${c}
 
 function timeAgo(ts) {
   const m = Math.floor((Date.now() - ts) / 60000);
-  if (m < 1) return 'ahora mismo';
-  if (m < 60) return `hace ${m} min`;
+  if (m < 1) return tr('ahora mismo');
+  if (m < 60) return tr('hace {m} min', { m });
   const d = new Date(ts);
-  const hm = d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
-  return new Date().toDateString() === d.toDateString() ? `hoy, ${hm}` : `ayer, ${hm}`;
+  const hm = d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
+  return new Date().toDateString() === d.toDateString() ? tr('hoy, {time}', { time: hm }) : tr('ayer, {time}', { time: hm });
 }
 
 function privacyLabel(p, short = false) {
-  if (!p || p.mode === 'contacts') return 'Mis contactos';
+  if (!p || p.mode === 'contacts') return tr('Mis contactos');
   const n = p.userIds?.length || 0;
-  if (p.mode === 'except') return short ? `Contactos excepto ${n}` : `Mis contactos excepto ${n} persona${n === 1 ? '' : 's'}`;
-  return short ? `Solo ${n}` : `Solo ${n} persona${n === 1 ? '' : 's'}`;
+  if (p.mode === 'except') return short ? tr('Contactos excepto {n}', { n }) : tr('Mis contactos excepto {n} persona{p1}', { n, p1: n === 1 ? '' : 's' });
+  return short ? `Solo ${n}` : tr('Solo {n} persona{p1}', { n, p1: n === 1 ? '' : 's' });
 }
 
 /** Foto → JPEG de hasta 1280 px (Blob) */
@@ -51,9 +52,9 @@ function compressImage(file, max = 1280) {
       c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
       URL.revokeObjectURL(url);
-      c.toBlob(b => (b ? resolve(b) : reject(new Error('No se pudo procesar la foto'))), 'image/jpeg', 0.82);
+      c.toBlob(b => (b ? resolve(b) : reject(new Error(tr('No se pudo procesar la foto')))), 'image/jpeg', 0.82);
     };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo leer la foto')); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(tr('No se pudo leer la foto'))); };
     img.src = url;
   });
 }
@@ -63,7 +64,7 @@ async function uploadFile(blob, userId) {
     method: 'POST', headers: { 'Content-Type': (blob.type || 'application/octet-stream').split(';')[0] }, body: blob,
   });
   const d = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(d.error || 'No se pudo subir el archivo');
+  if (!res.ok) throw new Error(d.error || tr('No se pudo subir el archivo'));
   return d.url.startsWith('http') ? d.url : `${BACKEND}${d.url}`;
 }
 
@@ -134,11 +135,9 @@ export default function StatusList({ user, T, isDark, compact = false, onSeeAll 
     <>
       <div style={{ background: T.bgSurface, borderBottom: `1px solid ${T.border}`, paddingBottom: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', padding: '10px 16px 4px' }}>
-          <p style={{ flex: 1, margin: 0, fontSize: 11, fontWeight: 800, letterSpacing: '0.6px', color: BRAND }}>ESTADOS</p>
+          <p style={{ flex: 1, margin: 0, fontSize: 11, fontWeight: 800, letterSpacing: '0.6px', color: BRAND }}>{tr('ESTADOS')}</p>
           {compact && people.length > 0 && (
-            <button onClick={onSeeAll} style={{ background: 'none', border: 'none', color: BRAND, fontSize: 12, fontWeight: 800, cursor: 'pointer', padding: 0 }}>
-              Ver todos ›
-            </button>
+            <button onClick={onSeeAll} style={{ background: 'none', border: 'none', color: BRAND, fontSize: 12, fontWeight: 800, cursor: 'pointer', padding: 0 }}>{tr('Ver todos ›')}</button>
           )}
         </div>
 
@@ -148,12 +147,12 @@ export default function StatusList({ user, T, isDark, compact = false, onSeeAll 
           left={<Ring T={T} count={mine.length} seen={false} empty={!mine.length}>
             <Avatar name={user?.name} src={user?.avatar || null} size="lg" />
           </Ring>}
-          title="Mi estado"
+          title={tr('Mi estado')}
           sub={mine.length
-            ? `${mine.length} de ${limits.total} · ${timeAgo(mine[mine.length - 1].createdAt)}`
-            : 'Toca para añadir un estado'}
+            ? tr('{length} de {total} · {p2}', { length: mine.length, total: limits.total, p2: timeAgo(mine[mine.length - 1].createdAt) })
+            : tr('Toca para añadir un estado')}
           right={
-            <button onClick={(e) => { e.stopPropagation(); if (!full) setCreating(true); }} disabled={full} aria-label="Nuevo estado"
+            <button onClick={(e) => { e.stopPropagation(); if (!full) setCreating(true); }} disabled={full} aria-label={tr('Nuevo estado')}
               style={{ width: 38, height: 38, borderRadius: '50%', border: 'none', cursor: full ? 'default' : 'pointer', opacity: full ? 0.4 : 1,
                        background: isDark ? 'rgba(255,255,255,0.08)' : '#E3EDF2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -162,14 +161,14 @@ export default function StatusList({ user, T, isDark, compact = false, onSeeAll 
             </button>
           } />
 
-        {!compact && recent.length > 0 && <SectionTitle T={T}>RECIENTES</SectionTitle>}
+        {!compact && recent.length > 0 && <SectionTitle T={T}>{tr('RECIENTES')}</SectionTitle>}
         {shownRecent.map(p => (
           <Row key={p.userId} T={T} onClick={() => open(p.userId, shownRecent)}
             left={<Ring T={T} count={p.stories.length} seen={p.allSeen}><Thumb story={p.latest} name={p.name} avatar={p.avatar} /></Ring>}
             title={p.name} sub={timeAgo(p.latest.createdAt)} />
         ))}
 
-        {!compact && seen.length > 0 && <SectionTitle T={T}>VISTOS</SectionTitle>}
+        {!compact && seen.length > 0 && <SectionTitle T={T}>{tr('VISTOS')}</SectionTitle>}
         {!compact && seen.map(p => (
           <Row key={p.userId} T={T} onClick={() => open(p.userId, seen)}
             left={<Ring T={T} count={p.stories.length} seen><Thumb story={p.latest} name={p.name} avatar={p.avatar} /></Ring>}
@@ -178,14 +177,10 @@ export default function StatusList({ user, T, isDark, compact = false, onSeeAll 
 
         {compact && hidden > 0 && (
           <button onClick={onSeeAll}
-            style={{ width: '100%', background: 'none', border: 'none', padding: '8px 16px 10px', textAlign: 'left', color: BRAND, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
-            Ver {hidden} estado{hidden === 1 ? '' : 's'} más
-          </button>
+            style={{ width: '100%', background: 'none', border: 'none', padding: '8px 16px 10px', textAlign: 'left', color: BRAND, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>{tr('Ver')}{' '}{hidden}{' '}{tr('estado')}{hidden === 1 ? '' : 's'}{' '}{tr('más')}</button>
         )}
         {!compact && people.length === 0 && (
-          <p style={{ margin: 0, padding: '14px 16px 18px', fontSize: 13, color: T.textMuted, lineHeight: 1.5 }}>
-            Aquí verás los estados de tus contactos. Duran 24 horas.
-          </p>
+          <p style={{ margin: 0, padding: '14px 16px 18px', fontSize: 13, color: T.textMuted, lineHeight: 1.5 }}>{tr('Aquí verás los estados de tus contactos. Duran 24 horas.')}</p>
         )}
       </div>
 
@@ -302,12 +297,12 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
     const room = Math.max(0, Math.min(left.total, kind === 'image' ? left.image : left.video));
     const picked = [...files];
     if (picked.length > room) setError(kind === 'image'
-      ? `Solo puedes añadir ${room} foto${room === 1 ? '' : 's'} más (máximo ${limits.image} fotos y ${limits.total} estados)`
-      : `Solo puedes añadir ${room} vídeo${room === 1 ? '' : 's'} más (máximo ${limits.video} vídeos y ${limits.total} estados)`);
+      ? tr('Solo puedes añadir {room} foto{p1} más (máximo {image} fotos y {total} estados)', { room, p1: room === 1 ? '' : 's', image: limits.image, total: limits.total })
+      : tr('Solo puedes añadir {room} vídeo{p1} más (máximo {video} vídeos y {total} estados)', { room, p1: room === 1 ? '' : 's', video: limits.video, total: limits.total }));
     for (const f of picked.slice(0, room)) {
       try {
         if (kind === 'video') {
-          if (f.size > MAX_VIDEO_MB * 1024 * 1024) { setError(`Un vídeo supera los ${MAX_VIDEO_MB} MB y no se ha añadido`); continue; }
+          if (f.size > MAX_VIDEO_MB * 1024 * 1024) { setError(tr('Un vídeo supera los {MAX_VIDEO_MB} MB y no se ha añadido', { MAX_VIDEO_MB })); continue; }
           setQueue(q => [...q, { type: 'video', blob: f, preview: URL.createObjectURL(f) }]);
         } else {
           const b = await compressImage(f);
@@ -325,11 +320,11 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
       body: JSON.stringify({ userId: user.id, userName: user.name, privacy, contactIds: candidates.map(c => c.id), ...body }),
     });
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(d.error || 'No se pudo publicar');
+    if (!res.ok) throw new Error(d.error || tr('No se pudo publicar'));
   };
 
   const publish = async () => {
-    if (privacy.mode === 'only' && !privacy.userIds.length) { setError('Elige con quién compartirlo'); return; }
+    if (privacy.mode === 'only' && !privacy.userIds.length) { setError(tr('Elige con quién compartirlo')); return; }
     setError('');
     try {
       if (remember) {
@@ -338,13 +333,13 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
         }).catch(() => {});
       }
       if (text.trim()) {
-        setBusy('Publicando…');
+        setBusy(tr('Publicando…'));
         await post({ mediaType: 'text', content: text.trim(), bgColor: color });
         setText('');
       }
       const items = [...queue];
       for (let i = 0; i < items.length; i++) {
-        setBusy(`Subiendo ${i + 1} de ${items.length}…`);
+        setBusy(tr('Subiendo {p0} de {length}…', { p0: i + 1, length: items.length }));
         const url = await uploadFile(items[i].blob, user.id);
         await post({ mediaType: items[i].type, content: url });
         URL.revokeObjectURL(items[i].preview);
@@ -370,15 +365,15 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
 
   return (
     <>
-      <Sheet T={T} isDark={isDark} title="Nuevo estado" onClose={() => !busy && onClose()}
-        subtitle={`Fotos ${counts.image + qImages}/${limits.image} · Vídeos ${counts.video + qVideos}/${limits.video} · Total ${counts.total + qTotal}/${limits.total}`}
+      <Sheet T={T} isDark={isDark} title={tr('Nuevo estado')} onClose={() => !busy && onClose()}
+        subtitle={tr('Fotos {p0}/{image} · Vídeos {p2}/{video} · Total {p4}/{total}', { p0: counts.image + qImages, image: limits.image, p2: counts.video + qVideos, video: limits.video, p4: counts.total + qTotal, total: limits.total })}
         footer={<>
           {error && <p style={{ fontSize: 12, color: '#ef4444', margin: '0 0 8px', fontWeight: 600 }}>{error}</p>}
-          <PrimaryBtn onClick={publish} disabled={!!busy || nothing}>{busy || 'Publicar'}</PrimaryBtn>
-          <p style={{ fontSize: 11, color: T.textMuted, textAlign: 'center', margin: '8px 0 0' }}>Los estados desaparecen a las 24 horas</p>
+          <PrimaryBtn onClick={publish} disabled={!!busy || nothing}>{busy || tr('Publicar')}</PrimaryBtn>
+          <p style={{ fontSize: 11, color: T.textMuted, textAlign: 'center', margin: '8px 0 0' }}>{tr('Los estados desaparecen a las 24 horas')}</p>
         </>}>
         <div style={{ padding: '14px 18px 4px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Escribe un estado de texto (opcional)…" maxLength={300} rows={3}
+          <textarea value={text} onChange={e => setText(e.target.value)} placeholder={tr('Escribe un estado de texto (opcional)…')} maxLength={300} rows={3}
             disabled={!text.trim() && left.total <= 0}
             style={{ width: '100%', boxSizing: 'border-box', padding: 12, borderRadius: 14, border: `1.5px solid ${T.borderStrong}`,
                      background: text.trim() ? color : T.bgInput, color: text.trim() ? 'white' : T.textPrimary, fontSize: 15, fontWeight: text.trim() ? 700 : 500,
@@ -386,7 +381,7 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
           {text.trim() && (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {COLORS.map(c => (
-                <button key={c} onClick={() => setColor(c)} aria-label="Color de fondo"
+                <button key={c} onClick={() => setColor(c)} aria-label={tr('Color de fondo')}
                   style={{ width: 28, height: 28, borderRadius: '50%', background: c, cursor: 'pointer',
                            border: color === c ? '3px solid white' : '2px solid transparent', outline: color === c ? `2px solid ${c}` : 'none' }} />
               ))}
@@ -401,13 +396,13 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
                     ? <video src={q.preview} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     : <img src={q.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
                   {!busy && (
-                    <button onClick={() => removeItem(i)} aria-label="Quitar"
+                    <button onClick={() => removeItem(i)} aria-label={tr('Quitar')}
                       style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.6)',
                                color: 'white', fontSize: 13, cursor: 'pointer', lineHeight: 1 }}>×</button>
                   )}
                   {q.type === 'video' && (
                     <span style={{ position: 'absolute', left: 4, bottom: 4, background: 'rgba(0,0,0,0.6)', color: 'white', fontSize: 10, fontWeight: 800,
-                                   padding: '1px 5px', borderRadius: 5 }}>▶ Vídeo</span>
+                                   padding: '1px 5px', borderRadius: 5 }}>{tr('▶ Vídeo')}</span>
                   )}
                 </div>
               ))}
@@ -415,9 +410,9 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
           )}
 
           <div style={{ display: 'flex', gap: 8 }}>
-            {tileBtn(`Fotos (${Math.max(0, Math.min(left.image, left.total))})`, canPhoto, () => photoRef.current?.click(),
+            {tileBtn(tr('Fotos ({p0})', { p0: Math.max(0, Math.min(left.image, left.total)) }), canPhoto, () => photoRef.current?.click(),
               <><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></>)}
-            {tileBtn(`Vídeos (${Math.max(0, Math.min(left.video, left.total))})`, canVideo, () => videoRef.current?.click(),
+            {tileBtn(tr('Vídeos ({p0})', { p0: Math.max(0, Math.min(left.video, left.total)) }), canVideo, () => videoRef.current?.click(),
               <><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></>)}
           </div>
 
@@ -429,7 +424,7 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
               <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
             </svg>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 12, color: T.textSecondary, fontWeight: 600 }}>Quién puede verlo</span>
+              <span style={{ display: 'block', fontSize: 12, color: T.textSecondary, fontWeight: 600 }}>{tr('Quién puede verlo')}</span>
               <span style={{ display: 'block', fontSize: 14, color: T.textPrimary, fontWeight: 800 }}>{privacyLabel(privacy)}</span>
             </span>
             <svg width="18" height="18" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
@@ -467,12 +462,12 @@ function PrivacySheet({ T, isDark, user, initial, remember: initRemember, onClos
     const sel = picking === 'except' ? except : only;
     return (
       <Sheet T={T} isDark={isDark} z={620} onClose={() => setPicking(null)} onBack={() => setPicking(null)}
-        title={picking === 'except' ? 'Ocultar estado a…' : 'Compartir solo con…'}
-        subtitle={sel.size ? `${sel.size} elegida${sel.size === 1 ? '' : 's'}` : 'Elige personas'}
-        footer={<PrimaryBtn onClick={() => setPicking(null)}>Listo</PrimaryBtn>}>
+        title={picking === 'except' ? tr('Ocultar estado a…') : tr('Compartir solo con…')}
+        subtitle={sel.size ? `${sel.size} elegida${sel.size === 1 ? '' : 's'}` : tr('Elige personas')}
+        footer={<PrimaryBtn onClick={() => setPicking(null)}>{tr('Listo')}</PrimaryBtn>}>
         <PeoplePicker T={T} isDark={isDark} people={candidates} selected={sel} loading={loading}
           onToggle={toggle(picking === 'except' ? setExcept : setOnly)}
-          emptyText="No hay contactos en OldFace todavía" />
+          emptyText={tr('No hay contactos en OldFace todavía')} />
       </Sheet>
     );
   }
@@ -492,9 +487,7 @@ function PrivacySheet({ T, isDark, user, initial, remember: initRemember, onClos
         </span>
         {pickable && (
           <button onClick={(e) => { e.stopPropagation(); setMode(key); setPicking(key); }}
-            style={{ background: 'none', border: 'none', color: BRAND, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
-            Elegir
-          </button>
+            style={{ background: 'none', border: 'none', color: BRAND, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>{tr('Elegir')}</button>
         )}
       </div>
     );
@@ -502,20 +495,16 @@ function PrivacySheet({ T, isDark, user, initial, remember: initRemember, onClos
 
   const invalid = mode === 'only' && only.size === 0;
   return (
-    <Sheet T={T} isDark={isDark} z={600} title="Quién puede ver este estado" onClose={onClose}
+    <Sheet T={T} isDark={isDark} z={600} title={tr('Quién puede ver este estado')} onClose={onClose}
       footer={<>
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '0 0 12px', fontSize: 13, color: T.textPrimary, fontWeight: 600, cursor: 'pointer' }}>
-          <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} style={{ width: 18, height: 18, accentColor: BRAND }} />
-          Usar siempre esta opción (privacidad habitual)
-        </label>
-        <PrimaryBtn disabled={invalid} onClick={() => onDone(result(), remember)}>{invalid ? 'Elige al menos una persona' : 'Aceptar'}</PrimaryBtn>
+          <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} style={{ width: 18, height: 18, accentColor: BRAND }} />{tr('Usar siempre esta opción (privacidad habitual)')}</label>
+        <PrimaryBtn disabled={invalid} onClick={() => onDone(result(), remember)}>{invalid ? tr('Elige al menos una persona') : tr('Aceptar')}</PrimaryBtn>
       </>}>
-      {option('contacts', 'Mis contactos', 'Todos tus contactos de OldFace')}
-      {option('except', 'Mis contactos excepto…', except.size ? `Oculto a ${except.size} persona${except.size === 1 ? '' : 's'}` : 'Elige a quién ocultarlo', true)}
-      {option('only', 'Solo compartir con…', only.size ? `${only.size} persona${only.size === 1 ? '' : 's'}` : 'Elige con quién compartirlo', true)}
-      <p style={{ margin: 0, padding: '12px 18px', fontSize: 12, color: T.textMuted, lineHeight: 1.5 }}>
-        Solo quien elijas verá el estado. Cambiar esta opción no afecta a los estados ya publicados.
-      </p>
+      {option('contacts', tr('Mis contactos'), tr('Todos tus contactos de OldFace'))}
+      {option('except', tr('Mis contactos excepto…'), except.size ? tr('Oculto a {size} persona{p1}', { size: except.size, p1: except.size === 1 ? '' : 's' }) : tr('Elige a quién ocultarlo'), true)}
+      {option('only', tr('Solo compartir con…'), only.size ? `${only.size} persona${only.size === 1 ? '' : 's'}` : tr('Elige con quién compartirlo'), true)}
+      <p style={{ margin: 0, padding: '12px 18px', fontSize: 12, color: T.textMuted, lineHeight: 1.5 }}>{tr('Solo quien elijas verá el estado. Cambiar esta opción no afecta a los estados ya publicados.')}</p>
     </Sheet>
   );
 }
@@ -537,7 +526,7 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
   const list = storiesOf(uid);
   const story = list[Math.min(viewer.idx, list.length - 1)];
   const isMine = uid === user.id;
-  const name = isMine ? 'Mi estado' : (authors[uid]?.name || story?.userName || '');
+  const name = isMine ? tr('Mi estado') : (authors[uid]?.name || story?.userName || '');
 
   const close = useCallback(() => {
     clearTimeout(timerRef.current);
@@ -614,7 +603,7 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
       senderName: story.userName,
       type: story.mediaType === 'text' ? 'text' : story.mediaType,
       url: story.mediaType === 'text' ? null : mediaSrc(story.content),
-      text: story.mediaType === 'text' ? story.content : `Estado de ${story.userName}`,
+      text: story.mediaType === 'text' ? story.content : tr('Estado de {userName}', { userName: story.userName }),
     };
     try {
       await createOrGetChat(user.id, uid, story.userName);
@@ -665,7 +654,7 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
       {/* Cabecera */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px 10px', paddingTop: 'calc(var(--sat, 0px) + 22px)', zIndex: 5,
                     background: 'linear-gradient(to bottom, rgba(0,0,0,0.5), transparent)' }}>
-        <button onClick={close} aria-label="Cerrar" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+        <button onClick={close} aria-label={tr('Cerrar')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M15 19l-7-7 7-7"/></svg>
         </button>
         <Avatar name={isMine ? user.name : name} src={isMine ? user.avatar || null : authors[uid]?.avatar || null} size="sm" />
@@ -677,10 +666,8 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
           </p>
         </div>
         {isMine && (
-          <button onClick={() => setConfirmDel(true)} aria-label="Eliminar estado"
-            style={{ background: 'rgba(239,68,68,0.85)', border: 'none', borderRadius: 18, padding: '6px 12px', color: 'white', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>
-            Eliminar
-          </button>
+          <button onClick={() => setConfirmDel(true)} aria-label={tr('Eliminar estado')}
+            style={{ background: 'rgba(239,68,68,0.85)', border: 'none', borderRadius: 18, padding: '6px 12px', color: 'white', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>{tr('Eliminar')}</button>
         )}
       </div>
 
@@ -708,23 +695,23 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
             style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.45)', border: 'none', borderRadius: 20, padding: '9px 18px',
                      color: 'white', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            {story.viewers?.length || 0} vista{story.viewers?.length === 1 ? '' : 's'}
-            {story.audienceCount != null && <span style={{ fontWeight: 600, opacity: 0.75 }}> · de {story.audienceCount}</span>}
+            {story.viewers?.length || 0}{' '}{tr('vista')}{story.viewers?.length === 1 ? '' : 's'}
+            {story.audienceCount != null && <span style={{ fontWeight: 600, opacity: 0.75 }}>{' '}{tr('· de')}{' '}{story.audienceCount}</span>}
           </button>
         </div>
       ) : (
         <div style={{ padding: '10px 14px', paddingBottom: 'calc(var(--sab, 0px) + 14px)', background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', gap: 8, zIndex: 6 }}>
           {replySent ? (
-            <p style={{ flex: 1, margin: 0, textAlign: 'center', color: 'white', fontWeight: 700, fontSize: 14, padding: '10px 0' }}>✓ Respuesta enviada</p>
+            <p style={{ flex: 1, margin: 0, textAlign: 'center', color: 'white', fontWeight: 700, fontSize: 14, padding: '10px 0' }}>{tr('✓ Respuesta enviada')}</p>
           ) : (
             <>
               <input value={replyText} onChange={e => setReplyText(e.target.value)}
                 onFocus={() => setPaused(true)} onBlur={() => !replyText.trim() && setPaused(false)}
                 onKeyDown={e => { if (e.key === 'Enter') sendReply(); }}
-                placeholder={`Responder a ${name.split(' ')[0]}…`}
+                placeholder={tr('Responder a {p0}…', { p0: name.split(' ')[0] })}
                 style={{ flex: 1, background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 24,
                          padding: '10px 16px', color: 'white', fontSize: 14, outline: 'none', fontFamily: 'inherit' }} />
-              <button onClick={sendReply} disabled={!replyText.trim()} aria-label="Enviar"
+              <button onClick={sendReply} disabled={!replyText.trim()} aria-label={tr('Enviar')}
                 style={{ width: 42, height: 42, borderRadius: '50%', border: 'none', flexShrink: 0, cursor: replyText.trim() ? 'pointer' : 'default',
                          background: replyText.trim() ? BRAND : 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <svg width="18" height="18" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
@@ -740,10 +727,9 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
           <div onClick={e => e.stopPropagation()}
             style={{ width: '100%', maxHeight: '60%', background: '#1a2340', borderRadius: '20px 20px 0 0', overflowY: 'auto',
                      paddingBottom: 'calc(var(--sab, 0px) + 12px)' }}>
-            <p style={{ margin: 0, padding: '16px 18px 8px', color: 'white', fontWeight: 800, fontSize: 15 }}>
-              Visto por {viewersList.length}
+            <p style={{ margin: 0, padding: '16px 18px 8px', color: 'white', fontWeight: 800, fontSize: 15 }}>{tr('Visto por')}{' '}{viewersList.length}
             </p>
-            {viewersList.length === 0 && <p style={{ margin: 0, padding: '6px 18px 16px', color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>Todavía nadie</p>}
+            {viewersList.length === 0 && <p style={{ margin: 0, padding: '6px 18px 16px', color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>{tr('Todavía nadie')}</p>}
             {viewersList.map(v => (
               <button key={v.userId}
                 onClick={() => { close(); navigate(`/chat/${v.userId}`, { state: { chat: { id: v.userId, name: v.name, participantId: v.userId } } }); }}
@@ -760,10 +746,10 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
       {confirmDel && (
         <div onClick={() => setConfirmDel(false)} style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#1a2340', borderRadius: 18, padding: '20px 18px 14px', width: '100%', maxWidth: 320 }}>
-            <p style={{ margin: '0 0 16px', color: 'white', fontWeight: 800, fontSize: 16 }}>¿Eliminar este estado?</p>
+            <p style={{ margin: '0 0 16px', color: 'white', fontWeight: 800, fontSize: 16 }}>{tr('¿Eliminar este estado?')}</p>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setConfirmDel(false)} style={{ flex: 1, padding: 11, borderRadius: 12, border: '1px solid rgba(255,255,255,0.3)', background: 'transparent', color: 'white', fontWeight: 800, cursor: 'pointer' }}>Cancelar</button>
-              <button onClick={del} style={{ flex: 1, padding: 11, borderRadius: 12, border: 'none', background: '#ef4444', color: 'white', fontWeight: 800, cursor: 'pointer' }}>Eliminar</button>
+              <button onClick={() => setConfirmDel(false)} style={{ flex: 1, padding: 11, borderRadius: 12, border: '1px solid rgba(255,255,255,0.3)', background: 'transparent', color: 'white', fontWeight: 800, cursor: 'pointer' }}>{tr('Cancelar')}</button>
+              <button onClick={del} style={{ flex: 1, padding: 11, borderRadius: 12, border: 'none', background: '#ef4444', color: 'white', fontWeight: 800, cursor: 'pointer' }}>{tr('Eliminar')}</button>
             </div>
           </div>
         </div>

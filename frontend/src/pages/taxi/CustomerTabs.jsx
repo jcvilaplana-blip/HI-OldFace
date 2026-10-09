@@ -7,12 +7,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { taxiApi, tx, money, dateTime, taxiUrl } from '../../utils/taxiApi';
 import { BRAND, C, Header, Btn, Card, Field, inputStyle, Spinner, Center, Stars } from './ui.jsx';
 import CardPay from './CardPay.jsx';
+import { tr } from '../../i18n';
 
 const STATUS = {
-  awaiting_payment: ['Esperando pago con tarjeta', '#d97706'], searching: ['Buscando conductor', '#3D5A80'], accepted: ['Conductor en camino', '#3D5A80'], arrived: ['Conductor en la recogida', '#3D5A80'],
-  started: ['En viaje', '#3D5A80'], completed: ['Completado', '#16a34a'], cancelled: ['Cancelado', '#dc2626'], expired: ['Sin conductor', '#64748b'],
+  awaiting_payment: [tr('Esperando pago con tarjeta'), '#d97706'], searching: [tr('Buscando conductor'), '#3D5A80'], accepted: [tr('Conductor en camino'), '#3D5A80'], arrived: [tr('Conductor en la recogida'), '#3D5A80'],
+  started: [tr('En viaje'), '#3D5A80'], completed: ['Completado', '#16a34a'], cancelled: ['Cancelado', '#dc2626'], expired: [tr('Sin conductor'), '#64748b'],
 };
-const PAY = { cash: 'Efectivo', wallet: 'Monedero', stripe: 'Tarjeta de crédito' };
+const PAY = { cash: 'Efectivo', wallet: 'Monedero', stripe: tr('Tarjeta de crédito') };
 
 export function Page({ title, onBack, children }) {
   return (
@@ -35,7 +36,7 @@ export function useLoad(fn, deps = []) {
 }
 
 export const Loading = ({ error, retry }) => (
-  <Center>{error ? <><p style={{ fontWeight: 700 }}>{error}</p><div style={{ width: 200 }}><Btn onClick={retry}>{tx('Reintentar')}</Btn></div></> : <Spinner />}</Center>
+  <Center>{error ? <><p style={{ fontWeight: 700 }}>{error}</p><div style={{ width: 200 }}><Btn onClick={retry}>{tx(tr('Reintentar'))}</Btn></div></> : <Spinner />}</Center>
 );
 
 // ══ Mis viajes ═══════════════════════════════════════════════════════════════
@@ -44,9 +45,9 @@ export function TripsTab({ notify }) {
   const [open, setOpen] = useState(null);
   if (open) return <TripDetail code={open} notify={notify} onBack={() => { setOpen(null); load(); }} />;
   return (
-    <Page title={tx('Mis viajes')}>
+    <Page title={tx(tr('Mis viajes'))}>
       {!data ? <Loading error={error} retry={load} /> : !data.bookings.length ? (
-        <Center><span style={{ fontSize: 44 }}>🧾</span><p style={{ fontWeight: 700 }}>{tx('Todavía no has hecho ningún viaje')}</p></Center>
+        <Center><span style={{ fontSize: 44 }}>🧾</span><p style={{ fontWeight: 700 }}>{tx(tr('Todavía no has hecho ningún viaje'))}</p></Center>
       ) : data.bookings.map(b => (
         <Card key={b.code} onClick={() => setOpen(b.code)} style={{ marginBottom: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>
@@ -74,43 +75,43 @@ function TripDetail({ code, notify, onBack }) {
     setBusy(true);
     try {
       if (mode === 'refund') await taxiApi('/customer/refunds', { method: 'POST', body: { code, reason: text } });
-      if (mode === 'help') await taxiApi('/support/tickets', { method: 'POST', body: { code, subject: `${tx('Ayuda con el viaje')} ${code}`, message: text } });
+      if (mode === 'help') await taxiApi('/support/tickets', { method: 'POST', body: { code, subject: `${tx(tr('Ayuda con el viaje'))} ${code}`, message: text } });
       if (mode === 'rate') await taxiApi(`/customer/bookings/${code}/rate`, { method: 'POST', body: { stars, comment: text } });
-      notify(mode === 'refund' ? tx('Solicitud de reembolso enviada') : mode === 'help' ? tx('Mensaje enviado al equipo de soporte') : tx('¡Gracias por tu valoración!'));
+      notify(mode === 'refund' ? tx(tr('Solicitud de reembolso enviada')) : mode === 'help' ? tx(tr('Mensaje enviado al equipo de soporte')) : tx(tr('¡Gracias por tu valoración!')));
       setMode(null); setText(''); load();
     } catch (e) { notify(e.message, true); }
     setBusy(false);
   };
 
   return (
-    <Page title={tx('Detalle del viaje')} onBack={onBack}>
+    <Page title={tx(tr('Detalle del viaje'))} onBack={onBack}>
       {!b ? <Loading error={error} retry={load} /> : (
         <>
           <Card style={{ marginBottom: 12 }}>
             <p style={{ margin: '0 0 8px', fontSize: 12, color: C.muted, fontWeight: 700 }}>{b.code} · {dateTime(b.created_at)}</p>
             <p style={{ margin: 0, fontWeight: 700 }}>🟢 {b.pickup_address}</p>
             <p style={{ margin: '4px 0 0', fontWeight: 700 }}>🟦 {b.dropoff_address}</p>
-            <p style={{ margin: '10px 0 0', fontSize: 13, color: C.muted }}>{b.distance_km} km · {Math.round(b.duration_min || 0)} min · {b.rideType?.name}</p>
-            {b.driver && <p style={{ margin: '4px 0 0', fontSize: 13, color: C.muted }}>{tx('Conductor')}: {b.driver.name}{b.vehicle?.plate ? ` · ${b.vehicle.plate}` : ''}</p>}
+            <p style={{ margin: '10px 0 0', fontSize: 13, color: C.muted }}>{b.distance_km}{' '}{tr('km ·')}{' '}{Math.round(b.duration_min || 0)}{' '}{tr('min ·')}{' '}{b.rideType?.name}</p>
+            {b.driver && <p style={{ margin: '4px 0 0', fontSize: 13, color: C.muted }}>{tx(tr('Conductor'))}: {b.driver.name}{b.vehicle?.plate ? ` · ${b.vehicle.plate}` : ''}</p>}
           </Card>
           <Card style={{ marginBottom: 12 }}>
-            <Line label={tx('Estado')} value={tx(STATUS[b.status]?.[0] || b.status)} />
-            <Line label={tx('Forma de pago')} value={tx(PAY[b.payment_method] || b.payment_method)} />
-            {b.discount > 0 && <Line label={tx('Descuento')} value={`−${money(b.discount, b.currency)}`} />}
-            {b.cancel_fee > 0 && <Line label={tx('Gastos de cancelación')} value={money(b.cancel_fee, b.currency)} />}
-            <Line label={tx('Total')} value={money(b.status === 'completed' ? b.total_amount : b.estimated_fare, b.currency)} bold />
+            <Line label={tx(tr('Estado'))} value={tx(STATUS[b.status]?.[0] || b.status)} />
+            <Line label={tx(tr('Forma de pago'))} value={tx(PAY[b.payment_method] || b.payment_method)} />
+            {b.discount > 0 && <Line label={tx(tr('Descuento'))} value={`−${money(b.discount, b.currency)}`} />}
+            {b.cancel_fee > 0 && <Line label={tx(tr('Gastos de cancelación'))} value={money(b.cancel_fee, b.currency)} />}
+            <Line label={tx(tr('Total'))} value={money(b.status === 'completed' ? b.total_amount : b.estimated_fare, b.currency)} bold />
           </Card>
-          {b.status === 'completed' && !b.ratings?.some(r => r.from_type === 'customer') && mode !== 'rate' && <Btn variant="soft" onClick={() => setMode('rate')} style={{ marginBottom: 8 }}>⭐ {tx('Valorar el viaje')}</Btn>}
-          {b.status === 'completed' && mode !== 'refund' && <Btn variant="ghost" onClick={() => setMode('refund')} style={{ marginBottom: 8 }}>{tx('Pedir un reembolso')}</Btn>}
-          {mode !== 'help' && <Btn variant="ghost" onClick={() => setMode('help')}>{tx('Necesito ayuda con este viaje')}</Btn>}
+          {b.status === 'completed' && !b.ratings?.some(r => r.from_type === 'customer') && mode !== 'rate' && <Btn variant="soft" onClick={() => setMode('rate')} style={{ marginBottom: 8 }}>⭐ {tx(tr('Valorar el viaje'))}</Btn>}
+          {b.status === 'completed' && mode !== 'refund' && <Btn variant="ghost" onClick={() => setMode('refund')} style={{ marginBottom: 8 }}>{tx(tr('Pedir un reembolso'))}</Btn>}
+          {mode !== 'help' && <Btn variant="ghost" onClick={() => setMode('help')}>{tx(tr('Necesito ayuda con este viaje'))}</Btn>}
           {mode && (
             <Card style={{ marginTop: 12 }}>
               {mode === 'rate' && <div style={{ marginBottom: 10 }}><Stars value={stars} onChange={setStars} /></div>}
               <textarea value={text} onChange={e => setText(e.target.value)} rows={3} maxLength={1000} style={{ ...inputStyle, resize: 'none' }}
-                placeholder={mode === 'refund' ? tx('Cuéntanos por qué pides el reembolso') : mode === 'help' ? tx('Escribe tu mensaje') : tx('Comentario (opcional)')} />
+                placeholder={mode === 'refund' ? tx(tr('Cuéntanos por qué pides el reembolso')) : mode === 'help' ? tx(tr('Escribe tu mensaje')) : tx(tr('Comentario (opcional)'))} />
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <Btn variant="ghost" onClick={() => setMode(null)} style={{ flex: 1 }}>{tx('Cancelar')}</Btn>
-                <Btn onClick={send} disabled={busy || (mode === 'rate' ? !stars : !text.trim())} style={{ flex: 1 }}>{tx('Enviar')}</Btn>
+                <Btn variant="ghost" onClick={() => setMode(null)} style={{ flex: 1 }}>{tx(tr('Cancelar'))}</Btn>
+                <Btn onClick={send} disabled={busy || (mode === 'rate' ? !stars : !text.trim())} style={{ flex: 1 }}>{tx(tr('Enviar'))}</Btn>
               </div>
             </Card>
           )}
@@ -141,20 +142,20 @@ export function WalletTab({ boot, notify }) {
   };
   const topupDone = async () => {
     await taxiApi(`/customer/wallet/topup/${topup.intentId}`, { method: 'POST' });
-    setTopup(null); notify?.(tx('Monedero recargado')); load();
+    setTopup(null); notify?.(tx(tr('Monedero recargado'))); load();
   };
   return (
-    <Page title={tx('Monedero')}>
+    <Page title={tx(tr('Monedero'))}>
       {!data ? <Loading error={error} retry={load} /> : (
         <>
           <div style={{ background: `linear-gradient(135deg, ${BRAND}, #293241)`, color: 'white', borderRadius: 20, padding: 20, marginBottom: 16 }}>
-            <p style={{ margin: 0, opacity: 0.8, fontWeight: 700, fontSize: 13 }}>{tx('Saldo disponible')}</p>
+            <p style={{ margin: 0, opacity: 0.8, fontWeight: 700, fontSize: 13 }}>{tx(tr('Saldo disponible'))}</p>
             <p style={{ margin: '6px 0 0', fontSize: 34, fontWeight: 900 }}>{money(data.wallet.balance, data.wallet.currency)}</p>
-            <p style={{ margin: '8px 0 0', opacity: 0.8, fontSize: 12 }}>{tx('Úsalo para pagar tus viajes. Aquí también recibes reembolsos y premios por invitar.')}</p>
+            <p style={{ margin: '8px 0 0', opacity: 0.8, fontSize: 12 }}>{tx(tr('Úsalo para pagar tus viajes. Aquí también recibes reembolsos y premios por invitar.'))}</p>
           </div>
           {pay.stripe && (
             <Card style={{ marginBottom: 16 }}>
-              <p style={{ fontWeight: 900, margin: '0 0 10px' }}>💳 {tx('Recargar con tarjeta de crédito')}</p>
+              <p style={{ fontWeight: 900, margin: '0 0 10px' }}>💳 {tx(tr('Recargar con tarjeta de crédito'))}</p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                 {[10, 20, 50].map(n => (
                   <button key={n} onClick={() => setAmount(String(n))} style={{ padding: '8px 14px', borderRadius: 20, fontWeight: 800, cursor: 'pointer',
@@ -162,15 +163,15 @@ export function WalletTab({ boot, notify }) {
                     {money(n, data.wallet.currency)}
                   </button>
                 ))}
-                <input value={amount} onChange={e => setAmount(e.target.value.replace(/[^\d.,]/g, ''))} inputMode="decimal" aria-label={tx('Otro importe')}
+                <input value={amount} onChange={e => setAmount(e.target.value.replace(/[^\d.,]/g, ''))} inputMode="decimal" aria-label={tx(tr('Otro importe'))}
                        style={{ ...inputStyle, width: 90, padding: '8px 10px' }} />
               </div>
-              <p style={{ fontSize: 12, color: C.muted, margin: '0 0 10px' }}>{tx('De {min} a {max}', { min: money(pay.topupMin || 5, data.wallet.currency), max: money(pay.topupMax || 500, data.wallet.currency) })}</p>
-              <Btn onClick={startTopup} disabled={busy || !Number(String(amount).replace(',', '.'))}>{busy ? tx('Un momento…') : tx('Recargar')}</Btn>
+              <p style={{ fontSize: 12, color: C.muted, margin: '0 0 10px' }}>{tx(tr('De {min} a {max}'), { min: money(pay.topupMin || 5, data.wallet.currency), max: money(pay.topupMax || 500, data.wallet.currency) })}</p>
+              <Btn onClick={startTopup} disabled={busy || !Number(String(amount).replace(',', '.'))}>{busy ? tx(tr('Un momento…')) : tx(tr('Recargar'))}</Btn>
             </Card>
           )}
-          <p style={{ fontWeight: 900, margin: '0 0 8px' }}>{tx('Movimientos')}</p>
-          {!data.transactions.length ? <p style={{ color: C.muted }}>{tx('Sin movimientos todavía')}</p> : (
+          <p style={{ fontWeight: 900, margin: '0 0 8px' }}>{tx(tr('Movimientos'))}</p>
+          {!data.transactions.length ? <p style={{ color: C.muted }}>{tx(tr('Sin movimientos todavía'))}</p> : (
             <Card style={{ padding: '4px 14px' }}>
               {data.transactions.map(t => (
                 <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
@@ -184,8 +185,8 @@ export function WalletTab({ boot, notify }) {
             </Card>
           )}
           {topup && (
-            <CardPay card={topup} lang={boot?.language?.code || 'es'} title={tx('Recargar con tarjeta de crédito')}
-              payLabel={`${tx('Pagar')} ${money(topup.amount, topup.currency)}`} onPaid={topupDone} onCancel={() => setTopup(null)} />
+            <CardPay card={topup} lang={boot?.language?.code || 'es'} title={tx(tr('Recargar con tarjeta de crédito'))}
+              payLabel={`${tx(tr('Pagar'))} ${money(topup.amount, topup.currency)}`} onPaid={topupDone} onCancel={() => setTopup(null)} />
           )}
         </>
       )}
@@ -212,23 +213,23 @@ export function ProfileTab({ boot, notify, reload, onExit }) {
   );
 
   return (
-    <Page title={tx('Perfil')}>
+    <Page title={tx(tr('Perfil'))}>
       <Card style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
         <span style={{ width: 58, height: 58, borderRadius: '50%', background: '#D5E6F0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, overflow: 'hidden', flexShrink: 0 }}>
           {p.photo ? <img src={taxiUrl(p.photo)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '🙋'}
         </span>
         <span>
           <span style={{ display: 'block', fontWeight: 900, fontSize: 18 }}>{p.name}</span>
-          <span style={{ display: 'block', color: C.muted, fontSize: 13 }}>{tx('Cliente')} · ★ {Number(p.rating || 5).toFixed(1)}</span>
+          <span style={{ display: 'block', color: C.muted, fontSize: 13 }}>{tx(tr('Cliente'))} · ★ {Number(p.rating || 5).toFixed(1)}</span>
         </span>
       </Card>
       <Card style={{ padding: '0 12px' }}>
-        {item('data', '👤', tx('Mis datos, idioma y contacto de emergencia'))}
-        {item('invite', '🎁', tx('Invita y gana'))}
-        {item('support', '💬', tx('Ayuda y soporte'))}
-        {item('faq', '❓', tx('Preguntas frecuentes'))}
-        {item('about', 'ℹ️', tx('Acerca de'))}
-        {item('exit', '🚪', tx('Salir del taxi'), onExit)}
+        {item('data', '👤', tx(tr('Mis datos, idioma y contacto de emergencia')))}
+        {item('invite', '🎁', tx(tr('Invita y gana')))}
+        {item('support', '💬', tx(tr('Ayuda y soporte')))}
+        {item('faq', '❓', tx(tr('Preguntas frecuentes')))}
+        {item('about', 'ℹ️', tx(tr('Acerca de')))}
+        {item('exit', '🚪', tx(tr('Salir del taxi')), onExit)}
       </Card>
     </Page>
   );
@@ -246,34 +247,34 @@ function ProfileData({ boot, notify, reload, onBack }) {
     try {
       await taxiApi('/customer/profile', { method: 'PUT', body: { name: f.name, email: f.email, phone: f.phone, language: f.language, countryId: f.countryId || undefined,
         emergencyContact: f.ecName || f.ecPhone ? { name: f.ecName, phone: f.ecPhone } : undefined } });
-      notify(tx('Datos guardados'));
+      notify(tx(tr('Datos guardados')));
       await reload();
     } catch (e) { notify(e.message, true); }
     setBusy(false);
   };
   return (
-    <Page title={tx('Mis datos')} onBack={onBack}>
+    <Page title={tx(tr('Mis datos'))} onBack={onBack}>
       <Card>
-        <Field label={tx('Nombre')}><input style={inputStyle} value={f.name} onChange={set('name')} maxLength={80} /></Field>
-        <Field label={tx('Email')}><input style={inputStyle} value={f.email} onChange={set('email')} type="email" maxLength={120} /></Field>
-        <Field label={tx('Teléfono')}><input style={inputStyle} value={f.phone} onChange={set('phone')} inputMode="tel" maxLength={30} /></Field>
-        <Field label={tx('País')}>
+        <Field label={tx(tr('Nombre'))}><input style={inputStyle} value={f.name} onChange={set('name')} maxLength={80} /></Field>
+        <Field label={tx(tr('Email'))}><input style={inputStyle} value={f.email} onChange={set('email')} type="email" maxLength={120} /></Field>
+        <Field label={tx(tr('Teléfono'))}><input style={inputStyle} value={f.phone} onChange={set('phone')} inputMode="tel" maxLength={30} /></Field>
+        <Field label={tx(tr('País'))}>
           <select style={inputStyle} value={f.countryId} onChange={set('countryId')}>
             {boot.countries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </Field>
-        <Field label={tx('Idioma')}>
+        <Field label={tx(tr('Idioma'))}>
           <select style={inputStyle} value={f.language} onChange={set('language')}>
             {boot.languages.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
           </select>
         </Field>
       </Card>
-      <p style={{ fontWeight: 900, margin: '16px 4px 8px' }}>🆘 {tx('Contacto de emergencia')}</p>
+      <p style={{ fontWeight: 900, margin: '16px 4px 8px' }}>🆘 {tx(tr('Contacto de emergencia'))}</p>
       <Card>
-        <Field label={tx('Nombre')}><input style={inputStyle} value={f.ecName} onChange={set('ecName')} maxLength={80} /></Field>
-        <Field label={tx('Teléfono')}><input style={inputStyle} value={f.ecPhone} onChange={set('ecPhone')} inputMode="tel" maxLength={30} /></Field>
+        <Field label={tx(tr('Nombre'))}><input style={inputStyle} value={f.ecName} onChange={set('ecName')} maxLength={80} /></Field>
+        <Field label={tx(tr('Teléfono'))}><input style={inputStyle} value={f.ecPhone} onChange={set('ecPhone')} inputMode="tel" maxLength={30} /></Field>
       </Card>
-      <Btn onClick={save} disabled={busy || !f.name.trim()} style={{ marginTop: 16 }}>{busy ? tx('Guardando…') : tx('Guardar')}</Btn>
+      <Btn onClick={save} disabled={busy || !f.name.trim()} style={{ marginTop: 16 }}>{busy ? tx(tr('Guardando…')) : tx(tr('Guardar'))}</Btn>
     </Page>
   );
 }
@@ -289,22 +290,22 @@ export async function shareText(text) {
 function Invite({ boot, onBack }) {
   const { data, error, load } = useLoad(() => taxiApi('/customer/referrals'));
   const cur = boot.settings.currency?.code || 'EUR';
-  const share = () => shareText(tx('Usa mi código {code} al entrar en el taxi de OldFace y consigue tu regalo.', { code: data.code })
+  const share = () => shareText(tx(tr('Usa mi código {code} al entrar en el taxi de OldFace y consigue tu regalo.'), { code: data.code })
                                + (boot.settings.app?.shareLink ? ` ${boot.settings.app.shareLink}` : ''));
   return (
-    <Page title={tx('Invita y gana')} onBack={onBack}>
+    <Page title={tx(tr('Invita y gana'))} onBack={onBack}>
       {!data ? <Loading error={error} retry={load} /> : (
         <>
           <Card style={{ textAlign: 'center', marginBottom: 12 }}>
             <p style={{ fontSize: 44, margin: 0 }}>🎁</p>
-            <p style={{ fontWeight: 800, margin: '6px 0' }}>{tx('Invita a tus amigos')}</p>
-            {data.settings?.userReferrer > 0 && <p style={{ color: C.muted, margin: '0 0 12px', fontSize: 14 }}>{tx('Ganas {amount} por cada amigo que haga su primer viaje.', { amount: money(data.settings.userReferrer, cur) })}</p>}
+            <p style={{ fontWeight: 800, margin: '6px 0' }}>{tx(tr('Invita a tus amigos'))}</p>
+            {data.settings?.userReferrer > 0 && <p style={{ color: C.muted, margin: '0 0 12px', fontSize: 14 }}>{tx(tr('Ganas {amount} por cada amigo que haga su primer viaje.'), { amount: money(data.settings.userReferrer, cur) })}</p>}
             <p style={{ fontSize: 28, fontWeight: 900, letterSpacing: 3, color: BRAND, background: '#E3EDF2', borderRadius: 14, padding: 12, margin: '0 0 12px' }}>{data.code}</p>
-            <Btn onClick={share}>{tx('Compartir mi código')}</Btn>
+            <Btn onClick={share}>{tx(tr('Compartir mi código'))}</Btn>
           </Card>
           <Card>
-            <Line label={tx('Amigos invitados')} value={data.invited} />
-            <Line label={tx('Ganado')} value={money(data.earned, cur)} bold />
+            <Line label={tx(tr('Amigos invitados'))} value={data.invited} />
+            <Line label={tx(tr('Ganado'))} value={money(data.earned, cur)} bold />
           </Card>
         </>
       )}
@@ -321,28 +322,28 @@ export function Support({ notify, onBack }) {
   if (open) return <Ticket id={open} notify={notify} onBack={() => { setOpen(null); load(); }} />;
   const create = async () => {
     setBusy(true);
-    try { await taxiApi('/support/tickets', { method: 'POST', body: f }); notify(tx('Mensaje enviado al equipo de soporte')); setCreating(false); setF({ subject: '', message: '' }); load(); }
+    try { await taxiApi('/support/tickets', { method: 'POST', body: f }); notify(tx(tr('Mensaje enviado al equipo de soporte'))); setCreating(false); setF({ subject: '', message: '' }); load(); }
     catch (e) { notify(e.message, true); }
     setBusy(false);
   };
   const solved = (s) => s === 'closed' || s === 'resolved';
   return (
-    <Page title={tx('Ayuda y soporte')} onBack={onBack}>
+    <Page title={tx(tr('Ayuda y soporte'))} onBack={onBack}>
       {creating ? (
         <Card style={{ marginBottom: 12 }}>
-          <Field label={tx('Asunto')}><input style={inputStyle} value={f.subject} onChange={e => setF(v => ({ ...v, subject: e.target.value }))} maxLength={200} /></Field>
-          <Field label={tx('Mensaje')}><textarea style={{ ...inputStyle, resize: 'none' }} rows={4} value={f.message} onChange={e => setF(v => ({ ...v, message: e.target.value }))} maxLength={4000} /></Field>
+          <Field label={tx(tr('Asunto'))}><input style={inputStyle} value={f.subject} onChange={e => setF(v => ({ ...v, subject: e.target.value }))} maxLength={200} /></Field>
+          <Field label={tx(tr('Mensaje'))}><textarea style={{ ...inputStyle, resize: 'none' }} rows={4} value={f.message} onChange={e => setF(v => ({ ...v, message: e.target.value }))} maxLength={4000} /></Field>
           <div style={{ display: 'flex', gap: 8 }}>
-            <Btn variant="ghost" onClick={() => setCreating(false)} style={{ flex: 1 }}>{tx('Cancelar')}</Btn>
-            <Btn onClick={create} disabled={busy || !f.subject.trim() || !f.message.trim()} style={{ flex: 1 }}>{tx('Enviar')}</Btn>
+            <Btn variant="ghost" onClick={() => setCreating(false)} style={{ flex: 1 }}>{tx(tr('Cancelar'))}</Btn>
+            <Btn onClick={create} disabled={busy || !f.subject.trim() || !f.message.trim()} style={{ flex: 1 }}>{tx(tr('Enviar'))}</Btn>
           </div>
         </Card>
-      ) : <Btn onClick={() => setCreating(true)} style={{ marginBottom: 12 }}>✉️ {tx('Escribir al soporte')}</Btn>}
+      ) : <Btn onClick={() => setCreating(true)} style={{ marginBottom: 12 }}>✉️ {tx(tr('Escribir al soporte'))}</Btn>}
       {!data ? <Loading error={error} retry={load} /> : data.tickets.map(t => (
         <Card key={t.id} onClick={() => setOpen(t.id)} style={{ marginBottom: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
             <span style={{ fontWeight: 800 }}>{t.subject}</span>
-            <span style={{ fontSize: 12, fontWeight: 800, color: solved(t.status) ? C.ok : '#3D5A80' }}>{tx(solved(t.status) ? 'Resuelto' : 'Abierto')}</span>
+            <span style={{ fontSize: 12, fontWeight: 800, color: solved(t.status) ? C.ok : '#3D5A80' }}>{tx(solved(t.status) ? tr('Resuelto') : tr('Abierto'))}</span>
           </div>
           <span style={{ fontSize: 12, color: C.muted }}>{t.number} · {dateTime(t.created_at)}</span>
         </Card>
@@ -359,7 +360,7 @@ function Ticket({ id, notify, onBack }) {
     catch (e) { notify(e.message, true); }
   };
   return (
-    <Page title={data?.ticket?.subject || tx('Soporte')} onBack={onBack}>
+    <Page title={data?.ticket?.subject || tx(tr('Soporte'))} onBack={onBack}>
       {!data ? <Loading error={error} retry={load} /> : (
         <>
           {data.messages.map((m, i) => {
@@ -368,14 +369,14 @@ function Ticket({ id, notify, onBack }) {
               <div key={i} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start', marginBottom: 8 }}>
                 <div style={{ maxWidth: '80%', background: mine ? BRAND : 'white', color: mine ? 'white' : C.text, borderRadius: 14, padding: '8px 12px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
                   <p style={{ margin: 0, fontSize: 14, whiteSpace: 'pre-wrap' }}>{m.message}</p>
-                  <p style={{ margin: '4px 0 0', fontSize: 10, opacity: 0.7 }}>{mine ? tx('Tú') : tx('Soporte')} · {dateTime(m.created_at)}</p>
+                  <p style={{ margin: '4px 0 0', fontSize: 10, opacity: 0.7 }}>{mine ? tx(tr('Tú')) : tx(tr('Soporte'))} · {dateTime(m.created_at)}</p>
                 </div>
               </div>
             );
           })}
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <input value={msg} onChange={e => setMsg(e.target.value)} placeholder={tx('Escribe tu mensaje')} style={inputStyle} maxLength={4000} />
-            <button onClick={send} disabled={!msg.trim()} style={{ padding: '0 16px', borderRadius: 12, border: 'none', background: BRAND, color: 'white', fontWeight: 800, cursor: 'pointer' }}>{tx('Enviar')}</button>
+            <input value={msg} onChange={e => setMsg(e.target.value)} placeholder={tx(tr('Escribe tu mensaje'))} style={inputStyle} maxLength={4000} />
+            <button onClick={send} disabled={!msg.trim()} style={{ padding: '0 16px', borderRadius: 12, border: 'none', background: BRAND, color: 'white', fontWeight: 800, cursor: 'pointer' }}>{tx(tr('Enviar'))}</button>
           </div>
         </>
       )}
@@ -387,8 +388,8 @@ export function Faqs({ onBack }) {
   const { data, error, load } = useLoad(() => taxiApi('/faqs'));
   const [openId, setOpenId] = useState(null);
   return (
-    <Page title={tx('Preguntas frecuentes')} onBack={onBack}>
-      {!data ? <Loading error={error} retry={load} /> : !data.categories.length ? <p style={{ color: C.muted }}>{tx('Todavía no hay preguntas frecuentes')}</p>
+    <Page title={tx(tr('Preguntas frecuentes'))} onBack={onBack}>
+      {!data ? <Loading error={error} retry={load} /> : !data.categories.length ? <p style={{ color: C.muted }}>{tx(tr('Todavía no hay preguntas frecuentes'))}</p>
         : data.categories.map(c => (
           <div key={c.id} style={{ marginBottom: 14 }}>
             <p style={{ fontWeight: 900, margin: '0 4px 8px' }}>{c.title}</p>
@@ -409,10 +410,10 @@ export function Faqs({ onBack }) {
 export function About({ boot, onBack }) {
   const a = boot.settings.app || {};
   return (
-    <Page title={tx('Acerca de')} onBack={onBack}>
+    <Page title={tx(tr('Acerca de'))} onBack={onBack}>
       <Card style={{ textAlign: 'center' }}>
         <p style={{ fontSize: 48, margin: 0 }}>🚕</p>
-        <p style={{ fontWeight: 900, fontSize: 20, margin: '6px 0' }}>{a.name || 'OldFace Taxi'}</p>
+        <p style={{ fontWeight: 900, fontSize: 20, margin: '6px 0' }}>{a.name || tr('OldFace Taxi')}</p>
         {a.supportEmail && <p style={{ margin: '4px 0', color: C.muted }}>✉️ {a.supportEmail}</p>}
         {a.supportPhone && <p style={{ margin: '4px 0', color: C.muted }}>📞 {a.supportPhone}</p>}
       </Card>

@@ -3,6 +3,7 @@
  */
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { tr } from '../i18n';
 
 const BRAND = '#3D5A80';
 
@@ -32,8 +33,8 @@ export default function PrivacyPage() {
           </svg>
         </button>
         <div>
-          <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#293241' }}>Política de privacidad</h1>
-          <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>Última actualización: enero 2025</p>
+          <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#293241' }}>{tr('Política de privacidad')}</h1>
+          <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>{tr('Última actualización: enero 2025')}</p>
         </div>
       </div>
 
@@ -45,48 +46,45 @@ export default function PrivacyPage() {
           background: `linear-gradient(135deg, ${BRAND} 0%, #1a237e 100%)`,
           borderRadius: 18, padding: '22px 24px', marginBottom: 28, color: 'white',
         }}>
-          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, opacity: 0.9 }}>
-            Tu privacidad es importante para nosotros. Esta política explica qué datos recopilamos,
-            cómo los usamos y cuáles son tus derechos al respecto.
-          </p>
+          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, opacity: 0.9 }}>{tr('Tu privacidad es importante para nosotros. Esta política explica qué datos recopilamos, cómo los usamos y cuáles son tus derechos al respecto.')}</p>
         </div>
 
         {[
           {
-            title: '1. Responsable del tratamiento',
-            body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
+            title: tr('1. Responsable del tratamiento'),
+            body: tr('Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.'),
           },
           {
-            title: '2. Datos que recopilamos',
-            body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.',
+            title: tr('2. Datos que recopilamos'),
+            body: tr('Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.'),
           },
           {
-            title: '3. Finalidad del tratamiento',
-            body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit.',
+            title: tr('3. Finalidad del tratamiento'),
+            body: tr('Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit.'),
           },
           {
-            title: '4. Base legal',
-            body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.',
+            title: tr('4. Base legal'),
+            body: tr('Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.'),
           },
           {
-            title: '5. Conservación de los datos',
-            body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
+            title: tr('5. Conservación de los datos'),
+            body: tr('Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.'),
           },
           {
-            title: '6. Compartición de datos con terceros',
-            body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident.',
+            title: tr('6. Compartición de datos con terceros'),
+            body: tr('Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident.'),
           },
           {
-            title: '7. Tus derechos',
-            body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Tienes derecho de acceso, rectificación, supresión, portabilidad y oposición al tratamiento de tus datos. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation.',
+            title: tr('7. Tus derechos'),
+            body: tr('Lorem ipsum dolor sit amet, consectetur adipiscing elit. Tienes derecho de acceso, rectificación, supresión, portabilidad y oposición al tratamiento de tus datos. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation.'),
           },
           {
-            title: '8. Seguridad',
-            body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.',
+            title: tr('8. Seguridad'),
+            body: tr('Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.'),
           },
           {
-            title: '9. Contacto y reclamaciones',
-            body: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Para ejercer tus derechos o presentar una reclamación, contacta con nosotros en privacidad@oldface.app.',
+            title: tr('9. Contacto y reclamaciones'),
+            body: tr('Lorem ipsum dolor sit amet, consectetur adipiscing elit. Para ejercer tus derechos o presentar una reclamación, contacta con nosotros en privacidad@oldface.app.'),
           },
         ].map((section, i) => (
           <div key={i} style={{ marginBottom: 24 }}>
@@ -98,8 +96,7 @@ export default function PrivacyPage() {
         {/* Footer */}
         <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 20, marginTop: 12 }}>
           <p style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', margin: 0 }}>
-            © {new Date().getFullYear()} OldFace. Todos los derechos reservados.
-          </p>
+            © {new Date().getFullYear()}{' '}{tr('OldFace. Todos los derechos reservados.')}</p>
         </div>
       </div>
     </div>

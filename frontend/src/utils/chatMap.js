@@ -6,6 +6,7 @@
  * MapLibre se carga solo cuando hace falta (no engorda la página del chat).
  */
 import { taxiUrl } from './taxiApi';
+import { tr, LANG } from '../i18n';
 
 const BRAND = '#3D5A80';
 const CACHE_KEY = 'oldface_mapsnap_v1';
@@ -33,7 +34,7 @@ function style({ layers, namedFlavor }) {
     sprite: `${assets}/sprites/v4/light`,
     sources: { protomaps: { type: 'vector', url: `pmtiles://${taxiUrl('/maps/tiles/world.pmtiles')}`,
                             attribution: '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>' } },
-    layers: layers('protomaps', namedFlavor('light'), { lang: 'es' }),
+    layers: layers('protomaps', namedFlavor('light'), { lang: LANG }),
   };
 }
 
@@ -89,7 +90,7 @@ export function renderMapSnapshot(lat, lng, { width = 320, height = 170, zoom = 
         canvasContextAttributes: { preserveDrawingBuffer: true },
       });
       await new Promise((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error('El mapa tarda demasiado')), 15000);
+        const t = setTimeout(() => reject(new Error(tr('El mapa tarda demasiado'))), 15000);
         map.once('idle', () => { clearTimeout(t); resolve(); });
         map.once('error', (e) => { if (!map.loaded()) { clearTimeout(t); reject(e.error || e); } });
       });

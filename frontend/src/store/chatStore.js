@@ -3,12 +3,13 @@
  */
 import { create } from 'zustand';
 import { playMessageSound } from '../utils/sounds.js';
+import { tr, LOCALE } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 /** Hora del mensaje en la zona horaria del móvil (el servidor está en UTC; `time` solo para mensajes antiguos) */
 export const msgTime = (m) => (m?.createdAt
-  ? new Date(m.createdAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+  ? new Date(m.createdAt).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' })
   : m?.time || '');
 
 export const useChatStore = create((set, get) => ({
@@ -79,7 +80,7 @@ export const useChatStore = create((set, get) => ({
             ...c,
             name,
             lastTime: c.lastTime
-              ? new Date(c.lastTime).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+              ? new Date(c.lastTime).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' })
               : '',
           };
         }));
@@ -103,7 +104,7 @@ export const useChatStore = create((set, get) => ({
         const mapped = {
           ...chat,
           lastTime: chat.lastTime
-            ? new Date(chat.lastTime).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+            ? new Date(chat.lastTime).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' })
             : '',
         };
         get().addChat(mapped);
@@ -250,13 +251,13 @@ export const useChatStore = create((set, get) => ({
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, text }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) return data.error || 'No se pudo editar';
+      if (!res.ok) return data.error || tr('No se pudo editar');
       set((state) => ({
         messages: { ...state.messages, [chatId]: (state.messages[chatId] || []).map(m => m.id === messageId
           ? { ...m, text: data.message.text, editedAt: data.message.editedAt } : m) },
       }));
       return null;
-    } catch { return 'Sin conexión'; }
+    } catch { return tr('Sin conexión'); }
   },
 
   /** Fijar (para todos) o destacar (para mí) un mensaje: flags = { pinned } o { starred } */

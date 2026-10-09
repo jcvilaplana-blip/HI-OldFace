@@ -2,14 +2,36 @@
  * OldFace — Sonidos de la aplicación (Web Audio API, sin dependencias externas)
  */
 
-let lastMessageSoundTime = 0;
+import { usePrefsStore } from '../store/prefsStore.js';
 
-/** Sonido de mensaje entrante — estilo WhatsApp (ping brillante doble) */
+let lastMessageSoundTime = 0;
+const toneCache = new Map();   // id → HTMLAudioElement
+
+/** Reproducir un tono de mensaje (public/sounds/msg_<id>.wav). También para la vista previa en Ajustes. */
+export function playTone(id) {
+  if (!id || id === 'ninguno') return;
+  try {
+    let a = toneCache.get(id);
+    if (!a) {
+      a = new Audio(`${import.meta.env.BASE_URL || '/'}sounds/msg_${id}.wav`);
+      a.preload = 'auto';
+      toneCache.set(id, a);
+    }
+    a.currentTime = 0;
+    a.play().catch(() => playAlertSound());
+  } catch { playAlertSound(); }
+}
+
+/** Sonido de mensaje entrante — con el tono elegido en Ajustes */
 export function playMessageSound() {
   const now = Date.now();
   if (now - lastMessageSoundTime < 800) return;
   lastMessageSoundTime = now;
+  playTone(usePrefsStore.getState().messageTone || 'clasico');
+}
 
+/** Aviso fijo (ping brillante doble), independiente del tono elegido: ofertas del taxi */
+export function playAlertSound() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
 

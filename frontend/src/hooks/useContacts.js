@@ -8,6 +8,7 @@
  * puntos de fallo extra sin beneficio.
  */
 import { useState, useCallback } from 'react';
+import { tr } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -64,7 +65,7 @@ export function useContacts() {
           id:          c.contactId || String(Math.random()),
           name:        c.name?.display ||
                        `${c.name?.given || ''} ${c.name?.family || ''}`.trim() ||
-                       'Sin nombre',
+                       tr('Sin nombre'),
           phone:       c.phones?.[0]?.number || '',
           avatar:      null,
           usesOldFace: false,
@@ -99,7 +100,7 @@ export function useContacts() {
       } else if (msg.includes('web') || msg.includes('unavailable') || msg.includes('not implemented')) {
         setError('web');
       } else {
-        setError(err.message || 'Error desconocido');
+        setError(err.message || tr('Error desconocido'));
       }
       setContacts([]);
     } finally {
@@ -111,7 +112,7 @@ export function useContacts() {
   const saveContact = useCallback(async ({ name, phone }) => {
     try {
       const { Capacitor } = await import('@capacitor/core');
-      if (!Capacitor.isNativePlatform()) return { success: false, error: 'Solo disponible en la app nativa' };
+      if (!Capacitor.isNativePlatform()) return { success: false, error: tr('Solo disponible en la app nativa') };
 
       const { Contacts } = await import('@capacitor-community/contacts');
 

@@ -2,11 +2,16 @@
  * SettingsPage — Ajustes de usuario estilo WhatsApp
  * Avatar, nombre, estado, teléfono, notificaciones, privacidad, etc.
  */
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import Avatar from '../components/Avatar.jsx';
+import { usePrefsStore, MESSAGE_TONES, LOCK_AFTER } from '../store/prefsStore';
+import { playTone } from '../utils/sounds';
+import { biometricAvailable, verifyBiometric } from '../components/AppLock.jsx';
+import LinkedDevicesSheet from '../components/LinkedDevicesSheet.jsx';
+import { tr } from '../i18n';
 
 const BRAND   = '#3D5A80';
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
@@ -44,16 +49,17 @@ export default function SettingsPage() {
   const [editName, setEditName] = useState(false);
   const [editStatus, setEditStatus] = useState(false);
   const [name, setName] = useState(user?.name || '');
-  const [status, setStatus] = useState(user?.status || '¡Hola! Estoy usando OldFace 👋');
+  const [status, setStatus] = useState(user?.status || tr('¡Hola! Estoy usando OldFace 👋'));
   const [avatarSrc, setAvatarSrc] = useState(user?.avatar || null);
   const [saving, setSaving] = useState(false);
+  const [showDevices, setShowDevices] = useState(false);
   const fileRef = useRef(null);
 
   // ── Avatar upload — comprime a 150×150 JPEG y guarda en backend + localStorage ──
   const handleAvatarChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { alert('La imagen no puede superar 10MB'); return; }
+    if (file.size > 10 * 1024 * 1024) { alert(tr('La imagen no puede superar 10MB')); return; }
     try {
       const compressed = await compressAvatar(file);
       setAvatarSrc(compressed);
@@ -65,7 +71,7 @@ export default function SettingsPage() {
         body: JSON.stringify({ userId: user.id, avatar: compressed }),
       }).catch(() => {});
     } catch {
-      alert('No se pudo procesar la imagen');
+      alert(tr('No se pudo procesar la imagen'));
     }
   };
 
@@ -90,7 +96,8 @@ export default function SettingsPage() {
 
   // ── Logout ──
   const handleLogout = () => {
-    if (window.confirm('¿Seguro que quieres cerrar sesión?')) {
+    if (window.confirm(tr('¿Seguro que quieres cerrar sesión?'))) {
+      usePrefsStore.getState().disableLock();   // el bloqueo es de esta sesión
       logout();
       navigate('/login', { replace: true });
     }
@@ -116,7 +123,7 @@ export default function SettingsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <h1 className="text-white font-black text-xl">Ajustes</h1>
+          <h1 className="text-white font-black text-xl">{tr('Ajustes')}</h1>
         </div>
       </div>
 
@@ -129,7 +136,7 @@ export default function SettingsPage() {
               {avatarSrc ? (
                 <img
                   src={avatarSrc}
-                  alt="Avatar"
+                  alt={tr('Avatar')}
                   className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-lg"
                 />
               ) : (
@@ -155,12 +162,12 @@ export default function SettingsPage() {
               </button>
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
             </div>
-            <p className="text-xs font-medium" style={{ color: labelClr }}>Toca la cámara para cambiar tu foto</p>
+            <p className="text-xs font-medium" style={{ color: labelClr }}>{tr('Toca la cámara para cambiar tu foto')}</p>
           </div>
 
           {/* Nombre */}
           <div className="px-5 py-4" style={{ borderTop: `1px solid ${borderClr}` }}>
-            <p className="text-xs font-bold mb-1.5" style={{ color: BRAND }}>TU NOMBRE</p>
+            <p className="text-xs font-bold mb-1.5" style={{ color: BRAND }}>{tr('TU NOMBRE')}</p>
             {editName ? (
               <div className="flex items-center gap-2">
                 <input
@@ -176,18 +183,16 @@ export default function SettingsPage() {
                   className="text-sm font-bold px-3 py-1 rounded-xl text-white active:opacity-80"
                   style={{ backgroundColor: BRAND }}
                 >
-                  {saving ? '...' : 'Guardar'}
+                  {saving ? '...' : tr('Guardar')}
                 </button>
                 <button onClick={() => { setEditName(false); setName(user?.name || ''); }}
                   className="text-sm font-semibold px-2 py-1"
                   style={{ color: labelClr }}
-                >
-                  Cancelar
-                </button>
+                >{tr('Cancelar')}</button>
               </div>
             ) : (
               <div className="flex items-center justify-between">
-                <p className="font-semibold text-base" style={{ color: textClr }}>{user?.name || 'Sin nombre'}</p>
+                <p className="font-semibold text-base" style={{ color: textClr }}>{user?.name || tr('Sin nombre')}</p>
                 <button onClick={() => setEditName(true)} className="p-1.5 rounded-lg">
                   <svg className="w-4 h-4" style={{ color: labelClr }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -199,7 +204,7 @@ export default function SettingsPage() {
 
           {/* Estado / Info */}
           <div className="px-5 py-4" style={{ borderTop: `1px solid ${borderClr}` }}>
-            <p className="text-xs font-bold mb-1.5" style={{ color: BRAND }}>ESTADO</p>
+            <p className="text-xs font-bold mb-1.5" style={{ color: BRAND }}>{tr('ESTADO')}</p>
             {editStatus ? (
               <div className="flex items-start gap-2">
                 <textarea
@@ -228,7 +233,7 @@ export default function SettingsPage() {
               </div>
             ) : (
               <div className="flex items-center justify-between">
-                <p className="font-medium text-sm flex-1 pr-2" style={{ color: labelClr }}>{user?.status || '¡Hola! Estoy usando OldFace 👋'}</p>
+                <p className="font-medium text-sm flex-1 pr-2" style={{ color: labelClr }}>{user?.status || tr('¡Hola! Estoy usando OldFace 👋')}</p>
                 <button onClick={() => setEditStatus(true)} className="p-1.5 rounded-lg flex-shrink-0">
                   <svg className="w-4 h-4" style={{ color: labelClr }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -240,40 +245,58 @@ export default function SettingsPage() {
 
           {/* Teléfono (solo lectura) */}
           <div className="px-5 py-4" style={{ borderTop: `1px solid ${borderClr}` }}>
-            <p className="text-xs font-bold mb-1.5" style={{ color: BRAND }}>TELÉFONO</p>
+            <p className="text-xs font-bold mb-1.5" style={{ color: BRAND }}>{tr('TELÉFONO')}</p>
             <p className="font-semibold text-base" style={{ color: textClr }}>{user?.phone || '—'}</p>
           </div>
         </div>
 
-        {/* ── Sección: Notificaciones ── */}
-        <SettingsSection title="Notificaciones" icon="🔔" cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} items={[
-          { label: 'Sonidos de mensaje', toggle: true, defaultOn: true },
-          { label: 'Notificaciones de llamada', toggle: true, defaultOn: true },
-          { label: 'Vibración', toggle: true, defaultOn: false },
-        ]} />
+        {/* ── Dispositivos vinculados (ordenador / tablet con la misma cuenta) ── */}
+        <div className="mx-4 mt-4 rounded-3xl shadow-sm overflow-hidden" style={{ backgroundColor: cardBg }}>
+          <button onClick={() => setShowDevices(true)} className="w-full flex items-center gap-3 px-5 py-4 text-left">
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: isDark ? 'rgba(152,193,217,0.15)' : '#E3EDF2' }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isDark ? '#98C1D9' : BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="4" width="14" height="10" rx="2"/><path d="M6 18h6M9 14v4"/><rect x="17" y="8" width="5" height="12" rx="1"/>
+              </svg>
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-semibold text-sm" style={{ color: textClr }}>{tr('Dispositivos vinculados')}</span>
+              <span className="block text-xs mt-0.5" style={{ color: labelClr }}>{tr('Usa OldFace en el ordenador o en una tablet')}</span>
+            </span>
+            <svg className="w-4 h-4" style={{ color: labelClr }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+        {showDevices && <LinkedDevicesSheet onClose={() => setShowDevices(false)} />}
+
+        {/* ── Sección: Sonidos (tono de mensaje) ── */}
+        <ToneSection userId={user?.id} cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} />
+
+        {/* ── Sección: Bloqueo de la app (PIN + huella/cara) ── */}
+        <LockSection cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} isDark={isDark} />
 
         {/* ── Sección: Privacidad ── */}
-        <SettingsSection title="Privacidad" icon="🔒" cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} items={[
-          { label: 'Última vez', value: 'Todos' },
-          { label: 'Foto de perfil', value: 'Todos' },
-          { label: 'Estado', value: 'Mis contactos' },
-          { label: 'Confirmación de lectura', toggle: true, defaultOn: true },
+        <SettingsSection title={tr('Privacidad')} icon="🔒" cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} items={[
+          { label: tr('Última vez'), value: tr('Todos') },
+          { label: tr('Foto de perfil'), value: tr('Todos') },
+          { label: tr('Estado'), value: tr('Mis contactos') },
+          { label: tr('Confirmación de lectura'), toggle: true, defaultOn: true },
         ]} />
 
         {/* ── Sección: Apariencia ── */}
         <AppearanceSection isDark={isDark} setTheme={setTheme} cardBg={cardBg} textClr={textClr} borderClr={borderClr} />
 
         {/* ── Sección: Almacenamiento ── */}
-        <SettingsSection title="Almacenamiento y datos" icon="💾" cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} items={[
-          { label: 'Uso de red', value: '—' },
-          { label: 'Descarga automática', value: 'WiFi' },
+        <SettingsSection title={tr('Almacenamiento y datos')} icon="💾" cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} items={[
+          { label: tr('Uso de red'), value: '—' },
+          { label: tr('Descarga automática'), value: 'WiFi' },
         ]} />
 
         {/* ── Sección: Ayuda ── */}
-        <SettingsSection title="Ayuda" icon="❓" cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} items={[
-          { label: 'Centro de ayuda', action: true },
-          { label: 'Términos y política de privacidad', action: true },
-          { label: 'Información de la app', value: 'v1.0.0' },
+        <SettingsSection title={tr('Ayuda')} icon="❓" cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} items={[
+          { label: tr('Centro de ayuda'), action: true },
+          { label: tr('Términos y política de privacidad'), action: true },
+          { label: tr('Información de la app'), value: 'v1.0.0' },
         ]} />
 
         {/* ── Cerrar sesión ── */}
@@ -286,8 +309,159 @@ export default function SettingsPage() {
               backgroundColor: isDark ? 'rgba(239,68,68,0.08)' : 'white',
               border: isDark ? '1.5px solid rgba(239,68,68,0.25)' : '2px solid #fee2e2',
             }}
-          >
-            Cerrar sesión
+          >{tr('Cerrar sesión')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Cabecera de tarjeta (mismo estilo que SettingsSection) ──
+function CardTitle({ children, labelClr, borderClr }) {
+  return (
+    <div className="px-5 py-3" style={{ borderBottom: `1px solid ${borderClr}` }}>
+      <p className="text-xs font-black tracking-wider uppercase" style={{ color: labelClr }}>{children}</p>
+    </div>
+  );
+}
+
+function Toggle({ on, onPress, label }) {
+  return (
+    <button onClick={onPress} aria-label={label} aria-pressed={on}
+      className="relative w-12 h-6 rounded-full transition-colors duration-200 flex items-center flex-shrink-0"
+      style={{ backgroundColor: on ? BRAND : 'rgba(120,140,170,0.3)' }}>
+      <span className="absolute w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200"
+        style={{ transform: on ? 'translateX(26px)' : 'translateX(2px)' }} />
+    </button>
+  );
+}
+
+// ── Sonidos: tono de los mensajes nuevos (con vista previa al elegirlo) ──
+function ToneSection({ userId, cardBg, textClr, labelClr, borderClr }) {
+  const tone = usePrefsStore(s => s.messageTone);
+  const setTone = usePrefsStore(s => s.setMessageTone);
+  return (
+    <div className="mx-4 mt-4 rounded-3xl shadow-sm overflow-hidden" style={{ backgroundColor: cardBg }}>
+      <CardTitle labelClr={labelClr} borderClr={borderClr}>{tr('🔔 Sonidos · Tono de mensaje')}</CardTitle>
+      {MESSAGE_TONES.map((t, i) => (
+        <button key={t.id} onClick={() => { setTone(t.id, userId); playTone(t.id); }}
+          className="w-full flex items-center justify-between px-5 py-3.5 text-left"
+          style={{ borderBottom: i < MESSAGE_TONES.length - 1 ? `1px solid ${borderClr}` : 'none' }}>
+          <span className="font-semibold text-sm" style={{ color: textClr }}>{t.name}</span>
+          <span className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ border: `2px solid ${tone === t.id ? BRAND : 'rgba(120,140,170,0.5)'}` }}>
+            {tone === t.id && <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: BRAND }} />}
+          </span>
+        </button>
+      ))}
+      <p className="px-5 pb-4 pt-1 text-xs" style={{ color: labelClr }}>{tr('Suena al recibir un mensaje, también con la app cerrada. Las llamadas usan el tono de llamada del móvil.')}</p>
+    </div>
+  );
+}
+
+// ── Bloqueo de la app: PIN de 4-6 cifras + huella/cara + cuándo se bloquea ──
+function LockSection({ cardBg, textClr, labelClr, borderClr, isDark }) {
+  const lock = usePrefsStore(s => s.lock);
+  const { setLockOption, disableLock } = usePrefsStore.getState();
+  const [pinSheet, setPinSheet] = useState(false);   // false | 'enable' | 'change'
+  const [bioOk, setBioOk] = useState(false);
+
+  useEffect(() => { biometricAvailable().then(setBioOk); }, []);
+
+  const toggleBio = async () => {
+    if (lock.biometric) { setLockOption({ biometric: false }); return; }
+    try { await verifyBiometric(tr('Activar huella o cara')); setLockOption({ biometric: true }); } catch { /* canceló */ }
+  };
+
+  const row = (children, last) => (
+    <div className="flex items-center justify-between gap-3 px-5 py-4" style={{ borderBottom: last ? 'none' : `1px solid ${borderClr}` }}>
+      {children}
+    </div>
+  );
+
+  return (
+    <div className="mx-4 mt-4 rounded-3xl shadow-sm overflow-hidden" style={{ backgroundColor: cardBg }}>
+      <CardTitle labelClr={labelClr} borderClr={borderClr}>{tr('🔒 Bloqueo de la app')}</CardTitle>
+      {row(<>
+        <div className="min-w-0">
+          <p className="font-semibold text-sm" style={{ color: textClr }}>{tr('Bloquear con PIN')}</p>
+          <p className="text-xs mt-0.5" style={{ color: labelClr }}>{tr('Pide el PIN al abrir OldFace')}</p>
+        </div>
+        <Toggle on={lock.enabled} label={tr('Bloquear con PIN')} onPress={() => (lock.enabled ? disableLock() : setPinSheet('enable'))} />
+      </>, !lock.enabled)}
+
+      {lock.enabled && <>
+        {bioOk && row(<>
+          <div className="min-w-0">
+            <p className="font-semibold text-sm" style={{ color: textClr }}>{tr('Desbloquear con huella o cara')}</p>
+            <p className="text-xs mt-0.5" style={{ color: labelClr }}>{tr('El PIN sigue sirviendo siempre')}</p>
+          </div>
+          <Toggle on={lock.biometric} label={tr('Desbloquear con huella o cara')} onPress={toggleBio} />
+        </>)}
+        <div className="px-5 py-4" style={{ borderBottom: `1px solid ${borderClr}` }}>
+          <p className="font-semibold text-sm mb-2" style={{ color: textClr }}>{tr('Bloquear automáticamente')}</p>
+          <div className="flex flex-wrap gap-2">
+            {LOCK_AFTER.map(o => (
+              <button key={o.secs} onClick={() => setLockOption({ after: o.secs })}
+                className="px-3 py-1.5 rounded-full text-xs font-bold"
+                style={lock.after === o.secs
+                  ? { backgroundColor: BRAND, color: 'white' }
+                  : { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E3EDF2', color: textClr }}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {row(<>
+          <p className="font-semibold text-sm" style={{ color: textClr }}>{tr('Cambiar PIN')}</p>
+          <button onClick={() => setPinSheet('change')} className="text-sm font-bold" style={{ color: BRAND }}>{tr('Cambiar')}</button>
+        </>, true)}
+      </>}
+
+      {pinSheet && <PinSheet mode={pinSheet} onClose={() => setPinSheet(false)} />}
+    </div>
+  );
+}
+
+/** Elegir PIN: se escribe dos veces (4-6 cifras) */
+function PinSheet({ mode, onClose }) {
+  const setPin = usePrefsStore(s => s.setPin);
+  const [first, setFirst] = useState(null);
+  const [pin, setPinVal] = useState('');
+  const [error, setError] = useState('');
+
+  const confirmStep = first !== null;
+  const submit = async () => {
+    if (pin.length < 4) { setError(tr('El PIN debe tener entre 4 y 6 cifras')); return; }
+    if (!confirmStep) { setFirst(pin); setPinVal(''); setError(''); return; }
+    if (pin !== first) { setError(tr('Los PIN no coinciden. Vuelve a empezar.')); setFirst(null); setPinVal(''); return; }
+    await setPin(pin);
+    onClose();
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end' }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ width: '100%', background: 'white', borderRadius: '22px 22px 0 0', padding: 22, paddingBottom: 'calc(var(--sab, 0px) + 22px)' }}>
+        <p style={{ margin: 0, fontWeight: 800, fontSize: 17, color: '#293241' }}>
+          {mode === 'change' ? tr('Nuevo PIN') : tr('Crea tu PIN')}
+        </p>
+        <p style={{ margin: '4px 0 16px', fontSize: 13, color: '#6b7280' }}>
+          {confirmStep ? tr('Escríbelo otra vez para confirmarlo') : tr('Entre 4 y 6 cifras. Lo pediremos al abrir OldFace.')}
+        </p>
+        <input
+          type="password" inputMode="numeric" autoComplete="off" autoFocus maxLength={6} value={pin}
+          onChange={e => { setPinVal(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+          onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+          aria-label="PIN"
+          style={{ width: '100%', fontSize: 28, letterSpacing: 12, textAlign: 'center', padding: '10px 0', borderRadius: 14,
+                   border: `2px solid ${error ? '#ef4444' : '#D5E6F0'}`, outline: 'none', color: '#293241' }}
+        />
+        <p style={{ minHeight: 18, margin: '8px 0', color: '#ef4444', fontSize: 13, fontWeight: 600 }}>{error}</p>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: 13, borderRadius: 14, border: 'none', background: '#E3EDF2', color: '#293241', fontWeight: 700, fontSize: 15 }}>{tr('Cancelar')}</button>
+          <button onClick={submit} style={{ flex: 1, padding: 13, borderRadius: 14, border: 'none', background: BRAND, color: 'white', fontWeight: 800, fontSize: 15 }}>
+            {confirmStep ? tr('Guardar') : tr('Siguiente')}
           </button>
         </div>
       </div>
@@ -349,9 +523,7 @@ function AppearanceSection({ isDark, setTheme, cardBg, textClr, labelClr, border
     <div className="mx-4 mt-4 rounded-3xl shadow-sm overflow-hidden" style={{ backgroundColor: cardBg }}>
       {/* Título */}
       <div className="px-5 py-3" style={{ borderBottom: `1px solid ${borderClr}` }}>
-        <p className="text-xs font-black tracking-wider uppercase" style={{ color: labelClr }}>
-          🎨 Apariencia
-        </p>
+        <p className="text-xs font-black tracking-wider uppercase" style={{ color: labelClr }}>{tr('🎨 Apariencia')}</p>
       </div>
 
       {/* Tarjetas de modo */}
@@ -384,7 +556,7 @@ function AppearanceSection({ isDark, setTheme, cardBg, textClr, labelClr, border
           {/* Label */}
           <div style={{ padding: '8px 10px 10px', background: cardBg }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: isDark ? '#3D5A80' : textClr }}>Oscuro</span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: isDark ? '#3D5A80' : textClr }}>{tr('Oscuro')}</span>
               {isDark && (
                 <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#3D5A80', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -393,7 +565,7 @@ function AppearanceSection({ isDark, setTheme, cardBg, textClr, labelClr, border
                 </span>
               )}
             </div>
-            <p style={{ fontSize: 10, color: labelClr, marginTop: 2 }}>Por defecto</p>
+            <p style={{ fontSize: 10, color: labelClr, marginTop: 2 }}>{tr('Por defecto')}</p>
           </div>
         </button>
 
@@ -424,7 +596,7 @@ function AppearanceSection({ isDark, setTheme, cardBg, textClr, labelClr, border
           {/* Label */}
           <div style={{ padding: '8px 10px 10px', background: cardBg }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: !isDark ? '#3D5A80' : textClr }}>Claro</span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: !isDark ? '#3D5A80' : textClr }}>{tr('Claro')}</span>
               {!isDark && (
                 <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#3D5A80', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -433,7 +605,7 @@ function AppearanceSection({ isDark, setTheme, cardBg, textClr, labelClr, border
                 </span>
               )}
             </div>
-            <p style={{ fontSize: 10, color: labelClr, marginTop: 2 }}>Opcional</p>
+            <p style={{ fontSize: 10, color: labelClr, marginTop: 2 }}>{tr('Opcional')}</p>
           </div>
         </button>
       </div>

@@ -1,3 +1,4 @@
+import { tr } from '../i18n';
 /**
  * groupsApi — grupos de OldFace (backend /groups) y llamadas de grupo.
  *
@@ -18,7 +19,7 @@ async function req(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'No se pudo completar. Inténtalo de nuevo.');
+  if (!res.ok) throw new Error(data.error || tr('No se pudo completar. Inténtalo de nuevo.'));
   return data;
 }
 
@@ -49,7 +50,7 @@ export function compressGroupPhoto(file, size = 256) {
       URL.revokeObjectURL(url);
       resolve(c.toDataURL('image/jpeg', 0.82));
     };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo leer la imagen')); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(tr('No se pudo leer la imagen'))); };
     img.src = url;
   });
 }

@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useContacts } from '../hooks/useContacts';
 import { onRtc } from '../utils/rtcClient';
+import { tr, LOCALE } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const BRAND   = '#3D5A80';
@@ -18,15 +19,15 @@ const isDirectoCreator = (user) => !!user?.id;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function formatScheduled(iso) {
-  if (!iso) return 'Sin programar';
+  if (!iso) return tr('Sin programar');
   const d = new Date(iso);
-  return d.toLocaleString('es', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString(LOCALE, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 function statusLabel(status) {
   if (status === 'live')      return { text: '● EN VIVO',    color: RED,     bg: '#fee2e2' };
-  if (status === 'ended')     return { text: 'Finalizado',   color: '#94a3b8', bg: '#f1f5f9' };
-  return                             { text: 'Programado',   color: BRAND,    bg: '#E3EDF2' };
+  if (status === 'ended')     return { text: tr('Finalizado'),   color: '#94a3b8', bg: '#f1f5f9' };
+  return                             { text: tr('Programado'),   color: BRAND,    bg: '#E3EDF2' };
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
@@ -71,20 +72,20 @@ export default function DirectoPage() {
     try {
       const res = await fetch(`${BACKEND}/directos`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ creatorId: user.id, title: `Directo de ${user.name || 'OldFace'}`, price: 0 }),
+        body: JSON.stringify({ creatorId: user.id, title: tr('Directo de {p0}', { p0: user.name || 'OldFace' }), price: 0 }),
       });
       if (!res.ok) throw new Error();
       const d = await res.json();
       navigate(`/directo/${d.id}/live`);
     } catch {
-      window.alert?.('No se pudo crear el directo. Inténtalo de nuevo.');
+      window.alert?.(tr('No se pudo crear el directo. Inténtalo de nuevo.'));
     } finally {
       setGoingLive(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('¿Eliminar este directo?')) return;
+    if (!window.confirm(tr('¿Eliminar este directo?'))) return;
     try {
       await fetch(`${BACKEND}/directos/${id}`, { method: 'DELETE' });
       setDirectos(prev => prev.filter(d => d.id !== id));
@@ -159,9 +160,9 @@ export default function DirectoPage() {
           </div>
 
           <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0, lineHeight: 1.1 }}>DIRECTO</h1>
+            <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0, lineHeight: 1.1 }}>{tr('DIRECTO')}</h1>
             <p style={{ fontSize: 11, margin: 0, opacity: 0.8 }}>
-              {canCreate ? 'Crea y gestiona tus directos' : 'Directos disponibles'}
+              {canCreate ? tr('Crea y gestiona tus directos') : tr('Directos disponibles')}
             </p>
           </div>
 
@@ -172,9 +173,7 @@ export default function DirectoPage() {
                 background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 20,
                 padding: '6px 14px', color: 'white', fontWeight: 800, fontSize: 13, cursor: 'pointer',
               }}
-            >
-              + Nuevo
-            </button>
+            >{tr('+ Nuevo')}</button>
           )}
         </div>
       </div>
@@ -194,7 +193,7 @@ export default function DirectoPage() {
             boxShadow: '0 6px 20px rgba(239,68,68,0.35)', opacity: goingLive ? 0.7 : 1,
           }}>
             <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'white', animation: 'pulse 1.4s ease-in-out infinite' }} />
-            {goingLive ? 'Preparando…' : 'En directo ahora'}
+            {goingLive ? tr('Preparando…') : tr('En directo ahora')}
           </button>
         )}
         {loading && (
@@ -215,12 +214,10 @@ export default function DirectoPage() {
               <path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3.515 3.515a13 13 0 000 16.97M20.485 3.515a13 13 0 010 16.97"/>
             </svg>
             <p style={{ fontWeight: 700, fontSize: 15, color: '#64748b', margin: '0 0 6px' }}>
-              {canCreate ? 'Ningún directo creado' : 'No hay directos disponibles'}
+              {canCreate ? tr('Ningún directo creado') : tr('No hay directos disponibles')}
             </p>
             {canCreate && (
-              <p style={{ fontSize: 13, color: '#94a3b8', margin: 0 }}>
-                Pulsa "+ Nuevo" para crear tu primer directo
-              </p>
+              <p style={{ fontSize: 13, color: '#94a3b8', margin: 0 }}>{tr('Pulsa "+ Nuevo" para crear tu primer directo')}</p>
             )}
           </div>
         )}
@@ -265,8 +262,8 @@ function DirectoCard({ directo: d, canManage, canWatch, onEdit, onDelete, onGoLi
   const st = statusLabel(d.status);
 
   const handleShare = async () => {
-    const when = d.scheduledAt ? `\nCuándo: ${formatScheduled(d.scheduledAt)}` : '';
-    const price = d.price > 0 ? `\nPrecio: ${d.price}€` : '\nGratis';
+    const when = d.scheduledAt ? tr('\nCuándo: {p0}', { p0: formatScheduled(d.scheduledAt) }) : '';
+    const price = d.price > 0 ? tr('\nPrecio: {price}€', { price: d.price }) : '\nGratis';
     const link = `https://oldface.app/directo/${d.id}/live`;
     const text = `${d.title}${d.description ? ' — ' + d.description : ''}${when}${price}\n${link}`;
     try {
@@ -288,8 +285,7 @@ function DirectoCard({ directo: d, canManage, canWatch, onEdit, onDelete, onGoLi
         <span style={{ fontSize: 10, fontWeight: 800, color: st.color, letterSpacing: '0.5px' }}>{st.text}</span>
         {d.price > 0 && (
           <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, color: '#293241', background: '#fef9c3', borderRadius: 20, padding: '2px 8px' }}>
-            {d.price} € / acceso
-          </span>
+            {d.price}{' '}{tr('€ / acceso')}</span>
         )}
       </div>
 
@@ -306,7 +302,7 @@ function DirectoCard({ directo: d, canManage, canWatch, onEdit, onDelete, onGoLi
           {d.contacts?.length > 0 && (
             <span style={{ fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4 }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-              {d.contacts.length} contacto{d.contacts.length !== 1 ? 's' : ''}
+              {d.contacts.length}{' '}{tr('contacto')}{d.contacts.length !== 1 ? 's' : ''}
             </span>
           )}
         </div>
@@ -314,37 +310,35 @@ function DirectoCard({ directo: d, canManage, canWatch, onEdit, onDelete, onGoLi
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
           {/* Botones del creador */}
           {canManage && d.status === 'scheduled' && (
-            <button onClick={onGoLive} style={btnStyle(RED, 'white')}>● Iniciar ahora</button>
+            <button onClick={onGoLive} style={btnStyle(RED, 'white')}>{tr('● Iniciar ahora')}</button>
           )}
           {canManage && d.status === 'live' && (
             <>
-              <button onClick={onGoLive} style={btnStyle(RED, 'white')}>● Volver al directo</button>
-              <button onClick={onEnd} style={btnStyle('#64748b', 'white')}>Finalizar</button>
+              <button onClick={onGoLive} style={btnStyle(RED, 'white')}>{tr('● Volver al directo')}</button>
+              <button onClick={onEnd} style={btnStyle('#64748b', 'white')}>{tr('Finalizar')}</button>
             </>
           )}
           {canManage && d.status !== 'live' && (
-            <button onClick={onEdit} style={btnStyle('#e2e8f0', '#293241')}>Editar</button>
+            <button onClick={onEdit} style={btnStyle('#e2e8f0', '#293241')}>{tr('Editar')}</button>
           )}
           {canManage && (
-            <button onClick={onDelete} style={btnStyle('#fee2e2', RED)}>Eliminar</button>
+            <button onClick={onDelete} style={btnStyle('#fee2e2', RED)}>{tr('Eliminar')}</button>
           )}
 
           {/* Botones para la audiencia */}
           {!canManage && d.status === 'live' && (
-            <button onClick={onWatch} style={btnStyle(RED, 'white')}>● Ver directo</button>
+            <button onClick={onWatch} style={btnStyle(RED, 'white')}>{tr('● Ver directo')}</button>
           )}
           {!canManage && d.status === 'scheduled' && (
             <button onClick={handleShare} style={btnStyle(BRAND, 'white')}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/>
-                </svg>
-                Compartir
-              </span>
+                </svg>{tr('Compartir')}</span>
             </button>
           )}
           {!canManage && d.status === 'ended' && (
-            <span style={{ fontSize: 11, color: '#94a3b8', padding: '6px 0', fontWeight: 600 }}>Este directo ha finalizado</span>
+            <span style={{ fontSize: 11, color: '#94a3b8', padding: '6px 0', fontWeight: 600 }}>{tr('Este directo ha finalizado')}</span>
           )}
         </div>
       </div>
@@ -385,7 +379,7 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
   };
 
   const handleSave = async () => {
-    if (!title.trim()) { setError('El nombre del directo es obligatorio'); return; }
+    if (!title.trim()) { setError(tr('El nombre del directo es obligatorio')); return; }
     setSaving(true);
     setError('');
 
@@ -415,10 +409,10 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
         onSaved(data);
       } else {
         const err = await res.json();
-        setError(err.error || 'Error guardando el directo');
+        setError(err.error || tr('Error guardando el directo'));
       }
     } catch (e) {
-      setError('Error de conexión');
+      setError(tr('Error de conexión'));
     } finally {
       setSaving(false);
     }
@@ -453,7 +447,7 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
               </svg>
             </div>
             <h2 style={{ fontSize: 16, fontWeight: 900, color: '#293241', margin: 0 }}>
-              {initial ? 'Editar directo' : 'Nuevo directo'}
+              {initial ? tr('Editar directo') : tr('Nuevo directo')}
             </h2>
           </div>
           <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 30, height: 30, cursor: 'pointer', fontSize: 16, fontWeight: 800, color: '#64748b' }}>
@@ -464,28 +458,28 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
         <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
           {/* Nombre */}
-          <Field label="Nombre del directo *">
+          <Field label={tr('Nombre del directo *')}>
             <input
               value={title}
               onChange={e => setTitle(e.target.value)}
-              placeholder="Ej: Clase de cocina en vivo"
+              placeholder={tr('Ej: Clase de cocina en vivo')}
               style={inputStyle}
             />
           </Field>
 
           {/* Descripción */}
-          <Field label="Descripción">
+          <Field label={tr('Descripción')}>
             <textarea
               value={description}
               onChange={e => setDescription(e.target.value)}
-              placeholder="Cuéntales de qué va..."
+              placeholder={tr('Cuéntales de qué va...')}
               rows={3}
               style={{ ...inputStyle, resize: 'none' }}
             />
           </Field>
 
           {/* Fecha y hora */}
-          <Field label="Fecha y hora de inicio">
+          <Field label={tr('Fecha y hora de inicio')}>
             <input
               type="datetime-local"
               value={scheduledAt}
@@ -495,7 +489,7 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
           </Field>
 
           {/* Precio */}
-          <Field label="Precio de acceso (€)">
+          <Field label={tr('Precio de acceso (€)')}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input
                 type="number"
@@ -506,13 +500,13 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
                 style={{ ...inputStyle, width: 100 }}
               />
               <span style={{ fontSize: 12, color: '#64748b' }}>
-                {Number(price) === 0 ? 'Gratis' : `${Number(price).toFixed(2)} € por espectador`}
+                {Number(price) === 0 ? tr('Gratis') : `${Number(price).toFixed(2)} € por espectador`}
               </span>
             </div>
           </Field>
 
           {/* Compartir */}
-          <Field label="Compartir con">
+          <Field label={tr('Compartir con')}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 12px', background: '#f8fafc', borderRadius: 12, marginBottom: 8 }}>
               <input
                 type="checkbox"
@@ -521,8 +515,8 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
                 style={{ width: 18, height: 18, accentColor: RED }}
               />
               <div>
-                <p style={{ fontSize: 13, fontWeight: 700, color: '#293241', margin: 0 }}>Todos mis contactos</p>
-                <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>Notificar a todos cuando empiece el directo</p>
+                <p style={{ fontSize: 13, fontWeight: 700, color: '#293241', margin: 0 }}>{tr('Todos mis contactos')}</p>
+                <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{tr('Notificar a todos cuando empiece el directo')}</p>
               </div>
             </label>
 
@@ -530,7 +524,7 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
               <>
                 {oldFaceContacts.length > 0 && (
                   <>
-                    <p style={{ fontSize: 10, fontWeight: 800, color: RED, letterSpacing: '0.5px', margin: '8px 0 4px' }}>EN OLDFACE</p>
+                    <p style={{ fontSize: 10, fontWeight: 800, color: RED, letterSpacing: '0.5px', margin: '8px 0 4px' }}>{tr('EN OLDFACE')}</p>
                     {oldFaceContacts.map(c => (
                       <ContactCheck
                         key={c.id}
@@ -543,7 +537,7 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
                 )}
                 {otherContacts.slice(0, 10).length > 0 && (
                   <>
-                    <p style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.5px', margin: '8px 0 4px' }}>OTROS CONTACTOS</p>
+                    <p style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.5px', margin: '8px 0 4px' }}>{tr('OTROS CONTACTOS')}</p>
                     {otherContacts.slice(0, 10).map(c => (
                       <ContactCheck
                         key={c.id}
@@ -555,9 +549,7 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
                   </>
                 )}
                 {contacts.length === 0 && (
-                  <p style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0' }}>
-                    Los contactos solo están disponibles en la app Android/iOS
-                  </p>
+                  <p style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0' }}>{tr('Los contactos solo están disponibles en la app Android/iOS')}</p>
                 )}
               </>
             )}
@@ -571,15 +563,13 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
 
           {/* Botones */}
           <div style={{ display: 'flex', gap: 10, paddingBottom: 8 }}>
-            <button onClick={onClose} style={{ flex: 1, padding: '14px', background: '#f1f5f9', border: 'none', borderRadius: 14, fontWeight: 700, fontSize: 14, cursor: 'pointer', color: '#64748b' }}>
-              Cancelar
-            </button>
+            <button onClick={onClose} style={{ flex: 1, padding: '14px', background: '#f1f5f9', border: 'none', borderRadius: 14, fontWeight: 700, fontSize: 14, cursor: 'pointer', color: '#64748b' }}>{tr('Cancelar')}</button>
             <button
               onClick={handleSave}
               disabled={saving}
               style={{ flex: 2, padding: '14px', background: saving ? '#fca5a5' : RED, border: 'none', borderRadius: 14, fontWeight: 800, fontSize: 14, cursor: saving ? 'not-allowed' : 'pointer', color: 'white', boxShadow: '0 4px 14px rgba(239,68,68,0.35)' }}
             >
-              {saving ? 'Guardando...' : initial ? 'Guardar cambios' : 'Crear directo'}
+              {saving ? tr('Guardando...') : initial ? tr('Guardar cambios') : tr('Crear directo')}
             </button>
           </div>
         </div>

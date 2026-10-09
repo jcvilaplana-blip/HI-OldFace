@@ -189,12 +189,19 @@ export class RtcCall {
 
   /** Encender la cámara en una llamada que empezó solo con voz. Devuelve el nuevo stream local. */
   async enableVideo() {
-    if (this.producers.video) { await this.setCamera(true); return this.localStream; }
+    if (this.producers.video) {
+      // La pista pudo terminar mientras estaba apagada (app minimizada) → abrir la cámara otra vez
+      const cur = this.localStream?.getVideoTracks()[0];
+      if (!cur || cur.readyState === 'ended') {
+        const t = await this.getVideoTrack();
+        await this.producers.video.replaceTrack({ track: t });
+        this.localStream = new MediaStream([...(this.localStream?.getAudioTracks() || []), t]);
+      }
+      await this.setCamera(true);
+      return this.localStream;
+    }
     if (!this.sendTransport) return this.localStream;
-    const s = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: this.facingMode, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } },
-    });
-    const track = s.getVideoTracks()[0];
+    const track = await this.getVideoTrack();
     this.producers.video = await this.sendTransport.produce({
       track, encodings: [{ maxBitrate: 900_000 }], codecOptions: { videoGoogleStartBitrate: 600 },
     });
@@ -206,13 +213,61 @@ export class RtcCall {
   async switchCamera() {
     const producer = this.producers.video;
     if (!producer) return this.localStream;
-    this.facingMode = this.facingMode === 'user' ? 'environment' : 'user';
-    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: this.facingMode, width: { ideal: 640 }, height: { ideal: 480 } } });
-    const newTrack = s.getVideoTracks()[0];
-    const old = this.localStream.getVideoTracks()[0];
+    const prev = this.facingMode;
+    this.facingMode = prev === 'user' ? 'environment' : 'user';
+    // Muchos Android no abren dos cámaras a la vez: soltar la actual antes de pedir la otra
+    this.localStream?.getVideoTracks()[0]?.stop();
+    let newTrack;
+    try {
+      newTrack = await this.getVideoTrack();
+    } catch (err) {
+      this.facingMode = prev;                     // sin cámara trasera → volver a la de antes
+      newTrack = await this.getVideoTrack();
+      await producer.replaceTrack({ track: newTrack });
+      this.localStream = new MediaStream([...(this.localStream?.getAudioTracks() || []), newTrack]);
+      throw err;
+    }
     await producer.replaceTrack({ track: newTrack });
-    old?.stop();
-    this.localStream = new MediaStream([...this.localStream.getAudioTracks(), newTrack]);
+    this.localStream = new MediaStream([...(this.localStream?.getAudioTracks() || []), newTrack]);
+    return this.localStream;
+  }
+
+  async getVideoTrack() {
+    const s = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: this.facingMode, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } },
+    });
+    return s.getVideoTracks()[0];
+  }
+
+  /**
+   * Al volver de segundo plano: si Android cortó el micro o la cámara (pista terminada o sin
+   * imagen), abrirlos otra vez y seguir emitiendo por el mismo producer. Así el otro deja de
+   * ver la imagen congelada. Devuelve el stream local (nuevo si algo cambió).
+   */
+  async recoverMedia() {
+    if (this.closed || !this.localStream) return this.localStream;
+    const audio = this.localStream.getAudioTracks()[0];
+    const ap = this.producers.audio;
+    if (ap && (!audio || audio.readyState === 'ended')) {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+        const t = s.getAudioTracks()[0];
+        await ap.replaceTrack({ track: t });
+        this.localStream = new MediaStream([t, ...this.localStream.getVideoTracks()]);
+      } catch (e) { console.warn('[RtcCall] recover audio:', e.message); }
+    }
+    const video = this.localStream.getVideoTracks()[0];
+    const vp = this.producers.video;
+    if (vp && !vp.paused && (!video || video.readyState === 'ended' || video.muted)) {
+      try {
+        video?.stop();
+        const t = await this.getVideoTrack();
+        await vp.replaceTrack({ track: t });
+        this.localStream = new MediaStream([...this.localStream.getAudioTracks(), t]);
+      } catch (e) { console.warn('[RtcCall] recover video:', e.message); }
+    }
     return this.localStream;
   }
 
