@@ -12,7 +12,7 @@ import PopupMenu from '../components/PopupMenu.jsx';
 import ChatList from '../components/ChatList.jsx';
 import BottomNav from '../components/BottomNav.jsx';
 import Avatar from '../components/Avatar.jsx';
-import GroupsBar from '../components/GroupsBar.jsx';
+import GroupsSheet from '../components/GroupsSheet.jsx';
 import StatusList from '../components/StatusList.jsx';
 import { GroupCreateSheet } from '../components/GroupSheets.jsx';
 
@@ -42,7 +42,7 @@ export default function HomePage() {
   const [searchParams] = useSearchParams();
   const [showMenu,        setShowMenu]        = useState(false);
   const [showGroupCreate, setShowGroupCreate] = useState(false);
-  const [groupsKey,       setGroupsKey]       = useState(0);   // recargar el renglón de grupos
+  const [showGroups,      setShowGroups]      = useState(false);   // hoja del botón "Grupos" de la barra inferior
   const [showSearch,      setShowSearch]      = useState(false);
   const [searchQuery,     setSearchQuery]     = useState('');
   const searchInputRef = React.useRef(null);
@@ -66,6 +66,11 @@ export default function HomePage() {
     const interval = setInterval(() => fetchChats(user.id), 5000);
     return () => clearInterval(interval);
   }, [user?.id]);
+
+  // Los grupos no salen en la lista de chats: se abren desde el botón "Grupos" de la barra inferior
+  const isGroupChat  = (c) => c.isGroup || String(c.id).startsWith('group_');
+  const directChats  = chats.filter(c => !isGroupChat(c));
+  const groupsUnread = chats.reduce((n, c) => n + (isGroupChat(c) ? (c.unread || 0) : 0), 0);
 
   const tabs = [
     { key: 'chats',     label: 'CHATS' },
@@ -193,10 +198,9 @@ export default function HomePage() {
       <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', background: T.bgMain }}>
         {activeTab === 'chats'     && <>
           <StatusList user={user} T={T} isDark={isDark} compact onSeeAll={() => setActiveTab('estados')} />
-          <GroupsBar key={groupsKey} user={user} T={T} isDark={isDark} />
           <ChatList chats={searchQuery.trim()
-            ? chats.filter(c => c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase()))
-            : chats
+            ? directChats.filter(c => c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase()))
+            : directChats
           } />
         </>}
         {activeTab === 'estados'   && <StatusList user={user} T={T} isDark={isDark} />}
@@ -228,7 +232,10 @@ export default function HomePage() {
         </svg>
       </button>
 
-      <BottomNav />
+      <BottomNav onGroups={() => setShowGroups(true)} groupsUnread={groupsUnread} />
+      {showGroups && (
+        <GroupsSheet user={user} T={T} isDark={isDark} onClose={() => setShowGroups(false)} />
+      )}
       {showMenu && (
         <PopupMenu
           onClose={() => setShowMenu(false)}
@@ -244,7 +251,6 @@ export default function HomePage() {
           onCreated={(g) => {
             setShowGroupCreate(false);
             fetchChats(user.id);
-            setGroupsKey(k => k + 1);
             navigate(`/chat/${g.chatId}`, { state: { chat: { id: g.chatId, name: g.name, avatar: g.avatar || null, isGroup: true, groupId: g.id } } });
           }}
         />
