@@ -11,6 +11,7 @@ import { GroupCreateSheet, AddMembersSheet } from './GroupSheets.jsx';
 import { fetchGroups } from '../utils/groupsApi';
 import { useChatStore } from '../store/chatStore';
 import { tr } from '../i18n';
+import { useBackClose } from '../utils/backHandler';
 
 const BRAND = '#3D5A80';
 
@@ -34,6 +35,9 @@ export default function GroupsSheet({ user, T, isDark, onClose }) {
     onClose();
     navigate(`/chat/${chatId}`, { state: { chat: { id: chatId, name: g.name, avatar: g.avatar || null, isGroup: true, groupId: g.id } } });
   };
+
+  // Atrás dentro de Crear / Añadir miembros vuelve a la lista (o cierra si no hay grupos)
+  useBackClose(sheet !== null, () => (sheet === 'create' && !groups?.length ? onClose() : setSheet(null)));
 
   const unreadOf = (g) => chats.find(c => c.id === (g.chatId || `group_${g.id}`))?.unread || 0;
 

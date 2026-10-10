@@ -51,6 +51,7 @@ import AppLock from './components/AppLock.jsx';
 import { syncTone, usePrefsStore } from './store/prefsStore';
 import { getDeviceId, heartbeat } from './utils/devices';
 import { onRtc } from './utils/rtcClient';
+import { handleBack } from './utils/backHandler';
 import { tr } from './i18n';
 // El taxi (mapa MapLibre) se carga solo al abrirlo
 const TaxiPage = React.lazy(() => import('./pages/taxi/TaxiPage.jsx'));
@@ -702,6 +703,7 @@ function AppShell() {
           // No interrumpir llamadas/videollamadas activas con el botón de retroceso
           const path = window.location.pathname;
           if (path.startsWith('/call/') || path.startsWith('/video-call/')) return;
+          if (handleBack()) return;   // primero cierra la hoja o el menú abiertos
           if (!canGoBack) CapApp.exitApp();
           else window.history.back();
         });

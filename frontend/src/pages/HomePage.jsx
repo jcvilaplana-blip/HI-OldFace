@@ -16,6 +16,7 @@ import GroupsSheet from '../components/GroupsSheet.jsx';
 import StatusList from '../components/StatusList.jsx';
 import { GroupCreateSheet } from '../components/GroupSheets.jsx';
 import { tr, LOCALE } from '../i18n';
+import { useBackClose } from '../utils/backHandler';
 
 const BRAND   = '#3D5A80';
 const APP_URL = 'https://oldface.app';
@@ -68,9 +69,13 @@ export default function HomePage() {
     return () => clearInterval(interval);
   }, [user?.id]);
 
-  // Los grupos no salen en la lista de chats: se abren desde el botón "Grupos" de la barra inferior
+  // Atrás de Android cierra la hoja o el menú abiertos y vuelve a la pantalla principal
+  useBackClose(showMenu,        () => setShowMenu(false));
+  useBackClose(showGroups,      () => setShowGroups(false));
+  useBackClose(showGroupCreate, () => setShowGroupCreate(false));
+
+  // Los grupos salen en la lista de chats y también en el botón "Grupos" de la barra inferior
   const isGroupChat  = (c) => c.isGroup || String(c.id).startsWith('group_');
-  const directChats  = chats.filter(c => !isGroupChat(c));
   const groupsUnread = chats.reduce((n, c) => n + (isGroupChat(c) ? (c.unread || 0) : 0), 0);
 
   const tabs = [
@@ -198,10 +203,9 @@ export default function HomePage() {
       {/* ══ CONTENIDO ════════════════════════════════════════════════════════ */}
       <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', background: T.bgMain }}>
         {activeTab === 'chats'     && <>
-          <StatusList user={user} T={T} isDark={isDark} compact onSeeAll={() => setActiveTab('estados')} />
           <ChatList chats={searchQuery.trim()
-            ? directChats.filter(c => c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase()))
-            : directChats
+            ? chats.filter(c => c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase()))
+            : chats
           } />
         </>}
         {activeTab === 'estados'   && <StatusList user={user} T={T} isDark={isDark} />}
