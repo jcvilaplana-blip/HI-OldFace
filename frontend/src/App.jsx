@@ -693,26 +693,33 @@ function AppShell() {
   }, [isAuthenticated]);
 
   // ── Único handler de back button Android ─────────────────────────────────
+  // window.__oldfaceBack lo llama MainActivity (APK nuevo) y devuelve 'handled' o 'exit'.
+  // El listener del plugin App queda para APKs antiguos sin ese callback nativo.
   useEffect(() => {
+    const onBack = () => {
+      // No interrumpir llamadas/videollamadas activas con el botón de retroceso
+      const path = window.location.pathname;
+      if (path.startsWith('/call/') || path.startsWith('/video-call/')) return 'handled';
+      if (handleBack()) return 'handled';   // primero cierra el visor, la hoja o el menú abiertos
+      if ((window.history.state?.idx || 0) > 0) { window.history.back(); return 'handled'; }
+      // Sin historial (p. ej. chat abierto desde un aviso): volver a Chats antes de salir
+      if (path !== '/' && path !== '/login') { navigate('/', { replace: true }); return 'handled'; }
+      return 'exit';
+    };
+    window.__oldfaceBack = onBack;
+
     let handle = null;
     (async () => {
       try {
         const { Capacitor } = await import('@capacitor/core');
         if (!Capacitor.isNativePlatform()) return;
         const { App: CapApp } = await import('@capacitor/app');
-        handle = await CapApp.addListener('backButton', ({ canGoBack }) => {
-          // No interrumpir llamadas/videollamadas activas con el botón de retroceso
-          const path = window.location.pathname;
-          if (path.startsWith('/call/') || path.startsWith('/video-call/')) return;
-          if (handleBack()) return;   // primero cierra la hoja o el menú abiertos
-          if (canGoBack) window.history.back();
-          // Sin historial (p. ej. chat abierto desde un aviso): volver a Chats antes de salir
-          else if (path !== '/' && path !== '/login') navigate('/', { replace: true });
-          else CapApp.exitApp();
+        handle = await CapApp.addListener('backButton', () => {
+          if (onBack() === 'exit') CapApp.exitApp();
         });
       } catch { /* web: no aplica */ }
     })();
-    return () => { handle?.remove?.(); };
+    return () => { handle?.remove?.(); if (window.__oldfaceBack === onBack) delete window.__oldfaceBack; };
   }, []);
 
   // ── Ringtone cuando hay llamada entrante ──────────────────────────────────
