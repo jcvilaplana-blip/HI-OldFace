@@ -52,6 +52,7 @@ import { syncTone, usePrefsStore } from './store/prefsStore';
 import { getDeviceId, heartbeat } from './utils/devices';
 import { onRtc } from './utils/rtcClient';
 import { handleBack } from './utils/backHandler';
+import { useUserAvatar } from './utils/userAvatar';
 import { tr } from './i18n';
 // El taxi (mapa MapLibre) se carga solo al abrirlo
 const TaxiPage = React.lazy(() => import('./pages/taxi/TaxiPage.jsx'));
@@ -886,6 +887,7 @@ function IncomingCallModal({ call, onAccept, onReject }) {
     return () => clearInterval(t);
   }, []);
 
+  const callerAvatar = useUserAvatar(call.groupId ? null : call.callerId);   // foto de quien llama (según su privacidad)
   const avatarBg  = isVideo ? '#3D5A80'  : '#3D5A80';
   const acceptBg  = isVideo ? '#22c55e'  : '#22c55e';
 
@@ -921,11 +923,13 @@ function IncomingCallModal({ call, onAccept, onReject }) {
             background: avatarBg,
             border: '3px solid rgba(255,255,255,0.2)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            position: 'relative',
+            position: 'relative', overflow: 'hidden',
           }}>
-            <span style={{ fontSize: 40, fontWeight: 900, color: 'white' }}>
-              {((call.groupId ? call.groupName : call.callerName)?.[0] || '?').toUpperCase()}
-            </span>
+            {callerAvatar
+              ? <img src={callerAvatar} alt={call.callerName || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <span style={{ fontSize: 40, fontWeight: 900, color: 'white' }}>
+                  {((call.groupId ? call.groupName : call.callerName)?.[0] || '?').toUpperCase()}
+                </span>}
           </div>
         </div>
 

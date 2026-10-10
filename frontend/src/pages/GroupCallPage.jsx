@@ -18,27 +18,10 @@ import { ensureRtcConnected } from '../utils/rtcClient';
 import { playRingSound } from '../utils/sounds';
 import { fetchGroup, fetchGroupCall, inviteToGroupCall, leaveGroupCall } from '../utils/groupsApi';
 import { tr } from '../i18n';
+import { useUserAvatar } from '../utils/userAvatar';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const RING_MAX_MS = 45_000;   // el tono de "llamando" suena mientras estoy solo, como mucho esto
-
-// Fotos de perfil (caché por sesión)
-const avatarCache = new Map();
-function useUserAvatar(userId) {
-  const [src, setSrc] = useState(() => avatarCache.get(userId) || null);
-  useEffect(() => {
-    if (!userId) return;
-    if (avatarCache.has(userId)) { setSrc(avatarCache.get(userId)); return; }
-    let alive = true;
-    // viewerId: solo llega la foto si la privacidad de esa persona me deja verla
-    fetch(`${BACKEND}/user/avatar/${encodeURIComponent(userId)}?viewerId=${encodeURIComponent(useAuthStore.getState().user?.id || '')}`)
-      .then(r => r.ok ? r.json() : { avatar: null })
-      .then(d => { avatarCache.set(userId, d.avatar || null); if (alive) setSrc(d.avatar || null); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [userId]);
-  return src;
-}
 
 const fmtDuration = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 

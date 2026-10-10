@@ -16,6 +16,7 @@ import { RtcCall }       from '../utils/rtcCall';
 import { ensureRtcConnected } from '../utils/rtcClient';
 import { playRingSound } from '../utils/sounds';
 import { tr } from '../i18n';
+import { useUserAvatar } from '../utils/userAvatar';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -48,6 +49,8 @@ export default function VideoCallPage() {
 
   const isIncoming = state?.isIncoming === true;
   const calleeName = state?.chat?.name || userId;
+  const fetchedAvatar = useUserAvatar(userId);
+  const calleeAvatar  = state?.chat?.avatar || fetchedAvatar || null;
   // Usar roomId del state (generado por el emisor) o derivar como fallback
   const roomId     = state?.roomId || [user?.id, userId].sort().join('_vroom_');
 
@@ -349,11 +352,11 @@ export default function VideoCallPage() {
                 background: 'rgba(255,255,255,0.15)',
                 border: '3px solid rgba(255,255,255,0.25)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                position: 'relative',
+                position: 'relative', overflow: 'hidden',
               }}>
-                <span style={{ fontSize: 56, fontWeight: 900, color: 'white' }}>
-                  {calleeName?.[0]?.toUpperCase() || '?'}
-                </span>
+                {calleeAvatar
+                  ? <img src={calleeAvatar} alt={calleeName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <span style={{ fontSize: 56, fontWeight: 900, color: 'white' }}>{calleeName?.[0]?.toUpperCase() || '?'}</span>}
               </div>
             </div>
             <p style={{ fontSize: 22, fontWeight: 700, color: 'white', margin: '0 0 8px' }}>

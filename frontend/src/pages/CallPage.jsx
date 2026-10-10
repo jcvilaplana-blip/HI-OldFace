@@ -12,6 +12,7 @@ import { ensureRtcConnected } from '../utils/rtcClient';
 import { useChatStore }  from '../store/chatStore';
 import { playRingSound } from '../utils/sounds';
 import { tr } from '../i18n';
+import { useUserAvatar } from '../utils/userAvatar';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -29,7 +30,8 @@ export default function CallPage() {
 
   // Avatar del contacto desde el store
   const contactChat   = chats.find(c => c.participants?.includes(userId));
-  const contactAvatar = state?.chat?.avatar || contactChat?.avatar || null;
+  const fetchedAvatar = useUserAvatar(userId);   // si no hay chat con él (p. ej. quien me llama), se pide al servidor
+  const contactAvatar = state?.chat?.avatar || contactChat?.avatar || fetchedAvatar || null;
 
   const timerRef            = useRef(null);
   const cancelledRef        = useRef(false);
