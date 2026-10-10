@@ -23,6 +23,8 @@ import { groupIdFromChatId, fetchGroupCall } from '../utils/groupsApi';
 import { renderMapSnapshot, createChatMap, messageLatLng } from '../utils/chatMap';
 import { startLiveShare, stopLiveShare, isSharingLive, onLiveSharesChange } from '../utils/liveLocation';
 import { tr, LOCALE } from '../i18n';
+import ZoomImage from '../components/ZoomImage.jsx';
+import { useBackClose } from '../utils/backHandler';
 
 const CHAT_BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const EMPTY = [];   // misma lista vacía en cada render (no dispara efectos que dependen de los mensajes)
@@ -526,6 +528,12 @@ export default function ChatPage() {
     try { window.OldFaceMedia?.setSecure?.(true); } catch { /* APK antiguo */ }
     return () => { try { window.OldFaceMedia?.setSecure?.(false); } catch { /* APK antiguo */ } };
   }, [expandedPhoto]);
+
+  // Atrás de Android cierra el visor / la vista previa / los paneles y se queda en el chat
+  useBackClose(!!expandedPhoto,   () => setExpandedPhoto(null));
+  useBackClose(!!pendingMedia,    () => closePendingMedia());
+  useBackClose(showAttachMenu,    () => setShowAttachMenu(false));
+  useBackClose(showEmojiPicker,   () => setShowEmojiPicker(false));
 
   /** Ver una vez (lo recibido): pide la foto/vídeo al servidor (solo la primera vez) y la abre a pantalla completa */
   const openViewOnce = async (m) => {
@@ -1532,10 +1540,10 @@ export default function ChatPage() {
           {expandedPhoto?.type === 'video' ? (
             <FullVideo src={expandedPhoto.src} viewOnce={!!expandedPhoto.viewOnce} />
           ) : (
-            <img
+            <ZoomImage
               src={typeof expandedPhoto === 'string' ? expandedPhoto : expandedPhoto.src}
-              onContextMenu={expandedPhoto?.viewOnce ? (e) => e.preventDefault() : undefined}
-              style={{ width: '100vw', maxHeight: '100vh', objectFit: 'contain', ...(expandedPhoto?.viewOnce ? { userSelect: 'none', WebkitTouchCallout: 'none', pointerEvents: 'none' } : {}) }}
+              protect={!!expandedPhoto?.viewOnce}
+              onTap={() => setExpandedPhoto(null)}
             />
           )}
           {expandedPhoto?.viewOnce && (

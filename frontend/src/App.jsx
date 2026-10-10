@@ -704,8 +704,10 @@ function AppShell() {
           const path = window.location.pathname;
           if (path.startsWith('/call/') || path.startsWith('/video-call/')) return;
           if (handleBack()) return;   // primero cierra la hoja o el menú abiertos
-          if (!canGoBack) CapApp.exitApp();
-          else window.history.back();
+          if (canGoBack) window.history.back();
+          // Sin historial (p. ej. chat abierto desde un aviso): volver a Chats antes de salir
+          else if (path !== '/' && path !== '/login') navigate('/', { replace: true });
+          else CapApp.exitApp();
         });
       } catch { /* web: no aplica */ }
     })();
