@@ -36,6 +36,8 @@ function timeAgo(ts) {
 
 function privacyLabel(p, short = false) {
   if (!p || p.mode === 'contacts') return tr('Mis contactos');
+  if (p.mode === 'all') return tr('Todos');
+  if (p.mode === 'none') return tr('Nadie');
   const n = p.userIds?.length || 0;
   if (p.mode === 'except') return short ? tr('Contactos excepto {n}', { n }) : tr('Mis contactos excepto {n} persona{p1}', { n, p1: n === 1 ? '' : 's' });
   return short ? `Solo ${n}` : tr('Solo {n} persona{p1}', { n, p1: n === 1 ? '' : 's' });
@@ -501,9 +503,11 @@ function PrivacySheet({ T, isDark, user, initial, remember: initRemember, onClos
           <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} style={{ width: 18, height: 18, accentColor: BRAND }} />{tr('Usar siempre esta opción (privacidad habitual)')}</label>
         <PrimaryBtn disabled={invalid} onClick={() => onDone(result(), remember)}>{invalid ? tr('Elige al menos una persona') : tr('Aceptar')}</PrimaryBtn>
       </>}>
+      {option('all', tr('Todos'), tr('Cualquier persona con OldFace'))}
       {option('contacts', tr('Mis contactos'), tr('Todos tus contactos de OldFace'))}
       {option('except', tr('Mis contactos excepto…'), except.size ? tr('Oculto a {size} persona{p1}', { size: except.size, p1: except.size === 1 ? '' : 's' }) : tr('Elige a quién ocultarlo'), true)}
       {option('only', tr('Solo compartir con…'), only.size ? `${only.size} persona${only.size === 1 ? '' : 's'}` : tr('Elige con quién compartirlo'), true)}
+      {option('none', tr('Nadie'), tr('Solo lo verás tú'))}
       <p style={{ margin: 0, padding: '12px 18px', fontSize: 12, color: T.textMuted, lineHeight: 1.5 }}>{tr('Solo quien elijas verá el estado. Cambiar esta opción no afecta a los estados ya publicados.')}</p>
     </Sheet>
   );

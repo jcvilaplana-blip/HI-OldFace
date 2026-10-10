@@ -793,7 +793,7 @@ router.post('/chats', (req, res) => {
       ? otherUser2.phone
       : '+' + resolvedName.replace(/^user_/, '');
   }
-  return res.json({ ...chat, name: resolvedName, avatar: otherUser2?.avatar || null });
+  return res.json({ ...chat, name: resolvedName, avatar: avatarFor(otherUser2, requesterId) });
 });
 
 /** GET /chats?userId= */
@@ -827,7 +827,7 @@ router.get('/chats', (req, res) => {
           ? otherUser.phone
           : '+' + displayName.replace(/^user_/, '');
       }
-      return { ...c, name: displayName, avatar: otherUser?.avatar || null };
+      return { ...c, name: displayName, avatar: avatarFor(otherUser, userId) };
     })
     .sort((a, b) => b.lastTime - a.lastTime);
   return res.json({ chats: userChats });
@@ -878,6 +878,65 @@ const CHAT_UPLOAD_EXT = {
   'video/mp4': '.mp4', 'video/webm': '.webm', 'video/3gpp': '.3gp', 'video/quicktime': '.mov',
   'audio/webm': '.webm', 'audio/mp4': '.m4a', 'audio/ogg': '.ogg', 'audio/mpeg': '.mp3',
 };
+
+// ── Archivos dentro de los mensajes ──────────────────────────────────────────
+// Antes las notas de voz, fotos y vídeos iban DENTRO del mensaje en base64 (data:…): un chat llegaba a pesar 16 MB
+// y la app lo descargaba entero al abrirlo y cada 5 s. Ahora se guardan como archivo en /uploads y el mensaje
+// lleva solo `/files/<nombre>` (también si una app antigua sigue mandando data:). Al arrancar se migran los antiguos.
+const DATA_URL_RE = /^data:([\w.+-]+\/[\w.+-]+)(?:;[^,;]*)*;base64,/;
+
+/** data:…;base64 → archivo en /uploads (nombre = huella del contenido: el mismo archivo no se guarda dos veces) */
+function externalizeDataUrl(u) {
+  if (typeof u !== 'string' || !u.startsWith('data:')) return u;
+  const m = u.slice(0, 200).match(DATA_URL_RE);
+  const ext = m && CHAT_UPLOAD_EXT[m[1].toLowerCase()];
+  if (!ext) return u;
+  try {
+    const buf = Buffer.from(u.slice(u.indexOf(',') + 1), 'base64');
+    const name = `m_${crypto.createHash('sha1').update(buf).digest('hex').slice(0, 24)}${ext}`;
+    const file = path.join(UPLOADS_DIR, name);
+    if (!fs.existsSync(file)) fs.writeFileSync(file, buf);
+    return `/files/${name}`;
+  } catch (e) {
+    console.warn('[files] no se pudo guardar un data: como archivo:', e.message);
+    return u;
+  }
+}
+
+// Dirección pública de /files/ (p. ej. https://oldface.app/api/files/): PUBLIC_FILES_URL, la de los mensajes ya
+// guardados o, si no hay ninguna, la de la primera petición que llegue
+let filesBase = process.env.PUBLIC_FILES_URL ? process.env.PUBLIC_FILES_URL.replace(/\/?$/, '/') : '';
+if (!filesBase) {
+  outer: for (const list of messageStore.values()) {
+    for (const m of list) {
+      const hit = String(m.url || '').match(/^(https?:\/\/[^\s?#]+\/files\/)[\w.-]+$/);
+      if (hit) { filesBase = hit[1]; break outer; }
+    }
+  }
+}
+app.use((req, _res, next) => {
+  if (!filesBase && req.get('host')) filesBase = `${req.protocol}://${req.get('host')}${req.path.startsWith('/api/') ? '/api' : ''}/files/`;
+  next();
+});
+/** `/files/x` → URL completa (la app la usa tal cual en <img>/<audio>, también dentro del APK) */
+const absFileUrl = (u) => (typeof u === 'string' && u.startsWith('/files/') && filesBase ? filesBase + u.slice(7) : u);
+
+/** Migración única: mensajes antiguos con data: → archivos */
+(function migrateInlineMedia() {
+  let n = 0;
+  for (const list of messageStore.values()) {
+    for (const m of list) {
+      const url = externalizeDataUrl(m.url);
+      if (url !== m.url) { m.url = url; n++; }
+      if (m.replyTo?.url) {
+        const r = externalizeDataUrl(m.replyTo.url);
+        if (r !== m.replyTo.url) { m.replyTo.url = r; n++; }
+      }
+    }
+  }
+  if (n) { saveMessages(); console.log(`[files] ${n} archivos sacados de los mensajes (messages.json más ligero)`); }
+})();
+
 router.post('/chat/upload', express.raw({ type: () => true, limit: '150mb' }), (req, res) => {
   if (!req.query.userId || !findUserById(req.query.userId)) return res.status(401).json({ error: 'Usuario no válido' });
   const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
@@ -911,9 +970,10 @@ function chatPreviewText(type, text) {
 
 /** Mensaje tal como se entrega a las apps: las fotos/vídeos "ver una vez" nunca llevan su URL (se pide con /open) */
 function publicMsg(m) {
-  if (!m.viewOnce) return m;
-  const { url, ...rest } = m;
-  return rest;
+  const out = { ...m, url: absFileUrl(m.url) };
+  if (m.replyTo?.url) out.replyTo = { ...m.replyTo, url: absFileUrl(m.replyTo.url) };
+  if (m.viewOnce) delete out.url;
+  return out;
 }
 
 /** GET /messages/:chatId (los eliminados para todos antiguos tampoco se devuelven) */
@@ -956,7 +1016,7 @@ router.post('/messages/:chatId/:messageId/open', (req, res) => {
   if (viewOnceDone(chatId, m)) m.allOpenedAt = Date.now();
   saveMessages();
   notifyChatUpdate(chatId, userId, 'opened');
-  res.json({ url: m.url, type: m.type });
+  res.json({ url: absFileUrl(m.url), type: m.type });
 });
 
 /** DELETE /messages/:chatId/:messageId — elimina un mensaje concreto */
@@ -1000,8 +1060,13 @@ router.delete('/messages/:chatId/:messageId', (req, res) => {
 
 /** POST /messages */
 router.post('/messages', async (req, res) => {
-  const { chatId, senderId, text, type = 'text', url, replyTo, fileName, duration, live, viewOnce } = req.body || {};
+  const { chatId, senderId, text, type = 'text', fileName, duration, live, viewOnce } = req.body || {};
   if (!chatId || !senderId || !text) return res.status(400).json({ error: 'chatId, senderId y text son requeridos' });
+  // Fotos/audios en base64 (apps antiguas) → archivo; el mensaje solo guarda su dirección
+  const url = externalizeDataUrl(req.body.url);
+  const replyTo = req.body.replyTo && typeof req.body.replyTo === 'object'
+    ? { ...req.body.replyTo, ...(req.body.replyTo.url ? { url: externalizeDataUrl(req.body.replyTo.url) } : {}) }
+    : req.body.replyTo;
   // "Ver una vez": solo fotos y vídeos subidos al servidor (para poder borrarlos cuando se hayan visto)
   const once = !!viewOnce && (type === 'image' || type === 'video') && /\/files\/[\w.-]+$/.test(String(url || ''));
 
@@ -1202,9 +1267,10 @@ router.delete('/stickers/:userId', (req, res) => {
   res.json({ stickers: list });
 });
 
-/** GET /presence/:userId — devuelve online + lastSeen del usuario */
+/** GET /presence/:userId?viewerId= — online + lastSeen (oculto si su privacidad de "Última vez" no deja a viewerId) */
 router.get('/presence/:userId', (req, res) => {
   const { userId } = req.params;
+  if (!canSeeLastSeen(userId, req.query.viewerId || null)) return res.json({ online: false, lastSeen: null, hidden: true });
   for (const u of userStore.values()) {
     if (u.userId === userId) {
       const lastSeen = u.lastSeen || u.lastLogin || 0;
@@ -1231,12 +1297,10 @@ router.post('/user/avatar', (req, res) => {
   return res.json({ success: true });
 });
 
-/** GET /user/avatar/:userId — devuelve el avatar de un usuario */
+/** GET /user/avatar/:userId?viewerId= — avatar de un usuario (null si su privacidad no deja verlo a viewerId) */
 router.get('/user/avatar/:userId', (req, res) => {
-  const { userId } = req.params;
-  for (const u of userStore.values()) {
-    if (u.userId === userId) return res.json({ avatar: u.avatar || null });
-  }
+  const u = findUserById(req.params.userId);
+  if (u) return res.json({ avatar: avatarFor(u, req.query.viewerId || null) });
   return res.json({ avatar: null });
 });
 
@@ -1271,7 +1335,8 @@ router.post('/messages/:chatId/mark-read', (req, res) => {
 
 const STORY_TTL_MS = 24 * 60 * 60 * 1000;
 const STORY_LIMITS = { total: 20, video: 5, image: 15 };
-const STORY_MODES = ['contacts', 'except', 'only'];
+// all → cualquiera con OldFace · none → nadie (solo yo) · only → solo `userIds`
+const STORY_MODES = ['contacts', 'except', 'only', 'all', 'none'];
 const storyPrivacyStore = new Map(Object.entries(loadJSON('story_privacy.json', {})));   // userId → { mode, userIds }
 const saveStoryPrivacy = () => saveJSON('story_privacy.json', Object.fromEntries(storyPrivacyStore));
 
@@ -1287,17 +1352,18 @@ function storyContactsOf(userId) {
 
 function cleanStoryPrivacy(p) {
   const mode = STORY_MODES.includes(p?.mode) ? p.mode : 'contacts';
-  const userIds = mode === 'contacts' ? []
+  const userIds = !['except', 'only'].includes(mode) ? []
     : [...new Set((Array.isArray(p?.userIds) ? p.userIds : []).filter(id => typeof id === 'string' && findUserById(id)))].slice(0, 500);
   return { mode, userIds };
 }
 
-function storyAudience(userId, privacy, contactIds = []) {
+/** A quién se muestra un estado (null = a todos) */
+function storyAudience(userId, privacy) {
+  if (privacy.mode === 'all') return null;
+  if (privacy.mode === 'none') return [];
   if (privacy.mode === 'only') return privacy.userIds.filter(id => id !== userId);
   const base = storyContactsOf(userId);
-  for (const id of (Array.isArray(contactIds) ? contactIds.slice(0, 3000) : [])) {
-    if (typeof id === 'string' && id !== userId && findUserById(id)) base.add(id);
-  }
+  for (const id of contactsStore.get(userId) || []) base.add(id);
   if (privacy.mode === 'except') for (const id of privacy.userIds) base.delete(id);
   return [...base];
 }
@@ -1356,7 +1422,7 @@ router.get('/stories', (req, res) => {
   for (const s of visible) {
     if (authors[s.userId]) continue;
     const u = findUserById(s.userId);
-    authors[s.userId] = { name: u?.name || s.userName, avatar: u?.avatar || null };
+    authors[s.userId] = { name: u?.name || s.userName, avatar: avatarFor(u, viewerId) };
   }
   return res.json({ stories: visible.map(s => storyFor(s, viewerId)), authors, limits: STORY_LIMITS });
 });
@@ -1404,6 +1470,7 @@ router.post('/stories', (req, res) => {
   const privacy = cleanStoryPrivacy(req.body?.privacy || storyPrivacyStore.get(userId));
   if (privacy.mode === 'only' && privacy.userIds.length === 0)
     return res.status(400).json({ error: 'Elige al menos una persona para compartir' });
+  rememberContacts(userId, contactIds);
   const story = {
     id:        `story_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     userId, userName: author.name || userName || userId,
@@ -1414,7 +1481,7 @@ router.post('/stories', (req, res) => {
     expiresAt: Date.now() + STORY_TTL_MS,
     viewers:   [],
     privacy,
-    allowed:   storyAudience(userId, privacy, contactIds),
+    allowed:   storyAudience(userId, privacy),
   };
   storiesList.unshift(story);
   saveStories();
@@ -1448,6 +1515,196 @@ router.delete('/stories/:storyId', (req, res) => {
   storiesList.splice(idx, 1);
   saveStories();
   return res.json({ success: true });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  PRIVACIDAD — quién ve mi última vez, mi foto de perfil y mis estados
+// ════════════════════════════════════════════════════════════════
+// Opciones: all (todos) · contacts (mis contactos) · except (mis contactos excepto `userIds`) · none (nadie).
+// "Mis contactos" = los de mi agenda que usan OldFace (los manda la app) + con quien tengo chat o grupo,
+// igual que en los estados. La privacidad de los estados es la habitual de /stories/privacy.
+const PRIVACY_MODES = ['all', 'contacts', 'except', 'none'];
+const privacyStore  = new Map(Object.entries(loadJSON('user_privacy.json', {})));    // userId → { lastSeen, photo }
+const savePrivacy   = () => saveJSON('user_privacy.json', Object.fromEntries(privacyStore));
+const contactsStore = new Map(Object.entries(loadJSON('user_contacts.json', {})));   // userId → [userId] de su agenda
+const saveContacts  = () => saveJSON('user_contacts.json', Object.fromEntries(contactsStore));
+
+function cleanPrivacyRule(r) {
+  const mode = PRIVACY_MODES.includes(r?.mode) ? r.mode : 'all';
+  const userIds = mode !== 'except' ? []
+    : [...new Set((Array.isArray(r?.userIds) ? r.userIds : []).filter(id => typeof id === 'string' && findUserById(id)))].slice(0, 500);
+  return { mode, userIds };
+}
+
+/** Guarda los contactos de la agenda del usuario que usan OldFace */
+function rememberContacts(userId, contactIds) {
+  if (!Array.isArray(contactIds)) return;
+  const ids = [...new Set(contactIds.slice(0, 3000).filter(id => typeof id === 'string' && id !== userId && findUserById(id)))];
+  contactsStore.set(userId, ids);
+  saveContacts();
+}
+
+/** ¿viewerId es contacto de ownerId? (agenda, chat 1 a 1 o grupo en común) */
+function isContactOf(ownerId, viewerId) {
+  if ((contactsStore.get(ownerId) || []).includes(viewerId)) return true;
+  if (chatStore2.has(`chat_${[ownerId, viewerId].sort().join('_')}`)) return true;
+  for (const c of chatStore2.values()) if (c.participants?.includes(ownerId) && c.participants.includes(viewerId)) return true;
+  return false;
+}
+
+/** ¿Puede viewerId ver el dato de ownerId protegido por `rule`? Sin saber quién mira, solo con "Todos". */
+function privacyAllows(rule, ownerId, viewerId) {
+  if (viewerId && viewerId === ownerId) return true;
+  if (rule.mode === 'all') return true;
+  if (!viewerId || rule.mode === 'none') return false;
+  if (!isContactOf(ownerId, viewerId)) return false;
+  return rule.mode === 'contacts' || !rule.userIds.includes(viewerId);
+}
+
+const privacyRule = (userId, key) => cleanPrivacyRule(privacyStore.get(userId)?.[key]);
+const canSeeLastSeen = (ownerId, viewerId) => privacyAllows(privacyRule(ownerId, 'lastSeen'), ownerId, viewerId);
+/** Foto de perfil de `u` tal como la puede ver viewerId (null si su privacidad no se lo permite) */
+const avatarFor = (u, viewerId) => (u?.avatar && privacyAllows(privacyRule(u.userId, 'photo'), u.userId, viewerId) ? u.avatar : null);
+
+const privacyPublic = (userId) => ({
+  lastSeen: privacyRule(userId, 'lastSeen'),
+  photo:    privacyRule(userId, 'photo'),
+  status:   cleanStoryPrivacy(storyPrivacyStore.get(userId)),
+});
+
+/** GET /user/privacy?userId= — { lastSeen, photo, status } (Authorization: Bearer <rtcToken>) */
+router.get('/user/privacy', (req, res) => {
+  const { userId } = req.query;
+  if (!userId || !verifyRtcToken(bearer(req), userId)) return res.status(401).json({ error: 'Sesión no válida' });
+  res.json(privacyPublic(userId));
+});
+
+/** PUT /user/privacy — { userId, lastSeen?, photo?, status?, contactIds? } cambia una o varias opciones */
+router.put('/user/privacy', (req, res) => {
+  const { userId, lastSeen, photo, status, contactIds } = req.body || {};
+  if (!userId || !verifyRtcToken(bearer(req), userId)) return res.status(401).json({ error: 'Sesión no válida' });
+  let statusRule = null;
+  if (status !== undefined) {
+    statusRule = cleanStoryPrivacy(status);
+    if (statusRule.mode === 'only' && !statusRule.userIds.length) return res.status(400).json({ error: 'Elige al menos una persona' });
+  }
+  const cur = { ...(privacyStore.get(userId) || {}) };
+  if (lastSeen !== undefined) cur.lastSeen = cleanPrivacyRule(lastSeen);
+  if (photo    !== undefined) cur.photo    = cleanPrivacyRule(photo);
+  privacyStore.set(userId, cur);
+  savePrivacy();
+  if (statusRule) { storyPrivacyStore.set(userId, statusRule); saveStoryPrivacy(); }
+  rememberContacts(userId, contactIds);
+  // Los demás vuelven a pedir la lista de chats (foto) y la presencia al momento
+  for (const c of chatStore2.values()) {
+    if (!c.participants?.includes(userId)) continue;
+    for (const p of c.participants) if (p !== userId) rtcEmit(p, 'chat:update', { chatId: c.id, reason: 'privacy' });
+  }
+  res.json(privacyPublic(userId));
+});
+
+// ════════════════════════════════════════════════════════════════
+//  ELIMINAR CUENTA — borra todos los datos del usuario y lo da de baja
+// ════════════════════════════════════════════════════════════════
+const FILE_NAME_RE = /\/files\/([\w.-]+)$/;
+function unlinkUpload(url) {
+  const m = String(url || '').split('?')[0].match(FILE_NAME_RE);
+  if (m) { try { fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(m[1]))); } catch { /* ya no estaba */ } }
+}
+
+function deleteAccount(userId) {
+  // Usuario (el almacén va por teléfono)
+  for (const [phone, u] of [...userStore]) if (u.userId === userId) { userStore.delete(phone); otpStore.delete(phone); }
+
+  // Chats 1 a 1: desaparecen enteros (con sus archivos) para los dos
+  for (const [chatId, c] of [...chatStore2]) {
+    if (c.isGroup || !c.participants?.includes(userId)) continue;
+    for (const m of messageStore.get(chatId) || []) unlinkUpload(m.url);
+    chatStore2.delete(chatId);
+    messageStore.delete(chatId);
+    for (const p of c.participants) if (p !== userId) rtcEmit(p, 'chat:update', { chatId, reason: 'deleted' });
+  }
+
+  // Grupos: sale de todos y se borran sus mensajes; el último en salir se lleva el grupo
+  for (const g of [...groupStore.values()]) {
+    if (!g.members.includes(userId)) continue;
+    const chatId = groupChatId(g);
+    g.members = g.members.filter(m => m !== userId);
+    if (!g.members.length) {
+      for (const m of messageStore.get(chatId) || []) unlinkUpload(m.url);
+      groupStore.delete(g.id); groupCalls.delete(g.id); chatStore2.delete(chatId); messageStore.delete(chatId);
+      continue;
+    }
+    if (g.adminId === userId) g.adminId = g.members[0];
+    const msgs = messageStore.get(chatId) || [];
+    for (const m of msgs) if (m.senderId === userId) unlinkUpload(m.url);
+    const kept = msgs.filter(m => m.senderId !== userId);
+    messageStore.set(chatId, kept);
+    refreshMemberNames(g);
+    g.updatedAt = Date.now();
+    syncGroupChat(g);
+    const c = chatStore2.get(chatId);
+    if (c) { const last = kept[kept.length - 1]; c.lastMessage = last ? chatPreviewText(last.type, last.text) : ''; }
+    for (const m of g.members) rtcEmit(m, 'chat:update', { chatId, reason: 'group' });
+  }
+  // Rastros en mensajes de otros (leído, abierto, oculto, destacado)
+  for (const list of messageStore.values()) {
+    for (const m of list) {
+      for (const k of ['readBy', 'openedBy', 'hiddenFor', 'starredBy']) if (Array.isArray(m[k])) m[k] = m[k].filter(id => id !== userId);
+    }
+  }
+
+  // Estados propios (y sus archivos) y sus vistas en estados de otros
+  for (const s of storiesList.filter(s => s.userId === userId)) unlinkUpload(s.content);
+  storiesList = storiesList.filter(s => s.userId !== userId);
+  for (const s of storiesList) {
+    s.viewers = (s.viewers || []).filter(id => id !== userId);
+    if (Array.isArray(s.allowed)) s.allowed = s.allowed.filter(id => id !== userId);
+  }
+
+  // Stickers, llamadas, directos, karaoke, encuestas, suscripción
+  for (const url of stickerStore.get(userId) || []) unlinkUpload(url);
+  stickerStore.delete(userId);
+  callLogStore.delete(userId);
+  for (const [id, d] of [...directoStore]) if (d.creatorId === userId) directoStore.delete(id);
+  for (const [id, r] of [...karaokeRecStore]) {
+    if (r.userId !== userId) continue;
+    unlinkUpload(r.audioUrl);
+    karaokeRecStore.delete(id);
+  }
+  pollProfileStore.delete(userId);
+  for (const votes of pollVoteStore.values()) if (votes && typeof votes === 'object') delete votes[userId];
+  subStore.delete(userId);
+
+  // Avisos, dispositivos, preferencias, privacidad y contactos
+  for (const d of deviceStore.get(userId) || []) revokedStore.set(d.deviceId, { userId, at: Date.now() });
+  deviceStore.delete(userId);
+  fcmStore.delete(userId);
+  prefsStore.delete(userId);
+  privacyStore.delete(userId);
+  contactsStore.delete(userId);
+  storyPrivacyStore.delete(userId);
+  for (const [uid, list] of contactsStore) if (list.includes(userId)) contactsStore.set(uid, list.filter(id => id !== userId));
+  for (const p of privacyStore.values()) {
+    for (const k of ['lastSeen', 'photo']) if (p[k]?.userIds?.includes(userId)) p[k].userIds = p[k].userIds.filter(id => id !== userId);
+  }
+  for (const p of storyPrivacyStore.values()) if (p?.userIds?.includes(userId)) p.userIds = p.userIds.filter(id => id !== userId);
+
+  saveUsers(); saveChats(); saveMessages(); saveGroups(); saveStories(); saveStickers(); saveCallLog(); saveDirectos();
+  saveKaraokeRecs(); savePollProfiles(); savePollVotes(); saveSubs(); saveDevices(); saveFcm(); savePrefs(); savePrivacy();
+  saveContacts(); saveStoryPrivacy();
+  rtcEmit(userId, 'device:revoked', { deviceId: '*' });   // cierra la sesión en sus otros dispositivos abiertos
+}
+
+/** POST /account/delete — { userId, confirm: 'DELETE' } (Authorization: Bearer <rtcToken>) */
+router.post('/account/delete', (req, res) => {
+  const { userId, confirm } = req.body || {};
+  if (!userId || !verifyRtcToken(bearer(req), userId)) return res.status(401).json({ error: 'Sesión no válida. Vuelve a entrar en OldFace.' });
+  if (confirm !== 'DELETE') return res.status(400).json({ error: 'Falta la confirmación' });
+  if (!findUserById(userId)) return res.status(404).json({ error: 'La cuenta ya no existe' });
+  deleteAccount(userId);
+  console.log(`🗑️  Cuenta eliminada: ${userId}`);
+  res.json({ success: true });
 });
 
 // ════════════════════════════════════════════════════════════════

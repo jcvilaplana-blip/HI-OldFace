@@ -13,7 +13,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore }  from '../store/authStore';
-import { useChatStore }  from '../store/chatStore';
+import { useChatStore, cachedMessages }  from '../store/chatStore';
 import { useCallStore }  from '../store/callStore';
 import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 import { useGeolocation } from '../hooks/useGeolocation';
@@ -25,6 +25,7 @@ import { startLiveShare, stopLiveShare, isSharingLive, onLiveSharesChange } from
 import { tr, LOCALE } from '../i18n';
 
 const CHAT_BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+const EMPTY = [];   // misma lista vacía en cada render (no dispara efectos que dependen de los mensajes)
 const nowTime = () => new Date().toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
 
 /** Sube una foto/vídeo/audio del chat en binario (sin el límite de ~10 MB del base64) → URL permanente o null */
@@ -155,7 +156,8 @@ export default function ChatPage() {
     return `chat_${[user.id, routeChatId].sort().join('_')}`;
   }, [routeChatId, user?.id, isComposite]);
 
-  const chatMessages = messages[msgChatId] || [];
+  // Hasta que conteste el servidor se ven los últimos mensajes guardados en el móvil (el chat abre al instante)
+  const chatMessages = messages[msgChatId] || cachedMessages(msgChatId) || EMPTY;
   const groupId = isGroup ? (state?.chat?.groupId || groupIdFromChatId(msgChatId)) : null;
   const headerName   = groupMeta?.name || chat.name;
   const headerAvatar = groupMeta ? groupMeta.avatar : chat.avatar;
@@ -203,7 +205,8 @@ export default function ChatPage() {
   useEffect(() => {
     if (!user?.id || !participantId || isGroup) return;
     const fetchPresence = () => {
-      fetch(`${CHAT_BACKEND}/presence/${encodeURIComponent(participantId)}`)
+      // viewerId: el servidor oculta la última vez si la privacidad del otro no me deja verla
+      fetch(`${CHAT_BACKEND}/presence/${encodeURIComponent(participantId)}?viewerId=${encodeURIComponent(user.id)}`)
         .then(r => r.ok ? r.json() : { online: false, lastSeen: null })
         .then(d => setPresenceInfo({ online: d.online, lastSeen: d.lastSeen }))
         .catch(() => {});
@@ -603,23 +606,16 @@ export default function ChatPage() {
       return;
     }
 
-    const dataUrl = await processFile();
-    const msg = {
-      id: `media_${Date.now()}`,
-      type: 'image',
-      text: '[Imagen]',
-      url: dataUrl,
-      sender: user.id,
-      time: nowTime(),
-      status: 'sending',
-      isMine: true,
-      replyTo: currentReply || null,
-    };
-    addMessage(msgChatId, msg);
+    // Foto: comprimida, se ve al instante y se sube como archivo (no en base64 dentro del mensaje)
+    const blob = await fetch(await processFile()).then(r => r.blob());
+    const localId = `media_${Date.now()}`;
+    addMessage(msgChatId, { id: localId, type: 'image', text: '[Imagen]', url: URL.createObjectURL(blob), sender: user.id,
+                            time: nowTime(), createdAt: Date.now(), status: 'sending', isMine: true, replyTo: currentReply || null });
     setReplyTo(null);
-    try {
-      await persistMessage(msgChatId, user.id, msg.text, msg.type, dataUrl, currentReply);
-    } catch { /* ya está en store local */ }
+    const url = await uploadChatFile(blob, user.id);
+    if (!url) { updateMessageStatus(msgChatId, localId, 'error'); alert(tr('No se pudo enviar {p0}. Inténtalo de nuevo.', { p0: 'la foto' })); return; }
+    patchLocal(localId, { url });
+    await persistMessage(msgChatId, user.id, '[Imagen]', 'image', url, currentReply);
   };
 
   // ── Grabación de audio ────────────────────────────────────────────────────
@@ -642,7 +638,7 @@ export default function ChatPage() {
         stream.getTracks().forEach(t => t.stop());
         if (!cancellingRef.current) {
           const blob = new Blob(audioChunksRef.current, { type: mimeType });
-          sendAudioNote(blob, mimeType);
+          sendAudioNote(blob);
         }
         cancellingRef.current = false;
       };
@@ -684,28 +680,19 @@ export default function ChatPage() {
     }
   };
 
-  const sendAudioNote = (blob, mimeType) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result;
-      const duration = recordingTimeRef.current || 1;
-      const msg = {
-        id: `audio_${Date.now()}`,
-        type: 'audio',
-        text: '[Nota de voz]',
-        url: dataUrl,
-        duration,
-        sender: user.id,
-        time: new Date().toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' }),
-        status: 'sending',
-        isMine: true,
-      };
-      addMessage(msgChatId, msg);
-      try {
-        await persistMessage(msgChatId, user.id, '[Nota de voz]', 'audio', dataUrl, null, null, { duration });
-      } catch { }
-    };
-    reader.readAsDataURL(blob);
+  // Nota de voz: se oye al instante desde el móvil y se sube como archivo (no en base64 dentro del mensaje:
+  // así los chats pesan poco y se abren rápido)
+  const sendAudioNote = async (blob) => {
+    const duration = recordingTimeRef.current || 1;
+    const localId = `audio_${Date.now()}`;
+    addMessage(msgChatId, {
+      id: localId, type: 'audio', text: '[Nota de voz]', url: URL.createObjectURL(blob), duration,
+      sender: user.id, time: nowTime(), createdAt: Date.now(), status: 'sending', isMine: true,
+    });
+    const url = await uploadChatFile(blob, user.id);
+    if (!url) { updateMessageStatus(msgChatId, localId, 'error'); alert(tr('No se pudo enviar la nota de voz. Inténtalo de nuevo.')); return; }
+    patchLocal(localId, { url });
+    await persistMessage(msgChatId, user.id, '[Nota de voz]', 'audio', url, null, null, { duration });
   };
 
   // En el móvil Enter = nueva línea (se envía con el botón); con teclado físico Enter envía y Mayús+Enter salta de línea

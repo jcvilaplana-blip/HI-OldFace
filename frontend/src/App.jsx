@@ -17,15 +17,35 @@ import GroupCallPage from './pages/GroupCallPage.jsx';
 import { groupIdFromRoom } from './utils/groupsApi';
 import ContactsPage  from './pages/ContactsPage.jsx';
 import SettingsPage  from './pages/SettingsPage.jsx';
-import DirectoPage     from './pages/DirectoPage.jsx';
-import DirectoLivePage from './pages/DirectoLivePage.jsx';
-import TermsPage    from './pages/TermsPage.jsx';
-import PrivacyPage  from './pages/PrivacyPage.jsx';
-import CookiesPage  from './pages/CookiesPage.jsx';
-import PollPage     from './pages/PollPage.jsx';
-import KaraokePage     from './pages/KaraokePage.jsx';
-import KaraokeSingPage from './pages/KaraokeSingPage.jsx';
-import KaraokeRoomPage from './pages/KaraokeRoomPage.jsx';
+// Pantallas que se usan menos: van en archivos aparte para que la app arranque antes. Se descargan solas en
+// segundo plano unos segundos después de abrirla (prefetchPages), así al entrar en ellas ya están listas.
+const lazyPages = {
+  DirectoPage:       () => import('./pages/DirectoPage.jsx'),
+  DirectoLivePage:   () => import('./pages/DirectoLivePage.jsx'),
+  LegalPage:         () => import('./pages/LegalPage.jsx'),
+  CookiesPage:       () => import('./pages/CookiesPage.jsx'),
+  HelpPage:          () => import('./pages/HelpPage.jsx'),
+  DeleteAccountPage: () => import('./pages/DeleteAccountPage.jsx'),
+  PollPage:          () => import('./pages/PollPage.jsx'),
+  KaraokePage:       () => import('./pages/KaraokePage.jsx'),
+  KaraokeSingPage:   () => import('./pages/KaraokeSingPage.jsx'),
+  KaraokeRoomPage:   () => import('./pages/KaraokeRoomPage.jsx'),
+};
+const DirectoPage       = React.lazy(lazyPages.DirectoPage);
+const DirectoLivePage   = React.lazy(lazyPages.DirectoLivePage);
+const LegalPage         = React.lazy(lazyPages.LegalPage);
+const CookiesPage       = React.lazy(lazyPages.CookiesPage);
+const HelpPage          = React.lazy(lazyPages.HelpPage);
+const DeleteAccountPage = React.lazy(lazyPages.DeleteAccountPage);
+const PollPage          = React.lazy(lazyPages.PollPage);
+const KaraokePage       = React.lazy(lazyPages.KaraokePage);
+const KaraokeSingPage   = React.lazy(lazyPages.KaraokeSingPage);
+const KaraokeRoomPage   = React.lazy(lazyPages.KaraokeRoomPage);
+function prefetchPages() {
+  const run = () => Object.values(lazyPages).forEach(load => load().catch(() => {}));
+  setTimeout(() => (window.requestIdleCallback ? window.requestIdleCallback(run) : run()), 4000);
+}
+prefetchPages();
 import { listenDeepLinks, savePendingLink, takePendingLink } from './utils/deepLinks';
 import AppLock from './components/AppLock.jsx';
 import { syncTone, usePrefsStore } from './store/prefsStore';
@@ -629,7 +649,8 @@ function AppShell() {
     const iv = setInterval(check, 10 * 60_000);
     const onVis = () => { if (!document.hidden) check(); };
     document.addEventListener('visibilitychange', onVis);
-    const off = onRtc('device:revoked', ({ deviceId } = {}) => { if (deviceId === getDeviceId()) signOut(); });
+    // '*' = la cuenta se eliminó desde otro dispositivo
+    const off = onRtc('device:revoked', ({ deviceId } = {}) => { if (deviceId === '*' || deviceId === getDeviceId()) signOut(); });
     return () => { clearInterval(iv); document.removeEventListener('visibilitychange', onVis); off?.(); };
   }, [isAuthenticated]); // eslint-disable-line
 
@@ -726,10 +747,14 @@ function AppShell() {
 
   return (
     <>
+      <React.Suspense fallback={<div style={{ position: 'fixed', inset: 0, background: 'var(--bg-main, #E3EDF2)' }} />}>
       <Routes>
         <Route path="/login"   element={<LoginPage />} />
-        <Route path="/terms"   element={<TermsPage />} />
-        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms"   element={<LegalPage tab="terms" />} />
+        <Route path="/privacy" element={<LegalPage tab="privacy" />} />
+        <Route path="/legal"   element={<LegalPage tab="terms" />} />
+        <Route path="/help"    element={<HelpPage />} />
+        <Route path="/delete-account" element={<ProtectedRoute><DeleteAccountPage /></ProtectedRoute>} />
         <Route path="/cookies" element={<CookiesPage />} />
         <Route path="/"        element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
         <Route path="/chat/:chatId" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
@@ -748,6 +773,7 @@ function AppShell() {
         <Route path="/group-call/:groupId" element={<ProtectedRoute><GroupCallPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </React.Suspense>
 
       {/* ── Bloqueo de la app (PIN / huella) — por debajo de la llamada entrante ── */}
       <AppLock />

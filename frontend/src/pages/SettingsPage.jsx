@@ -5,12 +5,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { useThemeStore } from '../store/themeStore';
+import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 import Avatar from '../components/Avatar.jsx';
 import { usePrefsStore, MESSAGE_TONES, LOCK_AFTER } from '../store/prefsStore';
 import { playTone } from '../utils/sounds';
 import { biometricAvailable, verifyBiometric } from '../components/AppLock.jsx';
 import LinkedDevicesSheet from '../components/LinkedDevicesSheet.jsx';
+import { useCandidates, PeoplePicker, Sheet, PrimaryBtn } from '../components/GroupSheets.jsx';
+import { getPrivacy, savePrivacy, privacyModeLabel } from '../utils/account';
 import { tr } from '../i18n';
 
 const BRAND   = '#3D5A80';
@@ -270,18 +272,13 @@ export default function SettingsPage() {
         {showDevices && <LinkedDevicesSheet onClose={() => setShowDevices(false)} />}
 
         {/* ── Sección: Sonidos (tono de mensaje) ── */}
-        <ToneSection userId={user?.id} cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} />
+        <ToneSection userId={user?.id} cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} isDark={isDark} />
 
         {/* ── Sección: Bloqueo de la app (PIN + huella/cara) ── */}
         <LockSection cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} isDark={isDark} />
 
         {/* ── Sección: Privacidad ── */}
-        <SettingsSection title={tr('Privacidad')} icon="🔒" cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} items={[
-          { label: tr('Última vez'), value: tr('Todos') },
-          { label: tr('Foto de perfil'), value: tr('Todos') },
-          { label: tr('Estado'), value: tr('Mis contactos') },
-          { label: tr('Confirmación de lectura'), toggle: true, defaultOn: true },
-        ]} />
+        <PrivacySection user={user} isDark={isDark} cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} />
 
         {/* ── Sección: Apariencia ── */}
         <AppearanceSection isDark={isDark} setTheme={setTheme} cardBg={cardBg} textClr={textClr} borderClr={borderClr} />
@@ -293,11 +290,7 @@ export default function SettingsPage() {
         ]} />
 
         {/* ── Sección: Ayuda ── */}
-        <SettingsSection title={tr('Ayuda')} icon="❓" cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} items={[
-          { label: tr('Centro de ayuda'), action: true },
-          { label: tr('Términos y política de privacidad'), action: true },
-          { label: tr('Información de la app'), value: 'v1.0.0' },
-        ]} />
+        <HelpSection navigate={navigate} cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} />
 
         {/* ── Cerrar sesión ── */}
         <div className="mx-4 mb-8 mt-2">
@@ -336,25 +329,184 @@ function Toggle({ on, onPress, label }) {
   );
 }
 
-// ── Sonidos: tono de los mensajes nuevos (con vista previa al elegirlo) ──
-function ToneSection({ userId, cardBg, textClr, labelClr, borderClr }) {
+// ── Sonidos: tono de los mensajes nuevos (desplegable; suena al elegirlo y con ▶) ──
+function ToneSection({ userId, cardBg, textClr, labelClr, borderClr, isDark }) {
   const tone = usePrefsStore(s => s.messageTone);
   const setTone = usePrefsStore(s => s.setMessageTone);
+  const silent = tone === 'ninguno';
   return (
     <div className="mx-4 mt-4 rounded-3xl shadow-sm overflow-hidden" style={{ backgroundColor: cardBg }}>
       <CardTitle labelClr={labelClr} borderClr={borderClr}>{tr('🔔 Sonidos · Tono de mensaje')}</CardTitle>
-      {MESSAGE_TONES.map((t, i) => (
-        <button key={t.id} onClick={() => { setTone(t.id, userId); playTone(t.id); }}
-          className="w-full flex items-center justify-between px-5 py-3.5 text-left"
-          style={{ borderBottom: i < MESSAGE_TONES.length - 1 ? `1px solid ${borderClr}` : 'none' }}>
-          <span className="font-semibold text-sm" style={{ color: textClr }}>{t.name}</span>
-          <span className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
-            style={{ border: `2px solid ${tone === t.id ? BRAND : 'rgba(120,140,170,0.5)'}` }}>
-            {tone === t.id && <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: BRAND }} />}
+      <div className="flex items-center gap-3 px-5 pt-4 pb-2">
+        <div className="relative flex-1 min-w-0">
+          <select value={tone} aria-label={tr('Tono de mensaje')}
+            onChange={e => { setTone(e.target.value, userId); playTone(e.target.value); }}
+            className="w-full appearance-none font-semibold text-sm rounded-xl pl-4 pr-10 py-3 outline-none"
+            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E3EDF2', color: textClr, border: 'none', colorScheme: isDark ? 'dark' : 'light' }}>
+            {MESSAGE_TONES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <svg className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: labelClr }}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+        <button onClick={() => playTone(tone)} disabled={silent} aria-label={tr('Escuchar el tono')}
+          className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 active:opacity-80"
+          style={{ backgroundColor: BRAND, opacity: silent ? 0.4 : 1 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z" /></svg>
+        </button>
+      </div>
+      <p className="px-5 pb-4 pt-1 text-xs" style={{ color: labelClr }}>{tr('Suena al recibir un mensaje, también con la app cerrada. Las llamadas usan el tono de llamada del móvil.')}</p>
+    </div>
+  );
+}
+
+// ── Privacidad: quién ve mi última vez, mi foto de perfil y mis estados ──
+const PRIVACY_ROWS = [
+  { key: 'lastSeen', label: 'Última vez', title: 'Quién puede ver mi última vez',
+    hint: 'Quien no pueda verla tampoco verá cuándo estás en línea.' },
+  { key: 'photo',    label: 'Foto de perfil', title: 'Quién puede ver mi foto de perfil',
+    hint: 'Quien no pueda verla verá la inicial de tu nombre.' },
+  { key: 'status',   label: 'Estado', title: 'Quién puede ver mis estados',
+    hint: 'Se aplica a los estados que publiques a partir de ahora.' },
+];
+
+function PrivacySection({ user, isDark, cardBg, textClr, labelClr, borderClr }) {
+  const [privacy, setPrivacy] = useState(null);
+  const [error, setError]     = useState('');
+  const [editing, setEditing] = useState(null);   // fila de PRIVACY_ROWS
+  const [readReceipts, setReadReceipts] = useState(true);
+
+  useEffect(() => { getPrivacy().then(setPrivacy).catch(e => setError(e.message)); }, []);
+
+  const save = async (key, rule, contactIds) => {
+    const prev = privacy;
+    setEditing(null);
+    setPrivacy(p => ({ ...p, [key]: rule }));
+    try { setPrivacy(await savePrivacy({ [key]: rule }, contactIds)); setError(''); }
+    catch (e) { setPrivacy(prev); setError(e.message); }
+  };
+
+  return (
+    <div className="mx-4 mt-4 rounded-3xl shadow-sm overflow-hidden" style={{ backgroundColor: cardBg }}>
+      <CardTitle labelClr={labelClr} borderClr={borderClr}>🔒 {tr('Privacidad')}</CardTitle>
+      {PRIVACY_ROWS.map(row => (
+        <button key={row.key} onClick={() => privacy && setEditing(row)} disabled={!privacy}
+          className="w-full flex items-center justify-between gap-3 px-5 py-4 text-left"
+          style={{ borderBottom: `1px solid ${borderClr}` }}>
+          <span className="font-semibold text-sm" style={{ color: textClr }}>{tr(row.label)}</span>
+          <span className="flex items-center gap-1.5 min-w-0">
+            <span className="text-sm font-medium truncate" style={{ color: labelClr }}>
+              {privacy ? privacyModeLabel(privacy[row.key]) : '…'}
+            </span>
+            <svg className="w-4 h-4 flex-shrink-0" style={{ color: labelClr }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+            </svg>
           </span>
         </button>
       ))}
-      <p className="px-5 pb-4 pt-1 text-xs" style={{ color: labelClr }}>{tr('Suena al recibir un mensaje, también con la app cerrada. Las llamadas usan el tono de llamada del móvil.')}</p>
+      <div className="flex items-center justify-between px-5 py-4">
+        <p className="font-semibold text-sm" style={{ color: textClr }}>{tr('Confirmación de lectura')}</p>
+        <Toggle on={readReceipts} label={tr('Confirmación de lectura')} onPress={() => setReadReceipts(v => !v)} />
+      </div>
+      {error && <p className="px-5 pb-4 text-xs font-semibold" style={{ color: '#ef4444' }}>{error}</p>}
+
+      {editing && privacy && (
+        <PrivacyOptionSheet user={user} isDark={isDark} row={editing} rule={privacy[editing.key]}
+          onClose={() => setEditing(null)} onSave={(rule, contactIds) => save(editing.key, rule, contactIds)} />
+      )}
+    </div>
+  );
+}
+
+/** Hoja con las opciones: Todos · Mis contactos · Mis contactos excepto… · Nadie */
+function PrivacyOptionSheet({ user, isDark, row, rule, onClose, onSave }) {
+  const T = isDark ? DARK : LIGHT;
+  const { candidates, loading } = useCandidates(user?.id);
+  const [mode, setMode]       = useState(rule.mode);
+  const [except, setExcept]   = useState(new Set(rule.mode === 'except' ? rule.userIds : []));
+  const [picking, setPicking] = useState(false);
+
+  const toggle = (id) => setExcept(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  if (picking) {
+    return (
+      <Sheet T={T} isDark={isDark} z={620} onClose={() => setPicking(false)} onBack={() => setPicking(false)}
+        title={tr('Mis contactos excepto…')}
+        subtitle={except.size ? tr('{n} elegidas', { n: except.size }) : tr('Elige a quién ocultarlo')}
+        footer={<PrimaryBtn onClick={() => setPicking(false)}>{tr('Listo')}</PrimaryBtn>}>
+        <PeoplePicker T={T} isDark={isDark} people={candidates} selected={except} loading={loading} onToggle={toggle}
+          emptyText={tr('No hay contactos en OldFace todavía')} />
+      </Sheet>
+    );
+  }
+
+  const options = [
+    { key: 'all',      title: tr('Todos'),                  sub: tr('Cualquier persona con OldFace') },
+    { key: 'contacts', title: tr('Mis contactos'),          sub: tr('Tus contactos de la agenda y con quien tienes chat') },
+    { key: 'except',   title: tr('Mis contactos excepto…'), sub: except.size ? tr('Oculto a {size} persona{p1}', { size: except.size, p1: except.size === 1 ? '' : 's' }) : tr('Elige a quién ocultarlo'), pickable: true },
+    { key: 'none',     title: tr('Nadie'),                  sub: tr('No lo verá nadie') },
+    // "Solo compartir con…" solo existe en los estados y se elige al publicar uno
+    ...(rule.mode === 'only' ? [{ key: 'only', title: tr('Solo compartir con…'), sub: tr('{n} elegidas', { n: rule.userIds.length }) }] : []),
+  ];
+  const invalid = mode === 'except' && except.size === 0;
+  const result = () => ({ mode, userIds: mode === 'except' ? [...except] : mode === 'only' ? rule.userIds : [] });
+
+  return (
+    <Sheet T={T} isDark={isDark} z={600} title={tr(row.title)} onClose={onClose}
+      footer={<PrimaryBtn disabled={invalid} onClick={() => onSave(result(), candidates.map(c => c.id))}>
+        {invalid ? tr('Elige al menos una persona') : tr('Guardar')}
+      </PrimaryBtn>}>
+      {options.map(o => {
+        const on = mode === o.key;
+        return (
+          <div key={o.key} role="radio" aria-checked={on}
+            onClick={() => { setMode(o.key); if (o.pickable && !except.size) setPicking(true); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', cursor: 'pointer', borderBottom: `1px solid ${T.border}` }}>
+            <span style={{ width: 22, height: 22, borderRadius: '50%', border: `2px solid ${on ? BRAND : T.borderStrong}`, flexShrink: 0,
+                           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {on && <span style={{ width: 11, height: 11, borderRadius: '50%', background: BRAND }} />}
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 15, fontWeight: 800, color: T.textPrimary }}>{o.title}</span>
+              <span style={{ display: 'block', fontSize: 12, color: T.textSecondary }}>{o.sub}</span>
+            </span>
+            {o.pickable && (
+              <button onClick={(e) => { e.stopPropagation(); setMode(o.key); setPicking(true); }}
+                style={{ background: 'none', border: 'none', color: BRAND, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>{tr('Elegir')}</button>
+            )}
+          </div>
+        );
+      })}
+      <p style={{ margin: 0, padding: '12px 18px', fontSize: 12, color: T.textMuted, lineHeight: 1.5 }}>{tr(row.hint)}</p>
+    </Sheet>
+  );
+}
+
+// ── Ayuda: centro de ayuda, términos y privacidad, eliminar cuenta ──
+function HelpSection({ navigate, cardBg, textClr, labelClr, borderClr }) {
+  const chevron = (
+    <svg className="w-4 h-4 flex-shrink-0" style={{ color: labelClr }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+    </svg>
+  );
+  const link = (label, to, color = textClr) => (
+    <button onClick={() => navigate(to)} className="w-full flex items-center justify-between px-5 py-4 text-left"
+      style={{ borderBottom: `1px solid ${borderClr}` }}>
+      <span className="font-semibold text-sm" style={{ color }}>{label}</span>
+      {chevron}
+    </button>
+  );
+  return (
+    <div className="mx-4 mt-4 rounded-3xl shadow-sm overflow-hidden" style={{ backgroundColor: cardBg }}>
+      <CardTitle labelClr={labelClr} borderClr={borderClr}>❓ {tr('Ayuda')}</CardTitle>
+      {link(tr('Centro de ayuda'), '/help')}
+      {link(tr('Términos y política de privacidad'), '/legal')}
+      {link(tr('Eliminar cuenta'), '/delete-account', '#ef4444')}
+      <div className="flex items-center justify-between px-5 py-4">
+        <p className="font-semibold text-sm" style={{ color: textClr }}>{tr('Información de la app')}</p>
+        <span className="text-sm font-medium" style={{ color: labelClr }}>v1.0.0</span>
+      </div>
     </div>
   );
 }

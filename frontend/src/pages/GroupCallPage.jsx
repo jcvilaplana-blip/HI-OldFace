@@ -30,7 +30,8 @@ function useUserAvatar(userId) {
     if (!userId) return;
     if (avatarCache.has(userId)) { setSrc(avatarCache.get(userId)); return; }
     let alive = true;
-    fetch(`${BACKEND}/user/avatar/${encodeURIComponent(userId)}`)
+    // viewerId: solo llega la foto si la privacidad de esa persona me deja verla
+    fetch(`${BACKEND}/user/avatar/${encodeURIComponent(userId)}?viewerId=${encodeURIComponent(useAuthStore.getState().user?.id || '')}`)
       .then(r => r.ok ? r.json() : { avatar: null })
       .then(d => { avatarCache.set(userId, d.avatar || null); if (alive) setSrc(d.avatar || null); })
       .catch(() => {});

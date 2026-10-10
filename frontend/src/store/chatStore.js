@@ -12,8 +12,34 @@ export const msgTime = (m) => (m?.createdAt
   ? new Date(m.createdAt).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' })
   : m?.time || '');
 
+// ── Copia local (localStorage) de la lista de chats y de los últimos mensajes de cada chat ──
+// Al abrir la app o un chat se pinta al instante con lo último que se vio y luego se actualiza con el servidor.
+const MSG_CACHE = 'oldface-msgs:';
+const CHATS_CACHE = 'oldface-chats:';
+const MSG_CACHE_MAX = 200;
+const myId = () => { try { return JSON.parse(localStorage.getItem('oldface-auth'))?.state?.user?.id || ''; } catch { return ''; } };
+const readJSON = (key) => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
+const writeJSON = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* sin espacio: no pasa nada */ } };
+
+const msgCacheMem = new Map();   // chatId → mensajes leídos de localStorage (para no parsear en cada render)
+/** Últimos mensajes guardados de un chat (o null) — para pintar el chat antes de que conteste el servidor */
+export function cachedMessages(chatId) {
+  if (!msgCacheMem.has(chatId)) msgCacheMem.set(chatId, readJSON(MSG_CACHE + chatId));
+  return msgCacheMem.get(chatId);
+}
+function saveMessageCache(chatId, list) {
+  const keep = list.filter(m => m.status !== 'sending' && m.status !== 'error').slice(-MSG_CACHE_MAX)
+    .map(m => (/^(data|blob):/.test(m.url || '') ? { ...m, url: null } : m));
+  msgCacheMem.set(chatId, keep);
+  writeJSON(MSG_CACHE + chatId, keep);
+}
+
+// Última respuesta del servidor por chat: si no ha cambiado nada no se toca el estado (sin repintar cada 5 s)
+const lastMessagesRaw = new Map();
+let lastChatsRaw = '';
+
 export const useChatStore = create((set, get) => ({
-  chats: [],
+  chats: readJSON(CHATS_CACHE + myId()) || [],
   activeChat: null,
   messages: {},
 
@@ -60,7 +86,10 @@ export const useChatStore = create((set, get) => ({
     try {
       const res = await fetch(`${BACKEND}/chats?userId=${encodeURIComponent(userId)}`);
       if (res.ok) {
-        const data = await res.json();
+        const raw = await res.text();
+        if (raw === lastChatsRaw && get().chats.length) return;   // nada nuevo
+        lastChatsRaw = raw;
+        const data = JSON.parse(raw);
         const mapped = await Promise.all((data.chats || []).map(async (c) => {
           let name = c.name;
           // Si el nombre es un userId (user_XXXXXXXX), intentar resolverlo al nombre real
@@ -85,6 +114,7 @@ export const useChatStore = create((set, get) => ({
           };
         }));
         set({ chats: mapped });
+        writeJSON(CHATS_CACHE + userId, mapped);
       }
     } catch (err) {
       console.warn('[chatStore] fetchChats error:', err.message);
@@ -121,7 +151,12 @@ export const useChatStore = create((set, get) => ({
     try {
       const res = await fetch(`${BACKEND}/messages/${encodeURIComponent(chatId)}?userId=${encodeURIComponent(userId || '')}`);
       if (res.ok) {
-        const data = await res.json();
+        const raw = await res.text();
+        const rawKey = `${chatId}|${participantId || ''}`;
+        // Igual que la última vez y ya en pantalla → no repintar el chat entero (pasaba cada 5 s)
+        if (raw === lastMessagesRaw.get(rawKey) && get().messages[chatId]) return;
+        lastMessagesRaw.set(rawKey, raw);
+        const data = JSON.parse(raw);
         const mapped = (data.messages || []).map(m => {
           const isMine = m.senderId === userId;
           let status = 'received';
@@ -153,7 +188,7 @@ export const useChatStore = create((set, get) => ({
           };
         });
 
-        // Detectar mensajes nuevos de otros (polling) — reproducir sonido
+        // Detectar mensajes nuevos de otros (polling) — reproducir sonido (no al pasar de la copia local al servidor)
         const prev = get().messages[chatId] || [];
         if (prev.length > 0 && mapped.length > prev.length) {
           const newMsgs = mapped.slice(prev.length);
@@ -184,6 +219,7 @@ export const useChatStore = create((set, get) => ({
             [chatId]: [...mapped, ...pendingLocal],
           },
         }));
+        saveMessageCache(chatId, mapped);
       }
     } catch (err) {
       console.warn('[chatStore] loadMessages error:', err.message);
@@ -206,6 +242,9 @@ export const useChatStore = create((set, get) => ({
     try {
       await fetch(`${BACKEND}/chats/${encodeURIComponent(chatId)}`, { method: 'DELETE' });
     } catch { /* silencioso */ }
+    msgCacheMem.delete(chatId);
+    lastMessagesRaw.forEach((_, k) => { if (k.startsWith(`${chatId}|`)) lastMessagesRaw.delete(k); });
+    try { localStorage.removeItem(MSG_CACHE + chatId); } catch { /* nada */ }
     set((state) => {
       const messages = { ...state.messages };
       delete messages[chatId];

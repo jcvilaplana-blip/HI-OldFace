@@ -121,7 +121,7 @@ export default function LoginPage() {
       let savedAvatar = data.user?.avatar || null;
       if (!savedAvatar) {
         try {
-          const avatarRes = await fetch(`${BACKEND}/user/avatar/${userId}`);
+          const avatarRes = await fetch(`${BACKEND}/user/avatar/${userId}?viewerId=${encodeURIComponent(userId)}`);   // la mía, siempre
           if (avatarRes.ok) {
             const avatarData = await avatarRes.json();
             savedAvatar = avatarData.avatar || null;
