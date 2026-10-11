@@ -175,6 +175,14 @@
     .btn-pri{background:linear-gradient(135deg,#3D5A80,#4E7D96);color:#fff;border:none;border-radius:9px;
              padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
     .btn-pri:hover{opacity:.9}
+    /* Interruptor deslizante */
+    .sw{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
+    .sw input{position:absolute;opacity:0;width:0;height:0}
+    .sw-track{position:relative;width:50px;height:28px;border-radius:14px;background:rgba(255,255,255,.15);transition:background .2s;flex-shrink:0}
+    .sw-dot{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:transform .2s}
+    .sw input:checked + .sw-track{background:var(--ok)}
+    .sw input:checked + .sw-track .sw-dot{transform:translateX(22px)}
+    .sw input:focus-visible + .sw-track{outline:2px solid var(--accent);outline-offset:2px}
     .btn-sec{background:rgba(255,255,255,.06);color:var(--text2);border:1px solid var(--border);border-radius:9px;
              padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer}
     .b-active{background:rgba(34,197,94,.16);color:#86efac;border:1px solid rgba(34,197,94,.35)}
@@ -263,6 +271,9 @@
         </div>
         <div class="nav-item" data-sec="karaoke" onclick="showSection('karaoke')">
           <span class="ico">🎤</span> Karaoke
+        </div>
+        <div class="nav-item" data-sec="directos" onclick="showSection('directos')">
+          <span class="ico">🔴</span> Directos
         </div>
       </nav>
       <div class="sb-footer">
@@ -516,6 +527,44 @@
           </div>
         </div>
 
+        <!-- ── DIRECTOS ── -->
+        <div class="section" id="s-directos">
+          <div class="table-card" style="padding:18px 20px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap">
+              <div style="min-width:0">
+                <h3 style="font-size:15px;font-weight:700;margin-bottom:4px">Quién puede hacer directos</h3>
+                <p class="stat-sub" id="dl-mode-text">…</p>
+              </div>
+              <label class="sw" title="Desliza para que puedan emitir todos los usuarios">
+                <span class="stat-sub">Solo administrador</span>
+                <input type="checkbox" id="dl-mode" onchange="setLiveMode(this.checked)" />
+                <span class="sw-track"><span class="sw-dot"></span></span>
+                <span class="stat-sub">Todos los usuarios</span>
+              </label>
+            </div>
+            <p class="stat-sub" style="margin-top:12px">Las tarifas para los demás usuarios se añadirán más adelante. Ver los directos y sus grabaciones lo puede hacer cualquiera según la privacidad de cada directo.</p>
+            <div style="margin-top:16px">
+              <label class="stat-label" style="display:block;margin-bottom:6px">Cuentas que pueden emitir (email o id de usuario, una por línea)</label>
+              <textarea id="dl-broadcasters" rows="3" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical"></textarea>
+              <div id="dl-bc-status" class="stat-sub" style="margin-top:6px"></div>
+              <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn-pri" onclick="saveBroadcasters()">Guardar cuentas</button></div>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-hdr">
+              <h3>Grabaciones de directos <span class="stat-sub" id="dl-count"></span></h3>
+              <button class="btn-sec" onclick="loadLiveRecs()">↻ Actualizar</button>
+            </div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>Canal</th><th>Título</th><th>Fecha</th><th>Duración</th><th>Tamaño</th><th>Visibilidad</th><th>Estado</th><th>Vistas</th><th></th></tr></thead>
+                <tbody id="dl-tbody"><tr><td colspan="9" class="empty"><div class="spinner"></div></td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
       </div><!-- /content -->
     </div><!-- /main -->
   </div><!-- /layout -->
@@ -699,7 +748,7 @@ async function loadChats()  { try { const d = await api('/api/admin/chats'); ren
 async function loadCalls()  { try { const d = await api('/api/admin/calls'); renderCalls(d.calls||[]); } catch(e){ renderCalls([]); } }
 
 // ── Navigation ───────────────────────────────────────────────
-const TITLES = { overview:'Resumen', users:'Usuarios', plans:'Planes', chats:'Chats', calls:'Llamadas', polls:'Encuestas', karaoke:'Karaoke' };
+const TITLES = { overview:'Resumen', users:'Usuarios', plans:'Planes', chats:'Chats', calls:'Llamadas', polls:'Encuestas', karaoke:'Karaoke', directos:'Directos' };
 
 function showSection(id) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -712,6 +761,71 @@ function showSection(id) {
   if (id === 'plans')  { renderPlanCards(); renderPlansTable(); }
   if (id === 'polls')  loadPollSection();
   if (id === 'karaoke') loadKaraokeSection();
+  if (id === 'directos') { loadLiveSettings(); loadLiveRecs(); }
+}
+
+// ── Directos: quién emite y grabaciones ──────────────────────
+async function loadLiveSettings() {
+  try {
+    const s = await apiP('/api/admin/live/settings');
+    document.getElementById('dl-mode').checked = s.mode === 'all';
+    renderLiveMode(s.mode);
+    document.getElementById('dl-broadcasters').value = s.broadcasters.map(b => b.id).join('\n');
+    document.getElementById('dl-bc-status').innerHTML = s.broadcasters.map(b => b.user
+      ? `✅ ${esc(b.id)} → ${esc(b.user.name)} (${esc(b.user.phone)})`
+      : `⏳ ${esc(b.id)} → todavía no hay ninguna cuenta con ese email (se reconoce al volver a entrar en la app)`).join('<br>');
+  } catch (e) { toast(e.message, 'er'); }
+}
+function renderLiveMode(mode) {
+  set('dl-mode-text', mode === 'all'
+    ? 'Todos los usuarios de OldFace pueden iniciar y finalizar sus propios directos.'
+    : 'Solo las cuentas de la lista pueden iniciar y finalizar directos. Los demás solo pueden verlos.');
+}
+async function setLiveMode(all) {
+  const ok = confirm(all ? '¿Permitir que TODOS los usuarios puedan hacer directos?' : '¿Volver a permitir directos solo a las cuentas autorizadas?');
+  if (!ok) { document.getElementById('dl-mode').checked = !all; return; }
+  try { const s = await apiP('/api/admin/live/settings', { method: 'PUT', body: JSON.stringify({ mode: all ? 'all' : 'admin' }) });
+        renderLiveMode(s.mode); toast('Permisos de directos actualizados', 'ok'); }
+  catch (e) { document.getElementById('dl-mode').checked = !all; toast(e.message, 'er'); }
+}
+async function saveBroadcasters() {
+  const list = document.getElementById('dl-broadcasters').value.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+  if (!list.length && !confirm('La lista queda vacía: nadie podrá emitir mientras esté en "Solo administrador". ¿Seguro?')) return;
+  try { await apiP('/api/admin/live/settings', { method: 'PUT', body: JSON.stringify({ broadcasters: list }) });
+        toast('Cuentas guardadas', 'ok'); loadLiveSettings(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+const fmtMB = (b) => !b ? '0 MB' : b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB' : Math.max(0.1, b / 1048576).toFixed(1) + ' MB';
+async function loadLiveRecs() {
+  try {
+    const { recordings, totalSize } = await apiP('/api/admin/live/recordings');
+    set('dl-count', `(${recordings.length} · ${fmtMB(totalSize || 0)})`);
+    document.getElementById('dl-tbody').innerHTML = recordings.length ? recordings.map(r => `<tr>
+      <td><div class="un">${esc(r.ownerName)}</div><div class="up">${esc(r.ownerPhone || r.ownerId)}</div></td>
+      <td style="min-width:200px"><div class="un">${esc(r.title)}</div>${r.description ? `<div class="up">${esc(r.description.slice(0, 80))}</div>` : ''}</td>
+      <td style="font-size:11px;color:var(--text3)">${fmtD(r.createdAt)}</td>
+      <td>${r.duration ? fmtDur(r.duration) : '—'}</td>
+      <td>${fmtMB(r.size || 0)}</td>
+      <td>${r.visibility === 'public' ? 'Pública' : 'Contactos'}</td>
+      <td>${r.hiddenByAdmin ? '<span style="color:var(--err)">Retirada</span>' : r.published ? '<span style="color:var(--ok)">Publicada</span>' : 'Oculta por el dueño'}</td>
+      <td>${r.views || 0}</td>
+      <td style="white-space:nowrap">
+        <a class="btn-ic" title="Ver" href="${esc(r.url)}" target="_blank" rel="noopener">▶️</a>
+        <button class="btn-ic" title="${r.hiddenByAdmin ? 'Volver a mostrar' : 'Retirar (ocultar a todos)'}" onclick="hideLiveRec('${r.id}', ${!r.hiddenByAdmin})">${r.hiddenByAdmin ? '👁️' : '🚫'}</button>
+        <button class="btn-ic del" title="Eliminar" onclick="deleteLiveRec('${r.id}')">🗑️</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="9" class="empty"><div class="eico">🔴</div>Todavía no hay grabaciones de directos</td></tr>';
+  } catch (e) { toast(e.message, 'er'); }
+}
+async function hideLiveRec(id, hidden) {
+  try { await apiP(`/api/admin/live/recordings/${id}`, { method: 'PUT', body: JSON.stringify({ hidden }) });
+        toast(hidden ? 'Grabación retirada' : 'Grabación visible otra vez', 'ok'); loadLiveRecs(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+async function deleteLiveRec(id) {
+  if (!confirm('¿Eliminar esta grabación para siempre? Se borrará también el vídeo.')) return;
+  try { await apiP(`/api/admin/live/recordings/${id}`, { method: 'DELETE' }); toast('Grabación eliminada', 'ok'); loadLiveRecs(); }
+  catch (e) { toast(e.message, 'er'); }
 }
 
 // ── Overview ─────────────────────────────────────────────────

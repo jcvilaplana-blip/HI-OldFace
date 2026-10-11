@@ -379,11 +379,11 @@ function PrivacySection({ user, isDark, cardBg, textClr, labelClr, borderClr }) 
 
   useEffect(() => { getPrivacy().then(setPrivacy).catch(e => setError(e.message)); }, []);
 
-  const save = async (key, rule, contactIds) => {
+  const save = async (key, rule) => {
     const prev = privacy;
     setEditing(null);
     setPrivacy(p => ({ ...p, [key]: rule }));
-    try { setPrivacy(await savePrivacy({ [key]: rule }, contactIds)); setError(''); }
+    try { setPrivacy(await savePrivacy({ [key]: rule })); setError(''); }
     catch (e) { setPrivacy(prev); setError(e.message); }
   };
 
@@ -413,13 +413,13 @@ function PrivacySection({ user, isDark, cardBg, textClr, labelClr, borderClr }) 
 
       {editing && privacy && (
         <PrivacyOptionSheet user={user} isDark={isDark} row={editing} rule={privacy[editing.key]}
-          onClose={() => setEditing(null)} onSave={(rule, contactIds) => save(editing.key, rule, contactIds)} />
+          onClose={() => setEditing(null)} onSave={(rule) => save(editing.key, rule)} />
       )}
     </div>
   );
 }
 
-/** Hoja con las opciones: Todos · Mis contactos · Mis contactos excepto… · Nadie */
+/** Hoja con las opciones: Mis contactos · Mis contactos excepto… · Nadie (en OldFace no hay "Todos") */
 function PrivacyOptionSheet({ user, isDark, row, rule, onClose, onSave }) {
   const T = isDark ? DARK : LIGHT;
   const { candidates, loading } = useCandidates(user?.id);
@@ -442,8 +442,7 @@ function PrivacyOptionSheet({ user, isDark, row, rule, onClose, onSave }) {
   }
 
   const options = [
-    { key: 'all',      title: tr('Todos'),                  sub: tr('Cualquier persona con OldFace') },
-    { key: 'contacts', title: tr('Mis contactos'),          sub: tr('Tus contactos de la agenda y con quien tienes chat') },
+    { key: 'contacts', title: tr('Mis contactos'),          sub: tr('Tus contactos de la agenda y con quien has escrito por chat') },
     { key: 'except',   title: tr('Mis contactos excepto…'), sub: except.size ? tr('Oculto a {size} persona{p1}', { size: except.size, p1: except.size === 1 ? '' : 's' }) : tr('Elige a quién ocultarlo'), pickable: true },
     { key: 'none',     title: tr('Nadie'),                  sub: tr('No lo verá nadie') },
     // "Solo compartir con…" solo existe en los estados y se elige al publicar uno
@@ -454,7 +453,7 @@ function PrivacyOptionSheet({ user, isDark, row, rule, onClose, onSave }) {
 
   return (
     <Sheet T={T} isDark={isDark} z={600} title={tr(row.title)} onClose={onClose}
-      footer={<PrimaryBtn disabled={invalid} onClick={() => onSave(result(), candidates.map(c => c.id))}>
+      footer={<PrimaryBtn disabled={invalid} onClick={() => onSave(result())}>
         {invalid ? tr('Elige al menos una persona') : tr('Guardar')}
       </PrimaryBtn>}>
       {options.map(o => {

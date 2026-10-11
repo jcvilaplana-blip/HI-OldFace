@@ -656,6 +656,12 @@ function AppShell() {
     return () => { clearInterval(iv); document.removeEventListener('visibilitychange', onVis); off?.(); };
   }, [isAuthenticated]); // eslint-disable-line
 
+  // ── Agenda → servidor: define "Mis contactos" (quién ve mis estados, directos, foto y última vez) ──
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    import('./utils/account').then(({ syncAgendaOnStart }) => syncAgendaOnStart()).catch(() => {});
+  }, [isAuthenticated]);
+
   // ── Ubicación en tiempo real del chat: retomar lo que se estaba compartiendo al volver a abrir la app ──
   useEffect(() => {
     if (!isAuthenticated) return;

@@ -430,7 +430,7 @@ router.post('/send-otp', async (req, res) => {
     await sendOtpEmail(toEmail, code);
     console.log(`✅ OTP enviado por email a ${toEmail}`);
     otpStore.set(normalizedPhone, {
-      code, expiry, attempts: 0,
+      code, expiry, attempts: 0, email: toEmail,   // al verificarlo se guarda en la cuenta (permisos de directos)
       sendCount: (existing?.sendCount || 0) + 1,
       firstSent: existing?.firstSent || Date.now(),
     });
@@ -469,6 +469,7 @@ router.post('/verify-otp', async (req, res) => {
     userId,
     name:         name?.trim() || existingUser?.name || 'Usuario',
     phone:        normalizedPhone,
+    email:        entry.email || existingUser?.email || null,   // el que recibió el código
     avatar:       existingUser?.avatar || null,   // preservar avatar existente
     status:       existingUser?.status || null,   // preservar estado existente
     registeredAt: existingUser?.registeredAt || Date.now(),
@@ -560,8 +561,8 @@ router.get('/find-user', (req, res) => {
   return res.json({ userId: found.userId, name: found.name, phone: normalized });
 });
 
-/** GET /users — listar todos los usuarios (para admin/debug) */
-router.get('/users', (_req, res) => {
+/** GET /users — listar todos los usuarios (solo admin: incluye teléfonos) */
+router.get('/users', (req, res, next) => adminAuth(req, res, next), (_req, res) => {
   const list = [...userStore.values()].map(u => ({ userId: u.userId, name: u.name, phone: u.phone }));
   return res.json({ users: list, count: list.length });
 });
@@ -1330,25 +1331,15 @@ router.post('/messages/:chatId/mark-read', (req, res) => {
 // ════════════════════════════════════════════════════════════════
 // Cada estado guarda a quién se le muestra (`allowed`, calculado al publicar):
 //   contacts → mis contactos · except → mis contactos menos `userIds` · only → solo `userIds`.
-// "Mis contactos" = los contactos de la agenda que usan OldFace (los manda la app) + con quien tengo chat o grupo.
+// "Mis contactos" = contactsOf() (agenda con OldFace + chats 1 a 1 en los que he escrito; los grupos no cuentan).
 // Fotos y vídeos se suben antes con /chat/upload; aquí solo se guarda su URL.
 
 const STORY_TTL_MS = 24 * 60 * 60 * 1000;
 const STORY_LIMITS = { total: 20, video: 5, image: 15 };
-// all → cualquiera con OldFace · none → nadie (solo yo) · only → solo `userIds`
-const STORY_MODES = ['contacts', 'except', 'only', 'all', 'none'];
+// none → nadie (solo yo) · only → solo `userIds`. No hay "todos": la antigua opción 'all' pasa a 'contacts'.
+const STORY_MODES = ['contacts', 'except', 'only', 'none'];
 const storyPrivacyStore = new Map(Object.entries(loadJSON('story_privacy.json', {})));   // userId → { mode, userIds }
 const saveStoryPrivacy = () => saveJSON('story_privacy.json', Object.fromEntries(storyPrivacyStore));
-
-/** Personas con las que el usuario tiene chat o comparte grupo */
-function storyContactsOf(userId) {
-  const set = new Set();
-  for (const c of chatStore2.values()) {
-    if (!c.participants?.includes(userId)) continue;
-    for (const p of c.participants) if (p !== userId) set.add(p);
-  }
-  return set;
-}
 
 function cleanStoryPrivacy(p) {
   const mode = STORY_MODES.includes(p?.mode) ? p.mode : 'contacts';
@@ -1357,19 +1348,17 @@ function cleanStoryPrivacy(p) {
   return { mode, userIds };
 }
 
-/** A quién se muestra un estado (null = a todos) */
+/** A quién se muestra un estado */
 function storyAudience(userId, privacy) {
-  if (privacy.mode === 'all') return null;
   if (privacy.mode === 'none') return [];
   if (privacy.mode === 'only') return privacy.userIds.filter(id => id !== userId);
-  const base = storyContactsOf(userId);
-  for (const id of contactsStore.get(userId) || []) base.add(id);
+  const base = contactsOf(userId);
   if (privacy.mode === 'except') for (const id of privacy.userIds) base.delete(id);
   return [...base];
 }
 
-/** Estados antiguos (sin `allowed`) los veían todos: se respeta hasta que caduquen */
-const canSeeStory = (s, viewerId) => s.userId === viewerId || !s.allowed || (!!viewerId && s.allowed.includes(viewerId));
+/** Solo el autor y las personas de `allowed` (los estados sin `allowed` se recalculan al arrancar) */
+const canSeeStory = (s, viewerId) => s.userId === viewerId || (!!viewerId && Array.isArray(s.allowed) && s.allowed.includes(viewerId));
 
 const STORY_FILE_RE = /\/files\/([\w.-]+)$/;
 /** Archivos de estados borrados/caducados: se eliminan más tarde si ningún mensaje los usa (respuestas a estados) */
@@ -1445,11 +1434,11 @@ router.put('/stories/privacy', (req, res) => {
 });
 
 /**
- * POST /stories — { userId, userName, mediaType: text|image|video, content, bgColor, privacy?, contactIds? }
+ * POST /stories — { userId, userName, mediaType: text|image|video, content, bgColor, privacy? }
  * Máximo 20 estados activos: hasta 15 fotos y 5 vídeos. Sin `privacy` se usa la habitual del usuario.
  */
 router.post('/stories', (req, res) => {
-  const { userId, userName, content, bgColor, contactIds } = req.body || {};
+  const { userId, userName, content, bgColor } = req.body || {};
   const mediaType = ['image', 'video'].includes(req.body?.mediaType) ? req.body.mediaType : 'text';
   if (!userId || !content) return res.status(400).json({ error: 'userId y content requeridos' });
   const author = findUserById(userId);
@@ -1470,7 +1459,6 @@ router.post('/stories', (req, res) => {
   const privacy = cleanStoryPrivacy(req.body?.privacy || storyPrivacyStore.get(userId));
   if (privacy.mode === 'only' && privacy.userIds.length === 0)
     return res.status(400).json({ error: 'Elige al menos una persona para compartir' });
-  rememberContacts(userId, contactIds);
   const story = {
     id:        `story_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     userId, userName: author.name || userName || userId,
@@ -1520,17 +1508,19 @@ router.delete('/stories/:storyId', (req, res) => {
 // ════════════════════════════════════════════════════════════════
 //  PRIVACIDAD — quién ve mi última vez, mi foto de perfil y mis estados
 // ════════════════════════════════════════════════════════════════
-// Opciones: all (todos) · contacts (mis contactos) · except (mis contactos excepto `userIds`) · none (nadie).
-// "Mis contactos" = los de mi agenda que usan OldFace (los manda la app) + con quien tengo chat o grupo,
-// igual que en los estados. La privacidad de los estados es la habitual de /stories/privacy.
-const PRIVACY_MODES = ['all', 'contacts', 'except', 'none'];
+// Opciones: contacts (mis contactos) · except (mis contactos excepto `userIds`) · none (nadie). No hay "todos":
+// en OldFace todo es privado y la antigua opción 'all' pasa a 'contacts'.
+// "Mis contactos" = contactsOf(): los de mi agenda que usan OldFace (PUT /user/contacts) + con quien tengo un chat
+// 1 a 1 en el que yo he escrito. Compartir un grupo NO hace a nadie contacto. La privacidad de los estados es la
+// habitual de /stories/privacy.
+const PRIVACY_MODES = ['contacts', 'except', 'none'];
 const privacyStore  = new Map(Object.entries(loadJSON('user_privacy.json', {})));    // userId → { lastSeen, photo }
 const savePrivacy   = () => saveJSON('user_privacy.json', Object.fromEntries(privacyStore));
 const contactsStore = new Map(Object.entries(loadJSON('user_contacts.json', {})));   // userId → [userId] de su agenda
 const saveContacts  = () => saveJSON('user_contacts.json', Object.fromEntries(contactsStore));
 
 function cleanPrivacyRule(r) {
-  const mode = PRIVACY_MODES.includes(r?.mode) ? r.mode : 'all';
+  const mode = PRIVACY_MODES.includes(r?.mode) ? r.mode : 'contacts';
   const userIds = mode !== 'except' ? []
     : [...new Set((Array.isArray(r?.userIds) ? r.userIds : []).filter(id => typeof id === 'string' && findUserById(id)))].slice(0, 500);
   return { mode, userIds };
@@ -1544,18 +1534,54 @@ function rememberContacts(userId, contactIds) {
   saveContacts();
 }
 
-/** ¿viewerId es contacto de ownerId? (agenda, chat 1 a 1 o grupo en común) */
-function isContactOf(ownerId, viewerId) {
-  if ((contactsStore.get(ownerId) || []).includes(viewerId)) return true;
-  if (chatStore2.has(`chat_${[ownerId, viewerId].sort().join('_')}`)) return true;
-  for (const c of chatStore2.values()) if (c.participants?.includes(ownerId) && c.participants.includes(viewerId)) return true;
-  return false;
+/** PUT /user/contacts — { userId, phones } teléfonos de la agenda del móvil; se guardan los que usan OldFace */
+router.put('/user/contacts', (req, res) => {
+  const { userId, phones } = req.body || {};
+  if (!userId || !verifyRtcToken(bearer(req), userId)) return res.status(401).json({ error: 'Sesión no válida' });
+  if (!Array.isArray(phones)) return res.status(400).json({ error: 'phones requerido' });
+  const ids = phones.slice(0, 5000).map(p => userStore.get(normalizePhone(String(p)))?.userId).filter(Boolean);
+  rememberContacts(userId, ids);
+  res.json({ count: (contactsStore.get(userId) || []).length });
+});
+
+/** Estados publicados con "Todos" o antes de existir la privacidad: pasan a "Mis contactos" (se llama al arrancar) */
+function closeOpenStories() {
+  let changed = 0;
+  for (const s of storiesList) {
+    if (Array.isArray(s.allowed)) continue;
+    s.privacy = cleanStoryPrivacy(s.privacy);
+    s.allowed = storyAudience(s.userId, s.privacy);
+    changed++;
+  }
+  if (changed) { saveStories(); console.log(`[privacidad] ${changed} estados abiertos pasan a "Mis contactos"`); }
 }
 
-/** ¿Puede viewerId ver el dato de ownerId protegido por `rule`? Sin saber quién mira, solo con "Todos". */
+/** ¿ownerId ha escrito en el chat? (que otro abra un chat contigo no le hace tu contacto) */
+const hasWrittenIn = (chatId, ownerId) => (messageStore.get(chatId) || []).some(m => m.senderId === ownerId);
+
+/** Contactos de ownerId: su agenda con OldFace + con quien tiene un chat 1 a 1 en el que él ha escrito */
+function contactsOf(ownerId) {
+  const set = new Set(contactsStore.get(ownerId) || []);
+  for (const c of chatStore2.values()) {
+    if (c.isGroup || c.participants?.length !== 2 || !c.participants.includes(ownerId)) continue;
+    const other = c.participants.find(p => p !== ownerId);
+    if (other && !set.has(other) && hasWrittenIn(c.id, ownerId)) set.add(other);
+  }
+  set.delete(ownerId);
+  return set;
+}
+
+/** ¿viewerId es contacto de ownerId? (misma regla que contactsOf, sin recorrer todos los chats) */
+function isContactOf(ownerId, viewerId) {
+  if (!viewerId || viewerId === ownerId) return false;
+  if ((contactsStore.get(ownerId) || []).includes(viewerId)) return true;
+  const chatId = `chat_${[ownerId, viewerId].sort().join('_')}`;
+  return chatStore2.has(chatId) && hasWrittenIn(chatId, ownerId);
+}
+
+/** ¿Puede viewerId ver el dato de ownerId protegido por `rule`? Sin saber quién mira, nunca. */
 function privacyAllows(rule, ownerId, viewerId) {
   if (viewerId && viewerId === ownerId) return true;
-  if (rule.mode === 'all') return true;
   if (!viewerId || rule.mode === 'none') return false;
   if (!isContactOf(ownerId, viewerId)) return false;
   return rule.mode === 'contacts' || !rule.userIds.includes(viewerId);
@@ -1579,9 +1605,9 @@ router.get('/user/privacy', (req, res) => {
   res.json(privacyPublic(userId));
 });
 
-/** PUT /user/privacy — { userId, lastSeen?, photo?, status?, contactIds? } cambia una o varias opciones */
+/** PUT /user/privacy — { userId, lastSeen?, photo?, status? } cambia una o varias opciones */
 router.put('/user/privacy', (req, res) => {
-  const { userId, lastSeen, photo, status, contactIds } = req.body || {};
+  const { userId, lastSeen, photo, status } = req.body || {};
   if (!userId || !verifyRtcToken(bearer(req), userId)) return res.status(401).json({ error: 'Sesión no válida' });
   let statusRule = null;
   if (status !== undefined) {
@@ -1594,7 +1620,6 @@ router.put('/user/privacy', (req, res) => {
   privacyStore.set(userId, cur);
   savePrivacy();
   if (statusRule) { storyPrivacyStore.set(userId, statusRule); saveStoryPrivacy(); }
-  rememberContacts(userId, contactIds);
   // Los demás vuelven a pedir la lista de chats (foto) y la presencia al momento
   for (const c of chatStore2.values()) {
     if (!c.participants?.includes(userId)) continue;
@@ -1667,6 +1692,7 @@ function deleteAccount(userId) {
   stickerStore.delete(userId);
   callLogStore.delete(userId);
   for (const [id, d] of [...directoStore]) if (d.creatorId === userId) directoStore.delete(id);
+  for (const r of [...liveRecStore.values()]) if (r.ownerId === userId) deleteLiveRecording(r);
   for (const [id, r] of [...karaokeRecStore]) {
     if (r.userId !== userId) continue;
     unlinkUpload(r.audioUrl);
@@ -2077,70 +2103,242 @@ router.delete('/call-log/:callId', (req, res) => {
 //  DIRECTOS
 // ════════════════════════════════════════════════════════════════
 
-router.get('/directos', (_req, res) => {
-  const list = [...directoStore.values()].sort((a, b) => b.createdAt - a.createdAt);
+// Quién emite: de momento solo las cuentas autorizadas en el Administrador (por email o userId); con el interruptor
+// "Todos los usuarios" puede emitir cualquiera. Cada directo es público (todo OldFace) o para contactos: los
+// elegidos al crearlo o, si no eligió, todos sus contactos. Las grabaciones (las hace el servidor RTC) siguen la
+// misma regla y quedan en el canal del anfitrión; solo él las edita, publica/oculta o borra (y el Administrador).
+
+const DEFAULT_BROADCASTERS = ['williamduarte0412@gmail.com'];
+let liveSettings = loadJSON('live_settings.json', { mode: 'admin', broadcasters: DEFAULT_BROADCASTERS });
+const saveLiveSettings = () => saveJSON('live_settings.json', liveSettings);
+const liveRecStore = new Map(Object.entries(loadJSON('live_recordings.json', {})));   // id → grabación
+const saveLiveRecs = () => saveJSON('live_recordings.json', Object.fromEntries(liveRecStore));
+const LIVE_VISIBILITY = ['public', 'contacts'];
+
+/** ¿Puede emitir directos? (modo "todos" o cuenta autorizada por email o userId) */
+function canBroadcast(userId) {
+  const u = findUserById(userId);
+  if (!u) return false;
+  if (liveSettings.mode === 'all') return true;
+  const list = (liveSettings.broadcasters || []).map(s => String(s).trim().toLowerCase());
+  return list.includes(String(u.email || '').toLowerCase()) || list.includes(userId.toLowerCase());
+}
+
+/** Sesión real (token firmado) del usuario que hace la petición; responde 401 si no la hay */
+function requireSession(req, res) {
+  const userId = req.body?.userId || req.query.userId;
+  if (!userId || !verifyRtcToken(bearer(req), userId)) { res.status(401).json({ error: 'Sesión no válida' }); return null; }
+  return userId;
+}
+
+/** Contactos elegidos (teléfonos o userIds) → userIds */
+const pickedUserIds = (list) => (Array.isArray(list) ? list : [])
+  .map(c => findUserById(c)?.userId || userStore.get(normalizePhone(String(c)))?.userId).filter(Boolean);
+
+/** Quién puede ver algo de `ownerId` compartido con `contacts` (null = todo OldFace) */
+function audienceOf(ownerId, visibility, contacts) {
+  if (visibility === 'public') return null;
+  const set = contacts?.length ? new Set(pickedUserIds(contacts)) : contactsOf(ownerId);
+  set.delete(ownerId);
+  return set;
+}
+const directoAudience = (d) => audienceOf(d.creatorId, d.visibility, d.contacts);
+function canSeeShared(ownerId, visibility, contacts, viewerId) {
+  if (!viewerId || !findUserById(viewerId)) return false;
+  if (ownerId === viewerId) return true;
+  const aud = audienceOf(ownerId, visibility, contacts);
+  return aud === null || aud.has(viewerId);
+}
+const canSeeDirecto = (d, viewerId) => canSeeShared(d.creatorId, d.visibility, d.contacts, viewerId);
+/** A los demás no se les enseña con quién lo compartió el anfitrión */
+const directoFor = (d, viewerId) => {
+  const creator = findUserById(d.creatorId);
+  const base = { ...d, visibility: d.visibility || 'contacts', creatorName: creator?.name || null };
+  return d.creatorId === viewerId ? base : { ...base, contacts: [] };
+};
+const cleanVisibility = (v) => (LIVE_VISIBILITY.includes(v) ? v : 'contacts');
+const cleanText = (s, max) => String(s ?? '').replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim().slice(0, max);
+
+/** GET /directos/permissions?userId= — ¿puede emitir este usuario? */
+router.get('/directos/permissions', (req, res) => {
+  res.json({ canBroadcast: canBroadcast(String(req.query.userId || '')), mode: liveSettings.mode });
+});
+
+/** GET /directos?userId= — directos que puede ver el usuario */
+router.get('/directos', (req, res) => {
+  const viewerId = req.query.userId || null;
+  const list = [...directoStore.values()].filter(d => canSeeDirecto(d, viewerId))
+    .sort((a, b) => b.createdAt - a.createdAt).map(d => directoFor(d, viewerId));
   return res.json({ directos: list });
 });
 
+/** POST /directos — { userId, title, description, scheduledAt, visibility, contacts, price } (Bearer) */
 router.post('/directos', (req, res) => {
-  const { creatorId, title, description, scheduledAt, contacts, price } = req.body || {};
-  if (!creatorId || !title) return res.status(400).json({ error: 'creatorId y title son requeridos' });
-
+  const userId = requireSession(req, res);
+  if (!userId) return;
+  if (!canBroadcast(userId)) return res.status(403).json({ error: 'Tu cuenta no tiene permiso para hacer directos' });
+  const title = cleanText(req.body.title, 120);
+  if (!title) return res.status(400).json({ error: 'El nombre del directo es obligatorio' });
+  const { scheduledAt, contacts, price } = req.body;
   const directo = {
     id:          `directo_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    creatorId, title, description: description || '',
-    scheduledAt: scheduledAt || null, contacts: contacts || [],
-    price: price || 0, status: 'scheduled',
-    createdAt: Date.now(), viewerCount: 0,
+    creatorId:   userId, title, description: cleanText(req.body.description, 1000),
+    scheduledAt: scheduledAt || null, visibility: cleanVisibility(req.body.visibility),
+    contacts:    Array.isArray(contacts) ? contacts.slice(0, 3000) : [],
+    price:       Math.max(0, Number(price) || 0), status: 'scheduled',
+    createdAt:   Date.now(), viewerCount: 0,
   };
   directoStore.set(directo.id, directo);
   saveDirectos();
-  return res.status(201).json(directo);
+  return res.status(201).json(directoFor(directo, userId));
 });
 
-router.get('/directos/:id', (req, res) => {
+/** GET /directos/:id?userId= — un directo (no existe para quien no puede verlo) */
+router.get('/directos/:id', (req, res, next) => {
+  if (req.params.id === 'recordings') return next();   // GET /directos/recordings va más abajo
   const d = directoStore.get(req.params.id);
-  if (!d) return res.status(404).json({ error: 'Directo no encontrado' });
-  const creator = [...userStore.values()].find(u => u.userId === d.creatorId);
-  return res.json({ ...d, creatorName: creator?.name || null, creatorAvatar: creator?.avatar || null });
+  const viewerId = req.query.userId || null;
+  if (!d || !canSeeDirecto(d, viewerId)) return res.status(404).json({ error: 'Directo no encontrado' });
+  const creator = findUserById(d.creatorId);
+  return res.json({ ...directoFor(d, viewerId), creatorAvatar: avatarFor(creator, viewerId),
+                    hostCanBroadcast: canBroadcast(d.creatorId) });
 });
 
-/** Avisa a todos los usuarios (menos el anfitrión) de que un directo ha empezado */
+/** Avisa a su público de que un directo ha empezado (si es público, a todo OldFace) */
 function notifyLiveStarted(d) {
-  const creator = [...userStore.values()].find(u => u.userId === d.creatorId);
-  const hostName = creator?.name || 'Alguien';
-  for (const u of userStore.values()) {
-    if (u.userId === d.creatorId) continue;
-    rtcEmit(u.userId, 'live:started', { directoId: d.id, title: d.title, hostName });
-    const T = pushText(u.userId);
-    pushToUser(u.userId, T.isLive(hostName), d.title || T.tapToWatch, { type: 'live', directoId: d.id });
+  const hostName = findUserById(d.creatorId)?.name || 'Alguien';
+  const aud = directoAudience(d);
+  const to = aud === null ? [...userStore.values()].map(u => u.userId).filter(id => id !== d.creatorId) : [...aud];
+  for (const userId of to) {
+    rtcEmit(userId, 'live:started', { directoId: d.id, title: d.title, hostName });
+    const T = pushText(userId);
+    pushToUser(userId, T.isLive(hostName), d.title || T.tapToWatch, { type: 'live', directoId: d.id });
   }
 }
 
+/** PUT /directos/:id — { userId, …campos, status } solo el anfitrión (Bearer) */
 router.put('/directos/:id', (req, res) => {
+  const userId = requireSession(req, res);
+  if (!userId) return;
   const d = directoStore.get(req.params.id);
-  if (!d) return res.status(404).json({ error: 'Directo no encontrado' });
-  const { title, description, scheduledAt, contacts, price, status } = req.body || {};
+  if (!d || d.creatorId !== userId) return res.status(404).json({ error: 'Directo no encontrado' });
+  const { title, description, scheduledAt, visibility, contacts, price, status } = req.body;
+  if (status !== undefined && !['scheduled', 'live', 'ended'].includes(status)) return res.status(400).json({ error: 'Estado no válido' });
   const goingLive = status === 'live' && d.status !== 'live';
+  if (goingLive && !canBroadcast(userId)) return res.status(403).json({ error: 'Tu cuenta no tiene permiso para hacer directos' });
   if (goingLive) d.startedAt = Date.now();
   if (status === 'ended' && d.status !== 'ended') d.endedAt = Date.now();
-  if (title       !== undefined) d.title       = title;
-  if (description !== undefined) d.description = description;
-  if (scheduledAt !== undefined) d.scheduledAt = scheduledAt;
-  if (contacts    !== undefined) d.contacts    = contacts;
-  if (price       !== undefined) d.price       = price;
+  if (title       !== undefined && cleanText(title, 120)) d.title = cleanText(title, 120);
+  if (description !== undefined) d.description = cleanText(description, 1000);
+  if (scheduledAt !== undefined) d.scheduledAt = scheduledAt || null;
+  if (visibility  !== undefined) d.visibility  = cleanVisibility(visibility);
+  if (contacts    !== undefined) d.contacts    = Array.isArray(contacts) ? contacts.slice(0, 3000) : [];
+  if (price       !== undefined) d.price       = Math.max(0, Number(price) || 0);
   if (status      !== undefined) d.status      = status;
   directoStore.set(d.id, d);
   saveDirectos();
   if (goingLive) notifyLiveStarted(d);
-  return res.json(d);
+  return res.json(directoFor(d, userId));
 });
 
+/** DELETE /directos/:id?userId= — solo el anfitrión (Bearer); sus grabaciones se quedan en el canal */
 router.delete('/directos/:id', (req, res) => {
-  if (!directoStore.has(req.params.id)) return res.status(404).json({ error: 'Directo no encontrado' });
+  const userId = requireSession(req, res);
+  if (!userId) return;
+  const d = directoStore.get(req.params.id);
+  if (!d || d.creatorId !== userId) return res.status(404).json({ error: 'Directo no encontrado' });
   directoStore.delete(req.params.id);
   saveDirectos();
   return res.json({ success: true });
+});
+
+// ── Grabaciones (canal de cada usuario) ─────────────────────────────
+const canSeeRecording = (r, viewerId) => r.ownerId === viewerId
+  || (r.published && !r.hiddenByAdmin && canSeeShared(r.ownerId, r.visibility, r.contacts, viewerId));
+function recordingFor(r, viewerId) {
+  const owner = findUserById(r.ownerId);
+  const out = { ...r, url: absFileUrl(`/files/${r.file}`), ownerName: owner?.name || 'OldFace', ownerAvatar: avatarFor(owner, viewerId) };
+  delete out.file;
+  if (r.ownerId !== viewerId) out.contacts = [];
+  return out;
+}
+
+/** Servidor RTC → backend: grabación terminada de un directo (secreto interno) */
+router.post('/internal/live-recordings', (req, res) => {
+  const hdr = req.get('x-internal-secret') || '';
+  const secret = process.env.RTC_SECRET || '';
+  if (!secret || hdr.length !== secret.length || !crypto.timingSafeEqual(Buffer.from(hdr), Buffer.from(secret)))
+    return res.status(401).json({ error: 'unauthorized' });
+  const { liveId, hostId, file, size, duration, startedAt, endedAt } = req.body || {};
+  if (!/^live_[\w-]+\.(webm|mp4)$/.test(String(file || ''))) return res.status(400).json({ error: 'Archivo no válido' });
+  const d = directoStore.get(liveId);
+  const ownerId = d?.creatorId || hostId;
+  if (!findUserById(ownerId)) return res.status(400).json({ error: 'Anfitrión desconocido' });
+  const rec = {
+    id: `lrec_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+    directoId: liveId, ownerId, file,
+    title: d?.title || 'Directo', description: d?.description || '',
+    visibility: d?.visibility || 'contacts', contacts: d?.contacts || [],
+    size: Number(size) || 0, duration: Number(duration) || 0,
+    startedAt: Number(startedAt) || null, endedAt: Number(endedAt) || Date.now(), createdAt: Date.now(),
+    published: true, hiddenByAdmin: false, views: 0,
+  };
+  liveRecStore.set(rec.id, rec);
+  saveLiveRecs();
+  console.log(`[directos] grabación ${rec.id} de ${ownerId}: ${file} (${Math.round(rec.size / 1048576)} MB, ${rec.duration} s)`);
+  res.status(201).json({ id: rec.id });
+});
+
+/** GET /directos/recordings?userId=&ownerId= — grabaciones que puede ver el usuario (de un canal o de todos) */
+router.get('/directos/recordings', (req, res) => {
+  const viewerId = req.query.userId || null;
+  const ownerId = req.query.ownerId || null;
+  const list = [...liveRecStore.values()]
+    .filter(r => (!ownerId || r.ownerId === ownerId) && canSeeRecording(r, viewerId))
+    .sort((a, b) => b.createdAt - a.createdAt).slice(0, 300).map(r => recordingFor(r, viewerId));
+  const owner = ownerId ? findUserById(ownerId) : null;
+  res.json({ recordings: list, channel: owner ? { userId: owner.userId, name: owner.name, avatar: avatarFor(owner, viewerId) } : null });
+});
+
+/** POST /directos/recordings/:id/view — { userId } una reproducción más */
+router.post('/directos/recordings/:id/view', (req, res) => {
+  const r = liveRecStore.get(req.params.id);
+  const viewerId = req.body?.userId;
+  if (!r || !canSeeRecording(r, viewerId)) return res.status(404).json({ error: 'Grabación no encontrada' });
+  if (viewerId !== r.ownerId) { r.views = (r.views || 0) + 1; saveLiveRecs(); }
+  res.json({ views: r.views || 0 });
+});
+
+/** PUT /directos/recordings/:id — { userId, title, description, published, visibility, contacts } solo el dueño (Bearer) */
+router.put('/directos/recordings/:id', (req, res) => {
+  const userId = requireSession(req, res);
+  if (!userId) return;
+  const r = liveRecStore.get(req.params.id);
+  if (!r || r.ownerId !== userId) return res.status(404).json({ error: 'Grabación no encontrada' });
+  const { title, description, published, visibility, contacts } = req.body;
+  if (title !== undefined && cleanText(title, 120)) r.title = cleanText(title, 120);
+  if (description !== undefined) r.description = cleanText(description, 1000);
+  if (published !== undefined) r.published = !!published;
+  if (visibility !== undefined) r.visibility = cleanVisibility(visibility);
+  if (contacts !== undefined) r.contacts = Array.isArray(contacts) ? contacts.slice(0, 3000) : [];
+  saveLiveRecs();
+  res.json(recordingFor(r, userId));
+});
+
+function deleteLiveRecording(r) {
+  liveRecStore.delete(r.id);
+  saveLiveRecs();
+  try { fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(r.file))); } catch { /* ya no estaba */ }
+}
+
+/** DELETE /directos/recordings/:id?userId= — solo el dueño (Bearer); borra también el vídeo */
+router.delete('/directos/recordings/:id', (req, res) => {
+  const userId = requireSession(req, res);
+  if (!userId) return;
+  const r = liveRecStore.get(req.params.id);
+  if (!r || r.ownerId !== userId) return res.status(404).json({ error: 'Grabación no encontrada' });
+  deleteLiveRecording(r);
+  res.json({ success: true });
 });
 
 // ════════════════════════════════════════════════════════════════
@@ -2213,7 +2411,7 @@ router.get('/admin/users', adminAuth, (_req, res) => {
     const sub = subStore.get(userId) || { plan: 'free', since: null };
     let msgCount = 0;
     for (const msgs of messageStore.values()) if (Array.isArray(msgs)) msgCount += msgs.filter(m => m.sender === userId).length;
-    list.push({ id: userId, name: u.name || '—', phone: u.phone || '—', avatar: u.avatar || null,
+    list.push({ id: userId, name: u.name || '—', phone: u.phone || '—', email: u.email || null, avatar: u.avatar || null,
                 registeredAt: u.registeredAt || null, lastSeen: u.lastSeen || null,
                 plan: sub.plan, planSince: sub.since || null, msgCount });
   }
@@ -2254,6 +2452,57 @@ router.get('/admin/calls', adminAuth, (_req, res) => {
   for (const calls of callLogStore.values()) if (Array.isArray(calls)) all.push(...calls);
   all.sort((a, b) => (b.ts || b.timestamp || 0) - (a.ts || a.timestamp || 0));
   res.json({ calls: all.slice(0, 200) });
+});
+
+// ── Directos: quién puede emitir y registro de grabaciones ─────────
+/** GET /admin/live/settings — { mode: 'admin'|'all', broadcasters: [email|userId] } */
+router.get('/admin/live/settings', adminAuth, (_req, res) => {
+  const broadcasters = (liveSettings.broadcasters || []).map(b => {
+    const key = String(b).toLowerCase();
+    const u = [...userStore.values()].find(x => String(x.email || '').toLowerCase() === key || x.userId.toLowerCase() === key);
+    return { id: b, user: u ? { userId: u.userId, name: u.name, phone: u.phone } : null };
+  });
+  res.json({ mode: liveSettings.mode, broadcasters });
+});
+
+/** PUT /admin/live/settings — { mode?, broadcasters? } */
+router.put('/admin/live/settings', adminAuth, (req, res) => {
+  const { mode, broadcasters } = req.body || {};
+  if (mode !== undefined) {
+    if (!['admin', 'all'].includes(mode)) return res.status(400).json({ error: 'Modo no válido' });
+    liveSettings.mode = mode;
+  }
+  if (broadcasters !== undefined) {
+    if (!Array.isArray(broadcasters)) return res.status(400).json({ error: 'Lista no válida' });
+    liveSettings.broadcasters = [...new Set(broadcasters.map(b => String(b).trim().toLowerCase()).filter(Boolean))].slice(0, 100);
+  }
+  saveLiveSettings();
+  res.json({ mode: liveSettings.mode, broadcasters: liveSettings.broadcasters });
+});
+
+/** GET /admin/live/recordings — todas las grabaciones (también las ocultas) */
+router.get('/admin/live/recordings', adminAuth, (_req, res) => {
+  const list = [...liveRecStore.values()].sort((a, b) => b.createdAt - a.createdAt).map(r => {
+    const owner = findUserById(r.ownerId);
+    return { ...r, url: absFileUrl(`/files/${r.file}`), ownerName: owner?.name || r.ownerId, ownerPhone: owner?.phone || null };
+  });
+  res.json({ recordings: list, totalSize: list.reduce((n, r) => n + (r.size || 0), 0) });
+});
+
+/** PUT /admin/live/recordings/:id — { hidden } ocultar/mostrar (moderación) */
+router.put('/admin/live/recordings/:id', adminAuth, (req, res) => {
+  const r = liveRecStore.get(req.params.id);
+  if (!r) return res.status(404).json({ error: 'Grabación no encontrada' });
+  r.hiddenByAdmin = !!req.body?.hidden;
+  saveLiveRecs();
+  res.json({ success: true, hiddenByAdmin: r.hiddenByAdmin });
+});
+
+router.delete('/admin/live/recordings/:id', adminAuth, (req, res) => {
+  const r = liveRecStore.get(req.params.id);
+  if (!r) return res.status(404).json({ error: 'Grabación no encontrada' });
+  deleteLiveRecording(r);
+  res.json({ success: true });
 });
 
 // ════════════════════════════════════════════════════════════════
@@ -2643,19 +2892,23 @@ router.post('/karaoke/recordings', (req, res) => {
   res.status(201).json({ recording: recSummary(rec) });
 });
 
-/** GET /karaoke/recordings?userId= — grabaciones de un usuario (o las últimas públicas sin userId) */
+/** GET /karaoke/recordings?userId= — grabaciones del usuario (sin userId no se lista nada) */
 router.get('/karaoke/recordings', (req, res) => {
   const { userId } = req.query;
+  if (!userId) return res.json({ recordings: [] });
   const list = [...karaokeRecStore.values()]
-    .filter(r => !userId || r.userId === userId)
+    .filter(r => r.userId === userId)
     .sort((a, b) => b.createdAt - a.createdAt).slice(0, 100).map(recSummary);
   res.json({ recordings: list });
 });
 
-/** GET /karaoke/duets — dúos abiertos (parte A grabada) a los que cualquiera puede unirse */
+/** GET /karaoke/duets?userId= — dúos abiertos (parte A grabada) míos o de mis contactos */
 router.get('/karaoke/duets', (req, res) => {
+  const viewerId = req.query.userId || null;
+  if (!viewerId) return res.json({ duets: [] });
   const list = [...karaokeRecStore.values()]
     .filter(r => r.duetPart && !r.duetOf && karaokeSongStore.get(r.songId)?.published !== false)
+    .filter(r => r.userId === viewerId || isContactOf(r.userId, viewerId))
     .sort((a, b) => b.createdAt - a.createdAt).slice(0, 100).map(recSummary);
   res.json({ duets: list });
 });
@@ -2962,6 +3215,8 @@ app.use((err, _req, res, _next) => {
   console.error('❌', err.message);
   res.status(500).json({ error: err.message });
 });
+
+closeOpenStories();
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 OldFace Backend en http://0.0.0.0:${PORT}`);

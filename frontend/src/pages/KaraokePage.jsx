@@ -53,7 +53,7 @@ export default function KaraokePage() {
   const [duets, setDuets] = useState(null);
   useEffect(() => {
     if (tab !== 'duos') return;
-    fetch(`${BACKEND}/karaoke/duets`).then(r => r.json()).then(d => setDuets(d.duets || [])).catch(() => setDuets([]));
+    fetch(`${BACKEND}/karaoke/duets?userId=${encodeURIComponent(user?.id || '')}`).then(r => r.json()).then(d => setDuets(d.duets || [])).catch(() => setDuets([]));
   }, [tab]);
 
   const filtered = useMemo(() => {

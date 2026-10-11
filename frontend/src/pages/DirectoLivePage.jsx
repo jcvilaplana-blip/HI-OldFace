@@ -12,6 +12,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { RtcCall } from '../utils/rtcCall';
 import { ensureRtcConnected, rtcRequest, onRtc } from '../utils/rtcClient';
+import { saveDirecto } from '../utils/directos';
 import { tr, LOCALE } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
@@ -102,7 +103,8 @@ export default function DirectoLivePage() {
   const start = async () => {
     try {
       setStatus('loading');
-      const res = await fetch(`${BACKEND}/directos/${encodeURIComponent(directoId)}`);
+      // El servidor solo lo da si soy el anfitrión o uno de sus contactos
+      const res = await fetch(`${BACKEND}/directos/${encodeURIComponent(directoId)}?userId=${encodeURIComponent(user?.id || '')}`);
       if (!res.ok) throw new Error(tr('Directo no encontrado'));
       const d = await res.json();
       setDirecto(d);
@@ -113,12 +115,8 @@ export default function DirectoLivePage() {
 
       let live;
       if (amHost) {
-        if (d.status !== 'live') {
-          await fetch(`${BACKEND}/directos/${encodeURIComponent(directoId)}`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'live' }),
-          });
-        }
+        // Solo las cuentas con permiso pueden emitir: si no, el servidor lo rechaza aquí
+        if (d.status !== 'live') await saveDirecto(directoId, { status: 'live' });
         ({ live } = await rtcRequest('live:start', { liveId: directoId }));
       } else {
         try {
@@ -265,11 +263,7 @@ export default function DirectoLivePage() {
 
   const endLive = async () => {
     try { await rtcRequest('live:end', { liveId: directoId }); } catch {}
-    try {
-      await fetch(`${BACKEND}/directos/${encodeURIComponent(directoId)}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'ended' }),
-      });
-    } catch {}
+    try { await saveDirecto(directoId, { status: 'ended' }); } catch {}
     cleanup();
     navigate(-1);
   };

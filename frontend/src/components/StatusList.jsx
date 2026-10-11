@@ -35,8 +35,7 @@ function timeAgo(ts) {
 }
 
 function privacyLabel(p, short = false) {
-  if (!p || p.mode === 'contacts') return tr('Mis contactos');
-  if (p.mode === 'all') return tr('Todos');
+  if (!p || p.mode === 'contacts' || p.mode === 'all') return tr('Mis contactos');
   if (p.mode === 'none') return tr('Nadie');
   const n = p.userIds?.length || 0;
   if (p.mode === 'except') return short ? tr('Contactos excepto {n}', { n }) : tr('Mis contactos excepto {n} persona{p1}', { n, p1: n === 1 ? '' : 's' });
@@ -261,7 +260,6 @@ function Thumb({ story, name, avatar }) {
 
 // ══ Crear estados ════════════════════════════════════════════════════════════
 function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }) {
-  const { candidates } = useCandidates(user?.id);
   const [text, setText]         = useState('');
   const [color, setColor]       = useState(COLORS[0]);
   const [queue, setQueue]       = useState([]);   // [{ type, blob, preview }]
@@ -319,7 +317,7 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
   const post = async (body) => {
     const res = await fetch(`${BACKEND}/stories`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: user.id, userName: user.name, privacy, contactIds: candidates.map(c => c.id), ...body }),
+      body: JSON.stringify({ userId: user.id, userName: user.name, privacy, ...body }),
     });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(d.error || tr('No se pudo publicar'));
@@ -503,8 +501,7 @@ function PrivacySheet({ T, isDark, user, initial, remember: initRemember, onClos
           <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} style={{ width: 18, height: 18, accentColor: BRAND }} />{tr('Usar siempre esta opción (privacidad habitual)')}</label>
         <PrimaryBtn disabled={invalid} onClick={() => onDone(result(), remember)}>{invalid ? tr('Elige al menos una persona') : tr('Aceptar')}</PrimaryBtn>
       </>}>
-      {option('all', tr('Todos'), tr('Cualquier persona con OldFace'))}
-      {option('contacts', tr('Mis contactos'), tr('Todos tus contactos de OldFace'))}
+      {option('contacts', tr('Mis contactos'), tr('Tus contactos de la agenda y con quien has escrito por chat'))}
       {option('except', tr('Mis contactos excepto…'), except.size ? tr('Oculto a {size} persona{p1}', { size: except.size, p1: except.size === 1 ? '' : 's' }) : tr('Elige a quién ocultarlo'), true)}
       {option('only', tr('Solo compartir con…'), only.size ? `${only.size} persona${only.size === 1 ? '' : 's'}` : tr('Elige con quién compartirlo'), true)}
       {option('none', tr('Nadie'), tr('Solo lo verás tú'))}

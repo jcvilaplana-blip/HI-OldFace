@@ -1,21 +1,23 @@
 /**
- * DirectoPage — Gestión de sesiones en directo
- * Crear, programar, nombrar, añadir contactos, compartir y cobrar por ver.
- * Solo los usuarios autorizados pueden crear directos.
+ * DirectoPage — Directos en vivo, grabaciones y canal.
+ *   · Directos: en vivo y programados que puedo ver (públicos, de mis contactos y los míos).
+ *   · Grabaciones: los directos terminados de todos los canales que puedo ver (se graban solos en el servidor).
+ *   · Mi canal: mis grabaciones (editar, publicar/ocultar, borrar). Solo si puedo emitir.
+ * Emitir: de momento solo las cuentas autorizadas en el Administrador (GET /directos/permissions).
+ * Cada directo es público (todo OldFace) o para mis contactos (todos o los que elija).
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useContacts } from '../hooks/useContacts';
 import { onRtc } from '../utils/rtcClient';
+import { useBackClose } from '../utils/backHandler';
+import { getPermissions, listDirectos, saveDirecto, deleteDirecto, listRecordings } from '../utils/directos';
+import { RecordingsList, RecordingPlayer, ChannelView } from '../components/LiveRecordings';
 import { tr, LOCALE } from '../i18n';
 
-const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-const BRAND   = '#3D5A80';
-const RED     = '#ef4444';
-
-// Como en Instagram / TikTok: cualquier usuario puede hacer directos
-const isDirectoCreator = (user) => !!user?.id;
+const BRAND = '#3D5A80';
+const RED   = '#ef4444';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function formatScheduled(iso) {
@@ -30,30 +32,40 @@ function statusLabel(status) {
   return                             { text: tr('Programado'),   color: BRAND,    bg: '#E3EDF2' };
 }
 
+const visibilityLabel = (d) => (d.visibility === 'public' ? tr('Público')
+  : d.contacts?.length ? tr('{n} contactos', { n: d.contacts.length }) : tr('Mis contactos'));
+
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function DirectoPage() {
   const navigate   = useNavigate();
   const { user }   = useAuthStore();
-  const canCreate  = isDirectoCreator(user);
+  const [canCreate, setCanCreate] = useState(false);
+  const [tab, setTab]             = useState('live');      // live | recordings | mine
 
   const [directos, setDirectos]     = useState([]);
   const [loading,  setLoading]      = useState(true);
   const [showForm, setShowForm]     = useState(false);
   const [editing,  setEditing]      = useState(null); // directo being edited
+  const [error,    setError]        = useState('');
+
+  const [recs, setRecs]               = useState([]);
+  const [recsLoading, setRecsLoading] = useState(false);
+  const [playing, setPlaying]         = useState(null);
+  const [channel, setChannel]         = useState(null);    // userId del canal abierto
+
+  useEffect(() => { getPermissions().then(p => setCanCreate(!!p.canBroadcast)).catch(() => setCanCreate(false)); }, []);
 
   const loadDirectos = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${BACKEND}/directos`);
-      if (res.ok) {
-        const data = await res.json();
-        setDirectos(data.directos || []);
-      }
-    } catch (err) {
-      console.warn('[DirectoPage] load error:', err.message);
-    } finally {
-      setLoading(false);
-    }
+    try { setDirectos(await listDirectos()); }
+    catch (err) { console.warn('[DirectoPage] load error:', err.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  const loadRecs = useCallback(async () => {
+    setRecsLoading(true);
+    try { setRecs((await listRecordings()).recordings || []); }
+    catch { setRecs([]); }
+    finally { setRecsLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -63,22 +75,21 @@ export default function DirectoPage() {
     const t = setInterval(loadDirectos, 20000);
     return () => { off(); clearInterval(t); };
   }, []);
+  useEffect(() => { if (tab === 'recordings') loadRecs(); }, [tab]);
 
-  // "En directo ahora": crea un directo y empieza a emitir al instante
+  // "En directo ahora": primero se elige quién puede verlo y se empieza a emitir al instante
+  const [quickLive, setQuickLive] = useState(false);
   const [goingLive, setGoingLive] = useState(false);
-  const goLiveNow = async () => {
+  const goLiveNow = async (visibility) => {
     if (goingLive) return;
     setGoingLive(true);
+    setError('');
     try {
-      const res = await fetch(`${BACKEND}/directos`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ creatorId: user.id, title: tr('Directo de {p0}', { p0: user.name || 'OldFace' }), price: 0 }),
-      });
-      if (!res.ok) throw new Error();
-      const d = await res.json();
+      const d = await saveDirecto(null, { title: tr('Directo de {p0}', { p0: user.name || 'OldFace' }), visibility, price: 0 });
+      setQuickLive(false);
       navigate(`/directo/${d.id}/live`);
-    } catch {
-      window.alert?.(tr('No se pudo crear el directo. Inténtalo de nuevo.'));
+    } catch (e) {
+      setError(e.message || tr('No se pudo crear el directo. Inténtalo de nuevo.'));
     } finally {
       setGoingLive(false);
     }
@@ -86,43 +97,26 @@ export default function DirectoPage() {
 
   const handleDelete = async (id) => {
     if (!window.confirm(tr('¿Eliminar este directo?'))) return;
-    try {
-      await fetch(`${BACKEND}/directos/${id}`, { method: 'DELETE' });
-      setDirectos(prev => prev.filter(d => d.id !== id));
-    } catch { /* silent */ }
+    try { await deleteDirecto(id); setDirectos(prev => prev.filter(d => d.id !== id)); }
+    catch (e) { setError(e.message); }
   };
 
   const handleGoLive = async (directo) => {
-    // 1. Marcar como live en el backend
     try {
-      const res = await fetch(`${BACKEND}/directos/${directo.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'live' }),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setDirectos(prev => prev.map(d => d.id === updated.id ? updated : d));
-      }
-    } catch { /* continuar igualmente */ }
-
-    // 2. Navegar a la sala de streaming
-    navigate(`/directo/${directo.id}/live`);
+      const updated = await saveDirecto(directo.id, { status: 'live' });
+      setDirectos(prev => prev.map(d => d.id === updated.id ? updated : d));
+      navigate(`/directo/${directo.id}/live`);
+    } catch (e) { setError(e.message); }
   };
 
   const handleEnd = async (directo) => {
     try {
-      const res = await fetch(`${BACKEND}/directos/${directo.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'ended' }),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setDirectos(prev => prev.map(d => d.id === updated.id ? updated : d));
-      }
-    } catch { /* silent */ }
+      const updated = await saveDirecto(directo.id, { status: 'ended' });
+      setDirectos(prev => prev.map(d => d.id === updated.id ? updated : d));
+    } catch (e) { setError(e.message); }
   };
+
+  const tabs = [['live', tr('Directos')], ['recordings', tr('Grabaciones')], ...(canCreate ? [['mine', tr('Mi canal')]] : [])];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: '#f8fafc' }}>
@@ -133,7 +127,7 @@ export default function DirectoPage() {
         paddingTop: 'var(--sat)',
         boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px 10px' }}>
           <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 19l-7-7 7-7"/>
@@ -166,7 +160,7 @@ export default function DirectoPage() {
             </p>
           </div>
 
-          {canCreate && (
+          {canCreate && tab === 'live' && (
             <button
               onClick={() => { setEditing(null); setShowForm(true); }}
               style={{
@@ -176,72 +170,100 @@ export default function DirectoPage() {
             >{tr('+ Nuevo')}</button>
           )}
         </div>
+
+        {/* Pestañas */}
+        <div style={{ display: 'flex', gap: 4, padding: '0 10px' }}>
+          {tabs.map(([key, label]) => (
+            <button key={key} onClick={() => setTab(key)} style={{
+              flex: 1, background: 'none', border: 'none', color: 'white', cursor: 'pointer',
+              padding: '8px 4px 10px', fontSize: 13, fontWeight: tab === key ? 900 : 600, opacity: tab === key ? 1 : 0.75,
+              borderBottom: `3px solid ${tab === key ? 'white' : 'transparent'}`,
+            }}>{label}</button>
+          ))}
+        </div>
       </div>
 
       <style>{`
         @keyframes pulse { 0%,100% { transform: scale(1); opacity:0.6 } 50% { transform: scale(1.5); opacity:0 } }
+        @keyframes spin { to { transform: rotate(360deg) } }
       `}</style>
 
-      {/* Lista de directos */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0' }}>
-        {canCreate && (
-          <button onClick={goLiveNow} disabled={goingLive} style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-            width: 'calc(100% - 24px)', margin: '0 12px 14px', padding: '16px',
-            background: `linear-gradient(135deg, ${RED}, #ec4899)`, color: 'white', border: 'none',
-            borderRadius: 18, fontSize: 16, fontWeight: 900, cursor: 'pointer',
-            boxShadow: '0 6px 20px rgba(239,68,68,0.35)', opacity: goingLive ? 0.7 : 1,
-          }}>
-            <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'white', animation: 'pulse 1.4s ease-in-out infinite' }} />
-            {goingLive ? tr('Preparando…') : tr('En directo ahora')}
-          </button>
-        )}
-        {loading && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: '50%',
-              border: `3px solid #fecaca`, borderTopColor: RED,
-              animation: 'spin 0.8s linear infinite',
-            }}/>
-            <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-          </div>
+        {error && (
+          <p style={{ fontSize: 12, color: RED, background: '#fee2e2', padding: '10px 14px', borderRadius: 10, margin: '0 12px 12px' }}>{error}</p>
         )}
 
-        {!loading && directos.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '60px 24px', color: '#94a3b8' }}>
-            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 16px', display: 'block' }}>
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3.515 3.515a13 13 0 000 16.97M20.485 3.515a13 13 0 010 16.97"/>
-            </svg>
-            <p style={{ fontWeight: 700, fontSize: 15, color: '#64748b', margin: '0 0 6px' }}>
-              {canCreate ? tr('Ningún directo creado') : tr('No hay directos disponibles')}
-            </p>
+        {/* ── Directos ── */}
+        {tab === 'live' && (
+          <>
             {canCreate && (
-              <p style={{ fontSize: 13, color: '#94a3b8', margin: 0 }}>{tr('Pulsa "+ Nuevo" para crear tu primer directo')}</p>
+              <button onClick={() => setQuickLive(true)} disabled={goingLive} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                width: 'calc(100% - 24px)', margin: '0 12px 14px', padding: '16px',
+                background: `linear-gradient(135deg, ${RED}, #ec4899)`, color: 'white', border: 'none',
+                borderRadius: 18, fontSize: 16, fontWeight: 900, cursor: 'pointer',
+                boxShadow: '0 6px 20px rgba(239,68,68,0.35)', opacity: goingLive ? 0.7 : 1,
+              }}>
+                <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'white', animation: 'pulse 1.4s ease-in-out infinite' }} />
+                {goingLive ? tr('Preparando…') : tr('En directo ahora')}
+              </button>
             )}
-          </div>
+            {loading && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: '50%',
+                  border: `3px solid #fecaca`, borderTopColor: RED,
+                  animation: 'spin 0.8s linear infinite',
+                }}/>
+              </div>
+            )}
+
+            {!loading && directos.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '60px 24px', color: '#94a3b8' }}>
+                <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 16px', display: 'block' }}>
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3.515 3.515a13 13 0 000 16.97M20.485 3.515a13 13 0 010 16.97"/>
+                </svg>
+                <p style={{ fontWeight: 700, fontSize: 15, color: '#64748b', margin: '0 0 6px' }}>
+                  {canCreate ? tr('Ningún directo creado') : tr('No hay directos disponibles')}
+                </p>
+                <p style={{ fontSize: 13, color: '#94a3b8', margin: 0 }}>
+                  {canCreate ? tr('Pulsa "+ Nuevo" para crear tu primer directo') : tr('Mira las grabaciones de los directos anteriores en "Grabaciones"')}
+                </p>
+              </div>
+            )}
+
+            {!loading && directos.map(d => (
+              <DirectoCard
+                key={d.id}
+                directo={d}
+                canManage={canCreate && d.creatorId === user?.id}
+                onEdit={() => { setEditing(d); setShowForm(true); }}
+                onDelete={() => handleDelete(d.id)}
+                onGoLive={() => handleGoLive(d)}
+                onEnd={() => handleEnd(d)}
+                onWatch={() => navigate(`/directo/${d.id}/live`)}
+                onOpenChannel={() => setChannel(d.creatorId)}
+              />
+            ))}
+          </>
         )}
 
-        {!loading && directos.map(d => (
-          <DirectoCard
-            key={d.id}
-            directo={d}
-            canManage={canCreate && d.creatorId === user?.id}
-            canWatch={d.status === 'live'}
-            onEdit={() => { setEditing(d); setShowForm(true); }}
-            onDelete={() => handleDelete(d.id)}
-            onGoLive={() => handleGoLive(d)}
-            onEnd={() => handleEnd(d)}
-            onWatch={() => navigate(`/directo/${d.id}/live`)}
-          />
-        ))}
+        {/* ── Grabaciones de todos los canales que puedo ver ── */}
+        {tab === 'recordings' && (
+          <RecordingsList recordings={recs} loading={recsLoading}
+            emptyText={tr('Todavía no hay grabaciones de directos')}
+            onOpen={setPlaying} onOpenChannel={setChannel} />
+        )}
+
+        {/* ── Mi canal ── */}
+        {tab === 'mine' && user?.id && <ChannelView ownerId={user.id} embedded />}
       </div>
 
       {/* Modal crear/editar */}
       {showForm && (
         <DirectoForm
           initial={editing}
-          user={user}
           onClose={() => { setShowForm(false); setEditing(null); }}
           onSaved={(d) => {
             setDirectos(prev => {
@@ -253,12 +275,40 @@ export default function DirectoPage() {
           }}
         />
       )}
+
+      {quickLive && <QuickLiveSheet busy={goingLive} onClose={() => setQuickLive(false)} onChoose={goLiveNow} />}
+      {playing && <RecordingPlayer rec={playing} onClose={() => setPlaying(null)} onOpenChannel={(id) => { setPlaying(null); setChannel(id); }} />}
+      {channel && <ChannelView ownerId={channel} onClose={() => setChannel(null)} />}
+    </div>
+  );
+}
+
+// ── "En directo ahora": ¿quién puede verlo? ──────────────────────────────────
+function QuickLiveSheet({ busy, onClose, onChoose }) {
+  useBackClose(true, onClose);
+  const option = (vis, title, sub) => (
+    <button onClick={() => onChoose(vis)} disabled={busy} style={{
+      display: 'block', width: '100%', textAlign: 'left', padding: '14px 16px', marginBottom: 10,
+      background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 14, cursor: 'pointer', opacity: busy ? 0.6 : 1,
+    }}>
+      <span style={{ display: 'block', fontSize: 15, fontWeight: 900, color: '#293241' }}>{title}</span>
+      <span style={{ fontSize: 12, color: '#64748b' }}>{sub}</span>
+    </button>
+  );
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end' }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', background: 'white', borderRadius: '24px 24px 0 0', padding: '18px 16px calc(18px + env(safe-area-inset-bottom, 0px))', boxSizing: 'border-box' }}>
+        <h2 style={{ fontSize: 16, fontWeight: 900, color: '#293241', margin: '0 0 4px' }}>{tr('¿Quién puede ver tu directo?')}</h2>
+        <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 14px' }}>{tr('Se graba solo y al terminar queda en tu canal con la misma privacidad.')}</p>
+        {option('public', tr('Todo OldFace'), tr('Cualquier usuario puede verlo y recibe el aviso'))}
+        {option('contacts', tr('Mis contactos'), tr('Solo tus contactos lo verán y recibirán el aviso'))}
+      </div>
     </div>
   );
 }
 
 // ── Tarjeta de directo ────────────────────────────────────────────────────────
-function DirectoCard({ directo: d, canManage, canWatch, onEdit, onDelete, onGoLive, onEnd, onWatch }) {
+function DirectoCard({ directo: d, canManage, onEdit, onDelete, onGoLive, onEnd, onWatch, onOpenChannel }) {
   const st = statusLabel(d.status);
 
   const handleShare = async () => {
@@ -282,7 +332,8 @@ function DirectoCard({ directo: d, canManage, canWatch, onEdit, onDelete, onGoLi
     }}>
       {/* Franja de estado */}
       <div style={{ background: d.status === 'live' ? RED : d.status === 'ended' ? '#f1f5f9' : '#E3EDF2', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 10, fontWeight: 800, color: st.color, letterSpacing: '0.5px' }}>{st.text}</span>
+        <span style={{ fontSize: 10, fontWeight: 800, color: d.status === 'live' ? 'white' : st.color, letterSpacing: '0.5px' }}>{st.text}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: d.status === 'live' ? 'white' : '#64748b', opacity: 0.9 }}>· {visibilityLabel(d)}</span>
         {d.price > 0 && (
           <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, color: '#293241', background: '#fef9c3', borderRadius: 20, padding: '2px 8px' }}>
             {d.price}{' '}{tr('€ / acceso')}</span>
@@ -291,6 +342,11 @@ function DirectoCard({ directo: d, canManage, canWatch, onEdit, onDelete, onGoLi
 
       <div style={{ padding: '12px 14px' }}>
         <p style={{ fontSize: 15, fontWeight: 900, color: '#293241', margin: '0 0 4px' }}>{d.title}</p>
+        {!canManage && d.creatorName && (
+          <button onClick={onOpenChannel} style={{ background: 'none', border: 'none', padding: 0, margin: '0 0 4px', color: BRAND, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+            {d.creatorName} ›
+          </button>
+        )}
         {d.description && (
           <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 8px' }}>{d.description}</p>
         )}
@@ -299,12 +355,6 @@ function DirectoCard({ directo: d, canManage, canWatch, onEdit, onDelete, onGoLi
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
             {formatScheduled(d.scheduledAt)}
           </span>
-          {d.contacts?.length > 0 && (
-            <span style={{ fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-              {d.contacts.length}{' '}{tr('contacto')}{d.contacts.length !== 1 ? 's' : ''}
-            </span>
-          )}
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
@@ -354,8 +404,9 @@ function btnStyle(bg, color) {
 }
 
 // ── Formulario crear / editar directo ─────────────────────────────────────────
-function DirectoForm({ initial, user, onClose, onSaved }) {
+function DirectoForm({ initial, onClose, onSaved }) {
   const { contacts, loadContacts } = useContacts();
+  useBackClose(true, onClose);
 
   const [title,       setTitle]       = useState(initial?.title       || '');
   const [description, setDescription] = useState(initial?.description || '');
@@ -363,8 +414,11 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
     initial?.scheduledAt ? new Date(initial.scheduledAt).toISOString().slice(0, 16) : ''
   );
   const [price,       setPrice]       = useState(initial?.price       ?? 0);
+  // Nuevo: público por defecto; al editar, lo que tenía (los antiguos sin visibilidad eran para contactos)
+  const [visibility,  setVisibility]  = useState(!initial || initial.visibility === 'public' ? 'public' : 'contacts');
   const [selected,    setSelected]    = useState(new Set(initial?.contacts || []));
-  const [shareAll,    setShareAll]    = useState(false);
+  // Sin contactos elegidos = lo ven todos mis contactos (nunca nadie más)
+  const [shareAll,    setShareAll]    = useState(!initial?.contacts?.length);
   const [saving,      setSaving]      = useState(false);
   const [error,       setError]       = useState('');
 
@@ -380,46 +434,36 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
 
   const handleSave = async () => {
     if (!title.trim()) { setError(tr('El nombre del directo es obligatorio')); return; }
+    if (visibility === 'contacts' && !shareAll && selected.size === 0) { setError(tr('Elige al menos un contacto')); return; }
     setSaving(true);
     setError('');
-
-    const contactList = shareAll
-      ? contacts.map(c => c.phone)
-      : [...selected];
-
-    const body = {
-      creatorId:   user.id,
-      title:       title.trim(),
-      description: description.trim(),
-      scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
-      contacts:    contactList,
-      price:       Number(price) || 0,
-    };
-
     try {
-      const url    = initial ? `${BACKEND}/directos/${initial.id}` : `${BACKEND}/directos`;
-      const method = initial ? 'PUT' : 'POST';
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        onSaved(data);
-      } else {
-        const err = await res.json();
-        setError(err.error || tr('Error guardando el directo'));
-      }
+      onSaved(await saveDirecto(initial?.id || null, {
+        title:       title.trim(),
+        description: description.trim(),
+        scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
+        visibility,
+        contacts:    visibility === 'contacts' && !shareAll ? [...selected] : [],
+        price:       Number(price) || 0,
+      }));
     } catch (e) {
-      setError(tr('Error de conexión'));
+      setError(e.message || tr('Error guardando el directo'));
     } finally {
       setSaving(false);
     }
   };
 
   const oldFaceContacts = contacts.filter(c => c.usesOldFace);
-  const otherContacts   = contacts.filter(c => !c.usesOldFace);
+
+  const visOption = (key, label, sub) => (
+    <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 12px', background: visibility === key ? '#fee2e2' : '#f8fafc', borderRadius: 12, marginBottom: 8 }}>
+      <input type="radio" name="directo-vis" checked={visibility === key} onChange={() => setVisibility(key)} style={{ width: 18, height: 18, accentColor: RED }} />
+      <div>
+        <p style={{ fontSize: 13, fontWeight: 700, color: '#293241', margin: 0 }}>{label}</p>
+        <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{sub}</p>
+      </div>
+    </label>
+  );
 
   return (
     <div style={{
@@ -463,6 +507,7 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
               value={title}
               onChange={e => setTitle(e.target.value)}
               placeholder={tr('Ej: Clase de cocina en vivo')}
+              maxLength={120}
               style={inputStyle}
             />
           </Field>
@@ -474,6 +519,7 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
               onChange={e => setDescription(e.target.value)}
               placeholder={tr('Cuéntales de qué va...')}
               rows={3}
+              maxLength={1000}
               style={{ ...inputStyle, resize: 'none' }}
             />
           </Field>
@@ -505,51 +551,47 @@ function DirectoForm({ initial, user, onClose, onSaved }) {
             </div>
           </Field>
 
-          {/* Compartir */}
-          <Field label={tr('Compartir con')}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 12px', background: '#f8fafc', borderRadius: 12, marginBottom: 8 }}>
-              <input
-                type="checkbox"
-                checked={shareAll}
-                onChange={e => setShareAll(e.target.checked)}
-                style={{ width: 18, height: 18, accentColor: RED }}
-              />
-              <div>
-                <p style={{ fontSize: 13, fontWeight: 700, color: '#293241', margin: 0 }}>{tr('Todos mis contactos')}</p>
-                <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{tr('Notificar a todos cuando empiece el directo')}</p>
-              </div>
-            </label>
+          {/* Quién puede verlo */}
+          <Field label={tr('Quién puede verlo')}>
+            {visOption('public', tr('Todo OldFace'), tr('Cualquier usuario puede verlo y recibe el aviso'))}
+            {visOption('contacts', tr('Mis contactos'), tr('Solo tus contactos lo verán y recibirán el aviso'))}
 
-            {!shareAll && (
+            {visibility === 'contacts' && (
               <>
-                {oldFaceContacts.length > 0 && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 12px', margin: '4px 0 8px' }}>
+                  <input
+                    type="checkbox"
+                    checked={shareAll}
+                    onChange={e => setShareAll(e.target.checked)}
+                    style={{ width: 18, height: 18, accentColor: RED }}
+                  />
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: '#293241', margin: 0 }}>{tr('Todos mis contactos')}</p>
+                    <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{tr('Desmárcalo para elegir solo algunos')}</p>
+                  </div>
+                </label>
+
+                {!shareAll && (
                   <>
-                    <p style={{ fontSize: 10, fontWeight: 800, color: RED, letterSpacing: '0.5px', margin: '8px 0 4px' }}>{tr('EN OLDFACE')}</p>
-                    {oldFaceContacts.map(c => (
-                      <ContactCheck
-                        key={c.id}
-                        contact={c}
-                        checked={selected.has(c.phone)}
-                        onChange={() => toggleContact(c.phone)}
-                      />
-                    ))}
+                    {oldFaceContacts.length > 0 && (
+                      <>
+                        <p style={{ fontSize: 10, fontWeight: 800, color: RED, letterSpacing: '0.5px', margin: '8px 0 4px' }}>{tr('EN OLDFACE')}</p>
+                        {oldFaceContacts.map(c => (
+                          <ContactCheck
+                            key={c.id}
+                            contact={c}
+                            checked={selected.has(c.phone)}
+                            onChange={() => toggleContact(c.phone)}
+                          />
+                        ))}
+                      </>
+                    )}
+                    {oldFaceContacts.length === 0 && (
+                      <p style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0' }}>
+                        {contacts.length === 0 ? tr('Los contactos solo están disponibles en la app Android/iOS') : tr('No hay contactos en OldFace todavía')}
+                      </p>
+                    )}
                   </>
-                )}
-                {otherContacts.slice(0, 10).length > 0 && (
-                  <>
-                    <p style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', letterSpacing: '0.5px', margin: '8px 0 4px' }}>{tr('OTROS CONTACTOS')}</p>
-                    {otherContacts.slice(0, 10).map(c => (
-                      <ContactCheck
-                        key={c.id}
-                        contact={c}
-                        checked={selected.has(c.phone)}
-                        onChange={() => toggleContact(c.phone)}
-                      />
-                    ))}
-                  </>
-                )}
-                {contacts.length === 0 && (
-                  <p style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0' }}>{tr('Los contactos solo están disponibles en la app Android/iOS')}</p>
                 )}
               </>
             )}

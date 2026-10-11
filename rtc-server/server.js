@@ -143,11 +143,13 @@ function peerSummary(peer) {
 const lives = new Map();
 const liveRoomId = (liveId) => `live_${liveId}`;
 
-async function fetchDirecto(liveId) {
-  const res = await fetch(`${CFG.backendUrl}/directos`, { signal: AbortSignal.timeout(5000) });
+/** El directo tal como lo ve `userId` (el backend solo se lo da a quien puede verlo; null si no existe para él) */
+async function fetchDirecto(liveId, userId) {
+  const res = await fetch(`${CFG.backendUrl}/directos/${encodeURIComponent(liveId)}?userId=${encodeURIComponent(userId)}`,
+    { signal: AbortSignal.timeout(5000) });
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error('No se pudo consultar el directo');
-  const { directos } = await res.json();
-  return (directos || []).find(d => d.id === liveId) || null;
+  return res.json();
 }
 
 function liveState(live) {
@@ -173,7 +175,201 @@ function endLive(live, reason = 'ended') {
   io.to(`live:${live.id}`).emit('live:ended', { liveId: live.id, reason });
   lives.delete(live.id);
   console.log(`[RTC] Directo finalizado ${live.id} (${reason})`);
+  recFinish(live).catch(err => console.error(`[REC] ${live.id}: no se pudo cerrar la grabación:`, err.message));
 }
+
+// ── Grabación de directos ────────────────────────────────────────────────────
+// Lo que emite el anfitrión se graba aquí: mediasoup reenvía su audio y vídeo por RTP (PlainTransport) a ffmpeg,
+// que lo guarda sin recodificar (VP8/Opus → WebM; H264 → MP4). Si el anfitrión cambia de cámara o se va y vuelve,
+// empieza otro tramo; al terminar el directo se unen los tramos en un archivo y se avisa al backend
+// (POST /internal/live-recordings), que lo publica en el canal del anfitrión y lo registra en el Administrador.
+const fs = require('fs');
+const { spawn } = require('child_process');
+const FFMPEG = (() => { try { return require('ffmpeg-static'); } catch { return null; } })();
+// Los archivos van a la carpeta de subidas del backend, que es quien los sirve (/api/files/…)
+const REC_DIR = process.env.RTC_RECORDINGS_DIR
+  || [path.join(__dirname, '../httpdocs/backend/uploads'), path.join(__dirname, '../frontend/backend/uploads')].find(d => fs.existsSync(d))
+  || path.join(__dirname, 'recordings');
+const REC_PORT_MIN = parseInt(process.env.RTC_REC_PORT_MIN || '21000', 10);
+let recPortCursor = 0;
+/** Puertos locales donde escucha ffmpeg: RTP en uno par y RTCP en el siguiente */
+const nextRecPort = () => REC_PORT_MIN + (recPortCursor++ % 2000) * 2;
+
+const newRecording = () => ({ segments: [], seg: null, chain: Promise.resolve(), timer: null, finishing: false });
+
+/** SDP que le dice a ffmpeg qué le llega por cada puerto */
+function recSdp(parts) {
+  const lines = ['v=0', 'o=- 0 0 IN IP4 127.0.0.1', 's=OldFace', 'c=IN IP4 127.0.0.1', 't=0 0'];
+  for (const p of parts) {
+    const c = p.consumer.rtpParameters.codecs[0];
+    const name = c.mimeType.split('/')[1];
+    lines.push(`m=${p.kind} ${p.port} RTP/AVP ${c.payloadType}`, `a=rtcp:${p.port + 1}`,
+      `a=rtpmap:${c.payloadType} ${name}/${c.clockRate}${c.channels > 1 ? `/${c.channels}` : ''}`);
+    const fmtp = Object.entries(c.parameters || {}).map(([k, v]) => `${k}=${v}`).join(';');
+    if (fmtp && name === 'H264') lines.push(`a=fmtp:${c.payloadType} ${fmtp}`);
+    lines.push('a=recvonly');
+  }
+  return lines.join('\r\n') + '\r\n';
+}
+
+/** Graba los productores actuales del anfitrión; si son los mismos que ya se graban, no hace nada */
+async function recSync(live) {
+  const rec = live.rec;
+  if (!rec || !FFMPEG) return;
+  const room = rooms.get(live.roomId);
+  const producers = [];
+  for (const peer of room ? room.peers.values() : []) {
+    if (peer.userId !== live.hostId) continue;
+    for (const p of peer.producers.values()) if (!p.closed && !producers.some(x => x.kind === p.kind)) producers.push(p);
+  }
+  const key = producers.map(p => p.id).sort().join(',');
+  if (rec.seg?.key === key) return;
+  await recStopSegment(rec);
+  if (!producers.length || rec.finishing) return;
+
+  const parts = [];
+  try {
+    for (const producer of producers) {
+      const port = nextRecPort();
+      const transport = await room.router.createPlainTransport({ listenInfo: { protocol: 'udp', ip: '127.0.0.1' }, rtcpMux: false, comedia: false });
+      parts.push({ kind: producer.kind, port, transport });
+      await transport.connect({ ip: '127.0.0.1', port, rtcpPort: port + 1 });
+      const codecs = room.router.rtpCapabilities.codecs.filter(c => c.kind === producer.kind && !/\/rtx$/i.test(c.mimeType));
+      parts[parts.length - 1].consumer = await transport.consume({ producerId: producer.id, rtpCapabilities: { codecs, headerExtensions: [] }, paused: true });
+    }
+  } catch (err) {
+    console.error(`[REC] ${live.id}: no se pudo preparar la grabación:`, err.message);
+    for (const p of parts) p.transport.close();
+    return;
+  }
+
+  const video = parts.find(p => p.kind === 'video');
+  const mp4 = /h264/i.test(video?.consumer.rtpParameters.codecs[0].mimeType || '');
+  const tag = `${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+  const file = path.join(REC_DIR, `.liveseg_${live.id}_${tag}.${mp4 ? 'mp4' : 'webm'}`);
+  const sdpFile = path.join(os.tmpdir(), `oldface_rec_${tag}.sdp`);
+  fs.mkdirSync(REC_DIR, { recursive: true });
+  fs.writeFileSync(sdpFile, recSdp(parts));
+  const proc = spawn(FFMPEG, ['-hide_banner', '-loglevel', process.env.RTC_REC_LOGLEVEL || 'error', '-protocol_whitelist', 'file,udp,rtp',
+    // Hora de llegada como marca de tiempo: audio y vídeo quedan alineados desde el principio y ffmpeg escribe al
+    // disco sobre la marcha (si no, los retiene hasta sincronizarlos y un cierre brusco deja el archivo vacío)
+    '-use_wallclock_as_timestamps', '1', '-fflags', '+genpts', '-analyzeduration', '2000000', '-probesize', '1000000',
+    '-f', 'sdp', '-i', sdpFile,
+    // Bloques de 2 s escritos al momento: si ffmpeg muere de golpe se pierde como mucho eso
+    '-map', '0', '-c', 'copy', '-flush_packets', '1',
+    ...(mp4 ? ['-f', 'mp4', '-movflags', '+frag_keyframe+empty_moov'] : ['-f', 'webm', '-cluster_time_limit', '2000']), '-y', file],
+    { stdio: ['pipe', 'ignore', 'pipe'] });
+  proc.stderr.on('data', d => console.warn(`[REC] ${live.id} ffmpeg: ${String(d).trim().slice(0, 300)}`));
+  proc.stdin.on('error', () => {});   // escribir 'q' cuando ya terminó no debe tumbar el servidor
+  proc.on('error', err => console.error(`[REC] ${live.id}: ffmpeg no arrancó:`, err.message));
+  const seg = { key, parts, proc, file, sdpFile, startedAt: Date.now(), exited: new Promise(r => proc.on('close', r)) };
+  rec.seg = seg;
+  // Si mediasoup cierra el transporte (se cerró la sala), el tramo termina
+  for (const p of parts) p.transport.observer.on('close', () => { if (rec.seg === seg) recSchedule(live, 0); });
+  // ffmpeg tarda un momento en abrir los puertos: después llega el flujo y se pide una imagen completa
+  setTimeout(async () => {
+    if (rec.seg !== seg) return;
+    for (const p of parts) await p.consumer.resume().catch(() => {});
+    if (video) for (const ms of [0, 1500, 4000]) setTimeout(() => { if (rec.seg === seg) video.consumer.requestKeyFrame().catch(() => {}); }, ms);
+  }, 1000);
+  console.log(`[REC] ${live.id}: grabando tramo ${path.basename(file)} (${parts.map(p => p.kind).join('+')})`);
+}
+
+/** Cierra el tramo actual: ffmpeg termina el archivo ('q') y se guarda si tiene contenido */
+async function recStopSegment(rec) {
+  const seg = rec.seg;
+  if (!seg) return;
+  rec.seg = null;
+  const ms = Date.now() - seg.startedAt;   // lo que duró el tramo (sin contar lo que tarda ffmpeg en cerrar)
+  try { seg.proc.stdin.write('q'); seg.proc.stdin.end(); } catch { /* ya había terminado */ }
+  // Si ya no llegan datos (el anfitrión se fue) ffmpeg no lee la 'q'; SIGINT lo cierra bien igualmente (Linux)
+  if (process.platform !== 'win32') { try { seg.proc.kill('SIGINT'); } catch { /* ya había terminado */ } }
+  const killer = setTimeout(() => { try { seg.proc.kill('SIGKILL'); } catch { /* ya había terminado */ } }, 6000);
+  await seg.exited;
+  clearTimeout(killer);
+  for (const p of seg.parts) p.transport.close();
+  fs.rm(seg.sdpFile, { force: true }, () => {});
+  let size = 0;
+  try { size = fs.statSync(seg.file).size; } catch { /* no llegó a crearse */ }
+  if (size > 20_000) rec.segments.push({ file: seg.file, ms });
+  else fs.rm(seg.file, { force: true }, () => {});
+}
+
+/** Vuelve a mirar qué emite el anfitrión dentro de un momento (cámara nueva, se fue, volvió…) */
+function recSchedule(live, delay = 1500) {
+  const rec = live.rec;
+  if (!rec || rec.finishing) return;
+  clearTimeout(rec.timer);
+  rec.timer = setTimeout(() => {
+    rec.chain = rec.chain.then(() => recSync(live)).catch(err => console.error(`[REC] ${live.id}:`, err.message));
+  }, delay);
+}
+
+function runFfmpeg(args) {
+  return new Promise((resolve) => {
+    const p = spawn(FFMPEG, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    p.stderr.on('data', d => { err += d; });
+    p.on('error', e => resolve(e.message));
+    p.on('close', code => resolve(code === 0 ? null : err.trim().slice(0, 500) || `código ${code}`));
+  });
+}
+
+/** Al terminar el directo: une los tramos en un solo archivo y se lo da al backend (una sola vez; todos esperan a lo mismo) */
+function recFinish(live) {
+  const rec = live.rec;
+  if (!rec) return Promise.resolve();
+  if (!rec.done) { rec.finishing = true; rec.done = recFinalize(live); }
+  return rec.done;
+}
+
+async function recFinalize(live) {
+  const rec = live.rec;
+  clearTimeout(rec.timer);
+  await rec.chain.catch(() => {});
+  await recStopSegment(rec);
+  const segs = rec.segments.filter(s => fs.existsSync(s.file));
+  if (!segs.length) { console.log(`[REC] ${live.id}: no hay nada grabado`); return; }
+
+  const ext = path.extname(segs[0].file);
+  const same = segs.filter(s => path.extname(s.file) === ext);   // un cambio de formato a mitad (raro) no se puede unir
+  const name = `live_${live.id}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`;
+  const finalPath = path.join(REC_DIR, name);
+  if (same.length === 1) {
+    fs.renameSync(same[0].file, finalPath);
+  } else {
+    const list = path.join(os.tmpdir(), `oldface_rec_${crypto.randomBytes(4).toString('hex')}.txt`);
+    fs.writeFileSync(list, same.map(s => `file '${s.file.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
+    const err = await runFfmpeg(['-hide_banner', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', list,
+      '-c', 'copy', ...(ext === '.mp4' ? ['-movflags', '+faststart'] : []), '-y', finalPath]);
+    fs.rm(list, { force: true }, () => {});
+    if (err || !fs.existsSync(finalPath)) {
+      // Si no se pueden unir, al menos se guarda el tramo más largo
+      console.error(`[REC] ${live.id}: no se pudieron unir los tramos:`, err);
+      const longest = same.reduce((a, b) => (b.ms > a.ms ? b : a));
+      fs.renameSync(longest.file, finalPath);
+      same.splice(0, same.length, longest);
+    }
+  }
+  for (const s of segs) if (s.file !== finalPath) fs.rm(s.file, { force: true }, () => {});
+
+  const info = { liveId: live.id, hostId: live.hostId, file: name, size: fs.statSync(finalPath).size,
+                 duration: Math.round(same.reduce((n, s) => n + s.ms, 0) / 1000), startedAt: live.startedAt, endedAt: Date.now() };
+  console.log(`[REC] ${live.id}: grabación lista ${name} (${Math.round(info.size / 1048576)} MB, ${info.duration} s)`);
+  for (let i = 0; i < 5; i++) {
+    try {
+      const r = await fetch(`${CFG.backendUrl}/internal/live-recordings`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-internal-secret': CFG.secret },
+        body: JSON.stringify(info), signal: AbortSignal.timeout(10000),
+      });
+      if (r.ok) return;
+      console.error(`[REC] ${live.id}: el backend respondió ${r.status}`);
+    } catch (err) { console.error(`[REC] ${live.id}: no se pudo avisar al backend:`, err.message); }
+    await new Promise(r => setTimeout(r, 5000 * (i + 1)));
+  }
+  console.error(`[REC] ${live.id}: grabación guardada en ${finalPath} pero sin registrar en el backend`);
+}
+if (!FFMPEG) console.warn('[REC] ffmpeg-static no está instalado: los directos no se grabarán');
 
 /** Cambia el rol de todos los sockets de un usuario en la sala de medios del directo */
 function setLivePeerRole(live, userId, role) {
@@ -476,10 +672,15 @@ io.on('connection', (socket) => {
     if (!transport) throw new Error('Transport no encontrado');
     const producer = await transport.produce({ kind, rtpParameters, appData: { ...(appData || {}), userId } });
     peer.producers.set(producer.id, producer);
+    // Directo: lo que emite el anfitrión se graba (cada cambio de cámara/micrófono abre otro tramo)
+    const hostLive = room.id.startsWith('live_') ? lives.get(room.id.slice(5)) : null;
+    const recLive = hostLive?.hostId === userId ? hostLive : null;
     producer.observer.on('close', () => {
       peer.producers.delete(producer.id);
       io.to(`room:${room.id}`).emit('rtc:producerClosed', { roomId: room.id, producerId: producer.id, userId });
+      if (recLive) recSchedule(recLive);
     });
+    if (recLive) recSchedule(recLive);
     socket.to(`room:${room.id}`).emit('rtc:newProducer', {
       roomId: room.id, userId, name: peer.name, producerId: producer.id, kind, appData: producer.appData,
     });
@@ -554,13 +755,15 @@ io.on('connection', (socket) => {
     if (typeof liveId !== 'string' || !/^[A-Za-z0-9_-]{3,80}$/.test(liveId)) throw new Error('Directo no válido');
     let live = lives.get(liveId);
     if (!live) {
-      const d = await fetchDirecto(liveId);
+      const d = await fetchDirecto(liveId, userId);
       if (!d) throw new Error('Directo no encontrado');
       if (d.creatorId !== userId) throw new Error('Solo el creador puede emitir este directo');
+      if (d.hostCanBroadcast === false) throw new Error('Tu cuenta no tiene permiso para emitir directos');
       live = {
         id: liveId, roomId: liveRoomId(liveId), hostId: userId, hostName: socket.data.name,
         title: d.title, startedAt: Date.now(), chat: [], likes: 0,
         guests: new Map(), requests: new Map(), invited: new Map(), hostTimer: null,
+        rec: newRecording(),
       };
       lives.set(liveId, live);
       console.log(`[RTC] Directo iniciado ${liveId} por ${userId}`);
@@ -839,8 +1042,11 @@ io.on('connection', (socket) => {
 })().catch((err) => { console.error('[RTC] Error al arrancar:', err); process.exit(1); });
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, () => {
+  process.on(sig, async () => {
     console.log(`[RTC] ${sig} — cerrando`);
+    // Los directos en curso terminan y su grabación se guarda (máximo 20 s)
+    const pending = [...lives.values()].map(live => { endLive(live, 'server_restart'); return recFinish(live).catch(() => {}); });
+    await Promise.race([Promise.all(pending), new Promise(r => setTimeout(r, 20000))]);
     io.close();
     for (const { worker } of workers) worker.close();
     process.exit(0);

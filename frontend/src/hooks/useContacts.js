@@ -9,6 +9,7 @@
  */
 import { useState, useCallback } from 'react';
 import { tr } from '../i18n';
+import { uploadAgenda } from '../utils/account';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -86,6 +87,8 @@ export function useContacts() {
             mapped.forEach(c => { c.usesOldFace = registeredSet.has(normalizePhone(c.phone)); });
           }
         } catch { /* continuar sin marcar */ }
+        // La agenda define quiénes son "Mis contactos" (estados, directos, foto, última vez)
+        uploadAgenda(mapped.map(c => c.phone)).catch(() => {});
       }
 
       setContacts(mapped);
