@@ -108,6 +108,22 @@ export default function HomePage() {
           </div>
 
           <div style={{ display: 'flex', gap: 6 }}>
+            {/* Willy, el asistente con IA */}
+            <button
+              onClick={() => navigate('/willy')}
+              aria-label={tr('Willy, tu asistente con IA')}
+              style={{
+                height: 34, borderRadius: 17, padding: '0 11px',
+                background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)',
+                border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                color: T.textSecondary, fontSize: 12, fontWeight: 900,
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z" /><path d="M19 15l.8 1.9 1.9.8-1.9.8L19 20.5l-.8-2-1.9-.8 1.9-.8z" />
+              </svg>
+              Willy
+            </button>
             <button
               onClick={() => {
                 setShowSearch(v => !v);

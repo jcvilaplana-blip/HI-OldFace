@@ -145,8 +145,9 @@ const liveRoomId = (liveId) => `live_${liveId}`;
 
 /** El directo tal como lo ve `userId` (el backend solo se lo da a quien puede verlo; null si no existe para él) */
 async function fetchDirecto(liveId, userId) {
+  // Secreto interno: el backend exige sesión a las apps, pero a este servidor le cree el userId (ya verificado por el socket)
   const res = await fetch(`${CFG.backendUrl}/directos/${encodeURIComponent(liveId)}?userId=${encodeURIComponent(userId)}`,
-    { signal: AbortSignal.timeout(5000) });
+    { headers: { 'x-internal-secret': CFG.secret }, signal: AbortSignal.timeout(5000) });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error('No se pudo consultar el directo');
   return res.json();

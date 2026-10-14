@@ -1,3 +1,4 @@
+import './utils/authFetch';   // sesión en todas las peticiones al backend (antes que cualquier otra cosa)
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';

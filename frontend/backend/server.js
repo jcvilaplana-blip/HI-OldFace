@@ -521,6 +521,10 @@ router.post('/rtc-token', (req, res) => {
   const devs = deviceStore.get(userId) || [];
   if (devs.length && (!deviceId || !devs.some(d => d.deviceId === deviceId) || revokedStore.has(deviceId)))
     return res.status(401).json({ error: 'Sesión no válida en este dispositivo. Vuelve a entrar.' });
+  // Cuentas sin dispositivos registrados: solo con el token anterior de esa cuenta (aunque haya caducado, hasta
+  // 90 días después). Antes bastaba con saber el userId para sacar una sesión ajena.
+  if (!devs.length && !rtcTokenSignedFor(bearer(req), userId, 90 * 24 * 3600))
+    return res.status(401).json({ error: 'Sesión no válida. Vuelve a entrar.' });
   const token = signRtcToken(userId);
   if (!token) return res.status(503).json({ error: 'RTC no configurado' });
   return res.json({ token });
@@ -528,6 +532,7 @@ router.post('/rtc-token', (req, res) => {
 
 /** POST /check-users — qué teléfonos tienen cuenta */
 router.post('/check-users', (req, res) => {
+  if (!authUser(req, res)) return;
   const { phones } = req.body || {};
   if (!Array.isArray(phones)) return res.status(400).json({ error: 'Se requiere array de teléfonos' });
 
@@ -540,6 +545,7 @@ router.post('/check-users', (req, res) => {
 
 /** GET /find-user?phone= — buscar usuario por teléfono */
 router.get('/find-user', (req, res) => {
+  if (!authUser(req, res)) return;
   const { phone } = req.query;
   if (!phone) return res.status(400).json({ error: 'phone es requerido' });
 
@@ -569,6 +575,7 @@ router.get('/users', (req, res, next) => adminAuth(req, res, next), (_req, res) 
 
 /** GET /find-user-by-id?userId= — buscar usuario por userId */
 router.get('/find-user-by-id', (req, res) => {
+  if (!authUser(req, res)) return;
   const { userId } = req.query;
   if (!userId) return res.status(400).json({ error: 'userId es requerido' });
   for (const u of userStore.values()) {
@@ -583,16 +590,20 @@ router.get('/find-user-by-id', (req, res) => {
 
 /** POST /register-fcm-token — Guarda el token FCM del dispositivo para un usuario */
 router.post('/register-fcm-token', (req, res) => {
-  const { userId, token, deviceId } = req.body || {};
-  if (!userId || !token) return res.status(400).json({ error: 'userId y token son requeridos' });
+  const { token, deviceId } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);   // si no, cualquiera recibiría los avisos de otra cuenta
+  if (!userId) return;
+  if (!token) return res.status(400).json({ error: 'userId y token son requeridos' });
   addFcmToken(String(userId), String(token), deviceId ? String(deviceId).slice(0, 64) : null);
   return res.json({ success: true });
 });
 
 /** POST /user/prefs — tono de mensaje del usuario (para el sonido de los avisos con la app cerrada) */
 router.post('/user/prefs', (req, res) => {
-  const { userId, messageTone, lang } = req.body || {};
-  if (!userId || (messageTone !== undefined && !MESSAGE_TONES.includes(messageTone)) || (lang !== undefined && !['es', 'en'].includes(lang)))
+  const { messageTone, lang } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
+  if ((messageTone !== undefined && !MESSAGE_TONES.includes(messageTone)) || (lang !== undefined && !['es', 'en'].includes(lang)))
     return res.status(400).json({ error: 'datos no válidos' });
   const patch = {};
   if (messageTone !== undefined) patch.messageTone = messageTone;
@@ -633,7 +644,66 @@ function verifyRtcToken(token, userId) {
   const good = crypto.createHmac('sha256', secret).update(`${uid}.${exp}`).digest('base64url');
   return sig.length === good.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good));
 }
+
+/** Como verifyRtcToken, pero acepta un token caducado hace menos de `graceSec` (solo para renovarlo) */
+function rtcTokenSignedFor(token, userId, graceSec) {
+  const secret = process.env.RTC_SECRET;
+  if (!secret || typeof token !== 'string') return false;
+  const i = token.lastIndexOf('.'), j = token.lastIndexOf('.', i - 1);
+  if (i < 0 || j < 0) return false;
+  const uid = token.slice(0, j), exp = Number(token.slice(j + 1, i)), sig = token.slice(i + 1);
+  if (uid !== userId || !(exp + graceSec > Date.now() / 1000)) return false;
+  const good = crypto.createHmac('sha256', secret).update(`${uid}.${exp}`).digest('base64url');
+  return sig.length === good.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good));
+}
 const bearer = (req) => (req.get('authorization') || '').replace(/^Bearer\s+/i, '') || req.body?.rtcToken || '';
+
+// ════════════════════════════════════════════════════════════════
+//  SESIÓN OBLIGATORIA — la identidad sale del token, nunca del userId que manda la app
+// ════════════════════════════════════════════════════════════════
+// Cada petición de usuario lleva `Authorization: Bearer <rtcToken>`. Si además trae un userId/senderId (como hacen
+// las apps), tiene que ser el del token. AUTH_MODE=registro es solo una salida de emergencia: acepta peticiones sin
+// sesión (fiándose del userId, como antes) y las anota en el log. Por defecto se exigen.
+const AUTH_ENFORCE = (process.env.AUTH_MODE || 'exigir') !== 'registro';
+
+/** userId del token de la sesión (firmado, sin caducar y de una cuenta que existe), o null */
+function sessionUserId(req) {
+  if (req._sessionUid !== undefined) return req._sessionUid;
+  const token = bearer(req);
+  const j = token.lastIndexOf('.', token.lastIndexOf('.') - 1);
+  const uid = j > 0 ? token.slice(0, j) : '';
+  req._sessionUid = uid && verifyRtcToken(token, uid) && findUserById(uid) ? uid : null;
+  return req._sessionUid;
+}
+
+/**
+ * Usuario que hace la petición. `claimed` es el id que manda la app para sí misma (opcional): si no es el del token
+ * → 403. Sin sesión → 401. Responde el error y devuelve null cuando no vale.
+ */
+function authUser(req, res, claimed) {
+  const uid = sessionUserId(req);
+  const want = claimed === undefined || claimed === null || claimed === '' ? null : String(claimed);
+  if (uid) {
+    if (want && want !== uid) { res.status(403).json({ error: 'No puedes actuar en nombre de otro usuario' }); return null; }
+    return uid;
+  }
+  if (!AUTH_ENFORCE && want && findUserById(want)) {
+    console.warn(`[auth] sin sesión: ${req.method} ${req.route?.path || req.path}`);
+    return want;
+  }
+  res.status(401).json({ error: 'Sesión no válida. Vuelve a entrar en OldFace.' });
+  return null;
+}
+
+/** ¿Pertenece el usuario al chat (1 a 1 o grupo)? */
+const isChatMember = (chatId, uid) => !!uid && !!chatId && chatMembers(String(chatId)).includes(uid);
+
+/** Petición de otro servicio propio (rtc-server, taxi) con el secreto interno */
+function isInternalRequest(req) {
+  const hdr = req.get('x-internal-secret') || '';
+  const secret = process.env.RTC_SECRET || '';
+  return !!secret && hdr.length === secret.length && crypto.timingSafeEqual(Buffer.from(hdr), Buffer.from(secret));
+}
 
 const cleanName = (s, def) => String(s || def).replace(/[\u0000-\u001f]/g, '').trim().slice(0, 60) || def;
 const cleanPlatform = (p) => (['android', 'ios', 'web', 'desktop'].includes(p) ? p : 'web');
@@ -725,8 +795,10 @@ router.post('/devices/heartbeat', (req, res) => {
 
 /** POST /call-notification — Envía FCM push al destinatario cuando se inicia una llamada */
 router.post('/call-notification', async (req, res) => {
-  const { calleeId, callerId, callerName, callType, roomId } = req.body || {};
-  if (!calleeId || !callerId) return res.status(400).json({ error: 'calleeId y callerId son requeridos' });
+  const { calleeId, callerName, callType, roomId } = req.body || {};
+  const callerId = authUser(req, res, req.body?.callerId);
+  if (!callerId) return;
+  if (!calleeId) return res.status(400).json({ error: 'calleeId y callerId son requeridos' });
 
   // Si el destinatario tiene la app abierta con el servidor RTC, recibe la invitación al instante
   rtcEmit(calleeId, 'signal', {
@@ -751,8 +823,10 @@ router.post('/call-notification', async (req, res) => {
 
 /** POST /call-cancel — quien llama colgó antes de que contestaran: deja de sonar en el móvil del destinatario */
 router.post('/call-cancel', async (req, res) => {
-  const { calleeId, callerId } = req.body || {};
-  if (!calleeId || !callerId) return res.status(400).json({ error: 'calleeId y callerId son requeridos' });
+  const { calleeId } = req.body || {};
+  const callerId = authUser(req, res, req.body?.callerId);
+  if (!callerId) return;
+  if (!calleeId) return res.status(400).json({ error: 'calleeId y callerId son requeridos' });
   await dataToUser(calleeId, { type: 'call_cancel', callerId, ts: Date.now() });
   return res.json({ success: true });
 });
@@ -771,8 +845,10 @@ router.post('/call-response', (req, res) => {
 
 /** POST /chats */
 router.post('/chats', (req, res) => {
-  const { userId1, userId2, name } = req.body || {};
-  if (!userId1 || !userId2) return res.status(400).json({ error: 'userId1 y userId2 son requeridos' });
+  const { userId2, name } = req.body || {};
+  const userId1 = authUser(req, res, req.body?.userId1);   // quien abre el chat es siempre el de la sesión
+  if (!userId1) return;
+  if (!userId2) return res.status(400).json({ error: 'userId1 y userId2 son requeridos' });
 
   const chatId = `chat_${[userId1, userId2].sort().join('_')}`;
   if (!chatStore2.has(chatId)) {
@@ -799,8 +875,8 @@ router.post('/chats', (req, res) => {
 
 /** GET /chats?userId= */
 router.get('/chats', (req, res) => {
-  const { userId } = req.query;
-  if (!userId) return res.status(400).json({ error: 'userId es requerido' });
+  const userId = authUser(req, res, req.query.userId);
+  if (!userId) return;
   const userChats = [...chatStore2.values()]
     .filter(c => c.participants.includes(userId))
     .map(c => {
@@ -837,7 +913,10 @@ router.get('/chats', (req, res) => {
 /** DELETE /chats/:chatId — elimina el chat y todos sus mensajes */
 router.delete('/chats/:chatId', (req, res) => {
   const { chatId } = req.params;
+  const uid = authUser(req, res, req.query.userId);
+  if (!uid) return;
   if (!chatId) return res.status(400).json({ error: 'chatId requerido' });
+  if (!isChatMember(chatId, uid)) return res.status(403).json({ error: 'No perteneces a este chat' });
   chatStore2.delete(chatId);
   messageStore.delete(chatId);
   saveChats();
@@ -851,6 +930,7 @@ router.delete('/chats/:chatId', (req, res) => {
 
 /** POST /upload-file — convierte base64 → archivo binario en /uploads, devuelve URL */
 router.post('/upload-file', (req, res) => {
+  if (!authUser(req, res, req.body?.userId)) return;
   const { data, fileName } = req.body || {};
   if (!data || !fileName) return res.status(400).json({ error: 'data y fileName requeridos' });
   // Límite: 15 MB en base64 ≈ 11 MB real
@@ -939,7 +1019,7 @@ const absFileUrl = (u) => (typeof u === 'string' && u.startsWith('/files/') && f
 })();
 
 router.post('/chat/upload', express.raw({ type: () => true, limit: '150mb' }), (req, res) => {
-  if (!req.query.userId || !findUserById(req.query.userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  if (!authUser(req, res, req.query.userId)) return;
   const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
   const ext = CHAT_UPLOAD_EXT[type];
   if (!ext) return res.status(415).json({ error: 'Formato no admitido' });
@@ -979,9 +1059,11 @@ function publicMsg(m) {
 
 /** GET /messages/:chatId (los eliminados para todos antiguos tampoco se devuelven) */
 router.get('/messages/:chatId', (req, res) => {
-  const uid = req.query.userId;
+  const uid = authUser(req, res, req.query.userId);
+  if (!uid) return;
+  if (!isChatMember(req.params.chatId, uid)) return res.status(403).json({ error: 'No perteneces a este chat' });
   const list = (messageStore.get(req.params.chatId) || []).filter(m => !m.deleted);
-  return res.json({ messages: (uid ? list.filter(m => !(m.hiddenFor || []).includes(uid)) : list).map(publicMsg) });
+  return res.json({ messages: list.filter(m => !(m.hiddenFor || []).includes(uid)).map(publicMsg) });
 });
 
 // ── "Ver una vez" ────────────────────────────────────────────────────────────
@@ -1007,7 +1089,8 @@ setTimeout(sweepViewOnce, 30 * 1000).unref?.();
 /** POST /messages/:chatId/:messageId/open — { userId } → { url } una sola vez por destinatario */
 router.post('/messages/:chatId/:messageId/open', (req, res) => {
   const { chatId, messageId } = req.params;
-  const { userId } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   const m = (messageStore.get(chatId) || []).find(x => x.id === messageId);
   if (!m || !m.viewOnce) return res.status(404).json({ error: 'Mensaje no encontrado' });
   if (!userId || !chatMembers(chatId).includes(userId)) return res.status(403).json({ error: 'No perteneces a este chat' });
@@ -1023,8 +1106,11 @@ router.post('/messages/:chatId/:messageId/open', (req, res) => {
 /** DELETE /messages/:chatId/:messageId — elimina un mensaje concreto */
 router.delete('/messages/:chatId/:messageId', (req, res) => {
   const { chatId, messageId } = req.params;
-  const { userId, scope } = req.query;
+  const { scope } = req.query;
+  const userId = authUser(req, res, req.query.userId);
+  if (!userId) return;
   if (!chatId || !messageId) return res.status(400).json({ error: 'chatId y messageId requeridos' });
+  if (!isChatMember(chatId, userId)) return res.status(403).json({ error: 'No perteneces a este chat' });
   const msgs = messageStore.get(chatId) || [];
   const idx  = msgs.findIndex(m => m.id === messageId);
   if (idx === -1) return res.status(404).json({ error: 'Mensaje no encontrado' });
@@ -1053,6 +1139,7 @@ router.delete('/messages/:chatId/:messageId', (req, res) => {
     notifyChatUpdate(chatId, userId, 'deleted');
     return res.json({ ok: true });
   }
+  if (msgs[idx].senderId !== userId) return res.status(403).json({ error: 'Solo puedes eliminar tus mensajes' });
   msgs.splice(idx, 1);
   messageStore.set(chatId, msgs);
   saveMessages();
@@ -1061,8 +1148,11 @@ router.delete('/messages/:chatId/:messageId', (req, res) => {
 
 /** POST /messages */
 router.post('/messages', async (req, res) => {
-  const { chatId, senderId, text, type = 'text', fileName, duration, live, viewOnce } = req.body || {};
-  if (!chatId || !senderId || !text) return res.status(400).json({ error: 'chatId, senderId y text son requeridos' });
+  const { chatId, text, type = 'text', fileName, duration, live, viewOnce } = req.body || {};
+  const senderId = authUser(req, res, req.body?.senderId);   // el remitente es siempre el de la sesión
+  if (!senderId) return;
+  if (!chatId || !text) return res.status(400).json({ error: 'chatId, senderId y text son requeridos' });
+  if (!isChatMember(chatId, senderId)) return res.status(403).json({ error: 'No perteneces a este chat' });
   // Fotos/audios en base64 (apps antiguas) → archivo; el mensaje solo guarda su dirección
   const url = externalizeDataUrl(req.body.url);
   const replyTo = req.body.replyTo && typeof req.body.replyTo === 'object'
@@ -1160,7 +1250,9 @@ const EDIT_WINDOW_MS = 15 * 60 * 1000;   // como WhatsApp: se puede editar duran
 
 /** POST /messages/:chatId/:messageId/edit — { userId, text } — editar un mensaje de texto propio */
 router.post('/messages/:chatId/:messageId/edit', (req, res) => {
-  const { userId, text } = req.body || {};
+  const { text } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   const msg = (messageStore.get(req.params.chatId) || []).find(m => m.id === req.params.messageId);
   if (!msg) return res.status(404).json({ error: 'Mensaje no encontrado' });
   if (msg.senderId !== userId) return res.status(403).json({ error: 'Solo puedes editar tus mensajes' });
@@ -1181,7 +1273,9 @@ router.post('/messages/:chatId/:messageId/edit', (req, res) => {
  *   starred: destacar solo para este usuario
  */
 router.post('/messages/:chatId/:messageId/flags', (req, res) => {
-  const { userId, pinned, starred } = req.body || {};
+  const { pinned, starred } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   const list = messageStore.get(req.params.chatId) || [];
   const msg = list.find(m => m.id === req.params.messageId);
   if (!msg) return res.status(404).json({ error: 'Mensaje no encontrado' });
@@ -1210,7 +1304,9 @@ router.post('/messages/:chatId/:messageId/flags', (req, res) => {
  */
 let liveSaveTimer = null;
 router.post('/messages/:chatId/:messageId/live', (req, res) => {
-  const { senderId, lat, lng, stop } = req.body || {};
+  const { lat, lng, stop } = req.body || {};
+  const senderId = authUser(req, res, req.body?.senderId);
+  if (!senderId) return;
   const msg = (messageStore.get(req.params.chatId) || []).find(m => m.id === req.params.messageId);
   if (!msg || msg.type !== 'live_location' || !msg.live) return res.status(404).json({ error: 'Mensaje no encontrado' });
   if (msg.senderId !== senderId) return res.status(403).json({ error: 'Solo quien comparte la ubicación puede actualizarla' });
@@ -1238,8 +1334,9 @@ router.post('/messages/:chatId/:messageId/live', (req, res) => {
 // La app manda un latido cada 25 s mientras está a la vista, y { away: true } al pasar a segundo plano o cerrarse
 const ONLINE_WINDOW_MS = 75 * 1000;
 router.post('/presence', (req, res) => {
-  const { userId, away } = req.body || {};
-  if (!userId) return res.status(400).json({ error: 'userId requerido' });
+  const { away } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   for (const [phone, u] of userStore.entries()) {
     if (u.userId === userId) { u.lastSeen = Date.now(); u.away = !!away; userStore.set(phone, u); break; }
   }
@@ -1247,12 +1344,16 @@ router.post('/presence', (req, res) => {
 });
 
 /** GET /stickers/:userId — stickers creados por el usuario */
-router.get('/stickers/:userId', (req, res) => res.json({ stickers: stickerStore.get(req.params.userId) || [] }));
+router.get('/stickers/:userId', (req, res) => {
+  const uid = authUser(req, res, req.params.userId);
+  if (uid) res.json({ stickers: stickerStore.get(uid) || [] });
+});
 
 /** POST /stickers — { userId, url } (la imagen se sube antes con /chat/upload) */
 router.post('/stickers', (req, res) => {
-  const { userId, url } = req.body || {};
-  if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  const { url } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   if (!/^https?:\/\/.+\/files\/[\w.-]+$/.test(String(url || ''))) return res.status(400).json({ error: 'Sticker no válido' });
   const list = [url, ...(stickerStore.get(userId) || []).filter(u => u !== url)].slice(0, 200);
   stickerStore.set(userId, list);
@@ -1262,8 +1363,10 @@ router.post('/stickers', (req, res) => {
 
 /** DELETE /stickers/:userId?url= — quitar un sticker de la colección */
 router.delete('/stickers/:userId', (req, res) => {
-  const list = (stickerStore.get(req.params.userId) || []).filter(u => u !== req.query.url);
-  stickerStore.set(req.params.userId, list);
+  const uid = authUser(req, res, req.params.userId);
+  if (!uid) return;
+  const list = (stickerStore.get(uid) || []).filter(u => u !== req.query.url);
+  stickerStore.set(uid, list);
   saveStickers();
   res.json({ stickers: list });
 });
@@ -1271,7 +1374,9 @@ router.delete('/stickers/:userId', (req, res) => {
 /** GET /presence/:userId?viewerId= — online + lastSeen (oculto si su privacidad de "Última vez" no deja a viewerId) */
 router.get('/presence/:userId', (req, res) => {
   const { userId } = req.params;
-  if (!canSeeLastSeen(userId, req.query.viewerId || null)) return res.json({ online: false, lastSeen: null, hidden: true });
+  const viewerId = authUser(req, res, req.query.viewerId);
+  if (!viewerId) return;
+  if (!canSeeLastSeen(userId, viewerId)) return res.json({ online: false, lastSeen: null, hidden: true });
   for (const u of userStore.values()) {
     if (u.userId === userId) {
       const lastSeen = u.lastSeen || u.lastLogin || 0;
@@ -1288,8 +1393,10 @@ router.get('/presence/:userId', (req, res) => {
 
 /** POST /user/avatar — guarda el avatar comprimido (base64) del usuario */
 router.post('/user/avatar', (req, res) => {
-  const { userId, avatar } = req.body || {};
-  if (!userId || !avatar) return res.status(400).json({ error: 'userId y avatar requeridos' });
+  const { avatar } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
+  if (!avatar) return res.status(400).json({ error: 'userId y avatar requeridos' });
   // Limite de seguridad: avatares comprimidos no deberían superar 50KB en base64
   if (avatar.length > 80_000) return res.status(400).json({ error: 'Avatar demasiado grande (máx 50KB)' });
   for (const [phone, u] of userStore.entries()) {
@@ -1301,7 +1408,10 @@ router.post('/user/avatar', (req, res) => {
 /** GET /user/avatar/:userId?viewerId= — avatar de un usuario (null si su privacidad no deja verlo a viewerId) */
 router.get('/user/avatar/:userId', (req, res) => {
   const u = findUserById(req.params.userId);
-  if (u) return res.json({ avatar: avatarFor(u, req.query.viewerId || null) });
+  // Con sesión manda la sesión. Sin ella solo llega la pantalla de llamada nativa de Android (no tiene el token):
+  // ahí se sigue usando viewerId (pendiente: token de llamada en el aviso → APK nuevo)
+  const viewerId = sessionUserId(req) || req.query.viewerId || null;
+  if (u) return res.json({ avatar: avatarFor(u, viewerId) });
   return res.json({ avatar: null });
 });
 
@@ -1312,8 +1422,9 @@ router.get('/user/avatar/:userId', (req, res) => {
 /** POST /messages/:chatId/mark-read — marca todos los mensajes del chat como leídos por userId */
 router.post('/messages/:chatId/mark-read', (req, res) => {
   const { chatId } = req.params;
-  const { userId }  = req.body || {};
-  if (!userId) return res.status(400).json({ error: 'userId requerido' });
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
+  if (!isChatMember(chatId, userId)) return res.status(403).json({ error: 'No perteneces a este chat' });
   const msgs = messageStore.get(chatId) || [];
   let changed = false;
   msgs.forEach(m => {
@@ -1404,8 +1515,9 @@ function storyFor(s, viewerId) {
 
 /** GET /stories?userId= — estados activos que puede ver el usuario + nombre y foto de sus autores */
 router.get('/stories', (req, res) => {
+  const viewerId = authUser(req, res, req.query.userId);
+  if (!viewerId) return;
   pruneStories();
-  const viewerId = req.query.userId || null;
   const visible = storiesList.filter(s => canSeeStory(s, viewerId));
   const authors = {};
   for (const s of visible) {
@@ -1418,15 +1530,15 @@ router.get('/stories', (req, res) => {
 
 /** GET /stories/privacy?userId= — privacidad habitual del usuario para sus estados */
 router.get('/stories/privacy', (req, res) => {
-  const { userId } = req.query;
-  if (!userId) return res.status(400).json({ error: 'userId requerido' });
+  const userId = authUser(req, res, req.query.userId);
+  if (!userId) return;
   return res.json(cleanStoryPrivacy(storyPrivacyStore.get(userId)));
 });
 
 /** PUT /stories/privacy — { userId, mode, userIds } guardar la privacidad habitual */
 router.put('/stories/privacy', (req, res) => {
-  const { userId } = req.body || {};
-  if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   const p = cleanStoryPrivacy(req.body);
   storyPrivacyStore.set(userId, p);
   saveStoryPrivacy();
@@ -1438,9 +1550,11 @@ router.put('/stories/privacy', (req, res) => {
  * Máximo 20 estados activos: hasta 15 fotos y 5 vídeos. Sin `privacy` se usa la habitual del usuario.
  */
 router.post('/stories', (req, res) => {
-  const { userId, userName, content, bgColor } = req.body || {};
+  const { userName, content, bgColor } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   const mediaType = ['image', 'video'].includes(req.body?.mediaType) ? req.body.mediaType : 'text';
-  if (!userId || !content) return res.status(400).json({ error: 'userId y content requeridos' });
+  if (!content) return res.status(400).json({ error: 'userId y content requeridos' });
   const author = findUserById(userId);
   if (!author) return res.status(401).json({ error: 'Usuario no válido' });
   if (mediaType === 'text' && String(content).length > 700) return res.status(400).json({ error: 'Texto demasiado largo' });
@@ -1478,7 +1592,8 @@ router.post('/stories', (req, res) => {
 
 /** POST /stories/:storyId/view — registra que un usuario vio un estado */
 router.post('/stories/:storyId/view', (req, res) => {
-  const { viewerId } = req.body || {};
+  const viewerId = authUser(req, res, req.body?.viewerId);
+  if (!viewerId) return;
   const story = storiesList.find(s => s.id === req.params.storyId);
   if (story && viewerId && viewerId !== story.userId && canSeeStory(story, viewerId) && !story.viewers.includes(viewerId)) {
     story.viewers.push(viewerId);
@@ -1489,14 +1604,17 @@ router.post('/stories/:storyId/view', (req, res) => {
 
 /** GET /stories/:storyId/viewers?userId= — quién vio mi estado (solo el autor) */
 router.get('/stories/:storyId/viewers', (req, res) => {
+  const uid = authUser(req, res, req.query.userId);
+  if (!uid) return;
   const story = storiesList.find(s => s.id === req.params.storyId);
-  if (!story || story.userId !== req.query.userId) return res.status(404).json({ error: 'Estado no encontrado' });
+  if (!story || story.userId !== uid) return res.status(404).json({ error: 'Estado no encontrado' });
   return res.json({ viewers: story.viewers.map(id => ({ userId: id, name: findUserById(id)?.name || id })) });
 });
 
 /** DELETE /stories/:storyId — elimina un estado (solo el creador) */
 router.delete('/stories/:storyId', (req, res) => {
-  const { userId } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   const idx = storiesList.findIndex(s => s.id === req.params.storyId && s.userId === userId);
   if (idx === -1) return res.status(404).json({ error: 'Estado no encontrado o sin permisos' });
   trashStoryFile(storiesList[idx]);
@@ -1719,6 +1837,7 @@ function deleteAccount(userId) {
   saveUsers(); saveChats(); saveMessages(); saveGroups(); saveStories(); saveStickers(); saveCallLog(); saveDirectos();
   saveKaraokeRecs(); savePollProfiles(); savePollVotes(); saveSubs(); saveDevices(); saveFcm(); savePrefs(); savePrivacy();
   saveContacts(); saveStoryPrivacy();
+  ai.forgetUser(userId);   // contador de uso de Willy
   rtcEmit(userId, 'device:revoked', { deviceId: '*' });   // cierra la sesión en sus otros dispositivos abiertos
 }
 
@@ -1780,8 +1899,8 @@ function groupPublic(g) {
 
 /** GET /groups?userId= — grupos en los que participa el usuario */
 router.get('/groups', (req, res) => {
-  const { userId } = req.query;
-  if (!userId) return res.status(400).json({ error: 'userId requerido' });
+  const userId = authUser(req, res, req.query.userId);
+  if (!userId) return;
   const userGroups = [...groupStore.values()]
     .filter(g => g.members.includes(userId))
     .sort((a, b) => (chatStore2.get(groupChatId(b))?.lastTime || b.updatedAt) - (chatStore2.get(groupChatId(a))?.lastTime || a.updatedAt))
@@ -1791,20 +1910,23 @@ router.get('/groups', (req, res) => {
 
 /** GET /groups/:groupId?userId= — un grupo (solo para sus miembros) */
 router.get('/groups/:groupId', (req, res) => {
+  const uid = authUser(req, res, req.query.userId);
+  if (!uid) return;
   const g = groupStore.get(req.params.groupId);
   if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
-  if (!isGroupMember(g, req.query.userId)) return res.status(403).json({ error: 'No perteneces a este grupo' });
+  if (!isGroupMember(g, uid)) return res.status(403).json({ error: 'No perteneces a este grupo' });
   refreshMemberNames(g);
   return res.json(groupPublic(g));
 });
 
 /** POST /groups — crea un grupo nuevo { adminId, name, members[], avatar? } */
 router.post('/groups', (req, res) => {
-  const { adminId, name, members, avatar } = req.body || {};
+  const { name, members, avatar } = req.body || {};
+  const adminId = authUser(req, res, req.body?.adminId);
+  if (!adminId) return;
   const cleanName = String(name || '').trim().slice(0, 50);
-  if (!adminId || !cleanName || !Array.isArray(members) || members.length < 1)
+  if (!cleanName || !Array.isArray(members) || members.length < 1)
     return res.status(400).json({ error: 'adminId, name y members[] son requeridos' });
-  if (!findUserById(adminId)) return res.status(401).json({ error: 'Usuario no válido' });
 
   const allMembers = [...new Set([adminId, ...members.filter(m => typeof m === 'string' && findUserById(m))])];
   if (allMembers.length < 2) return res.status(400).json({ error: 'Ninguno de los participantes está en OldFace' });
@@ -1832,7 +1954,9 @@ router.post('/groups', (req, res) => {
 router.put('/groups/:groupId', (req, res) => {
   const g = groupStore.get(req.params.groupId);
   if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
-  const { userId, name, avatar } = req.body || {};
+  const { name, avatar } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   if (!isGroupMember(g, userId)) return res.status(403).json({ error: 'No perteneces a este grupo' });
   const cleanName = typeof name === 'string' ? name.trim().slice(0, 50) : '';
   if (cleanName) g.name = cleanName;
@@ -1853,7 +1977,8 @@ router.post('/groups/:groupId/members', (req, res) => {
   const g = groupStore.get(req.params.groupId);
   if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
   const body = req.body || {};
-  const requesterId = body.requesterId || body.adminId;
+  const requesterId = authUser(req, res, body.requesterId || body.adminId);
+  if (!requesterId) return;
   if (!isGroupMember(g, requesterId)) return res.status(403).json({ error: 'No perteneces a este grupo' });
   const ids = [...new Set((Array.isArray(body.userIds) ? body.userIds : [body.userId])
     .filter(id => typeof id === 'string' && findUserById(id) && !g.members.includes(id)))];
@@ -1873,7 +1998,8 @@ router.post('/groups/:groupId/members', (req, res) => {
 router.delete('/groups/:groupId/members/:userId', (req, res) => {
   const g = groupStore.get(req.params.groupId);
   if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
-  const requesterId = req.body?.requesterId || req.query.requesterId;
+  const requesterId = authUser(req, res, req.body?.requesterId || req.query.requesterId);
+  if (!requesterId) return;
   const targetId = req.params.userId;
   if (!isGroupMember(g, requesterId) || (targetId !== requesterId && g.adminId !== requesterId))
     return res.status(403).json({ error: 'Solo el administrador puede quitar miembros' });
@@ -1961,9 +2087,11 @@ function stopRingingGroupCall(call, fromId) {
 
 /** GET /groups/:groupId/call?userId= — llamada en curso (o null) con quién está dentro */
 router.get('/groups/:groupId/call', async (req, res) => {
+  const uid = authUser(req, res, req.query.userId);
+  if (!uid) return;
   const g = groupStore.get(req.params.groupId);
   if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
-  if (!isGroupMember(g, req.query.userId)) return res.status(403).json({ error: 'No perteneces a este grupo' });
+  if (!isGroupMember(g, uid)) return res.status(403).json({ error: 'No perteneces a este grupo' });
   const call = await activeGroupCall(g.id);
   if (!call) return res.json({ call: null });
   return res.json({ call: { roomId: call.roomId, callType: call.callType, startedBy: call.startedBy, startedAt: call.startedAt,
@@ -1977,7 +2105,9 @@ router.get('/groups/:groupId/call', async (req, res) => {
 router.post('/groups/:groupId/call', async (req, res) => {
   const g = groupStore.get(req.params.groupId);
   if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
-  const { userId, callType } = req.body || {};
+  const { callType } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   if (!isGroupMember(g, userId)) return res.status(403).json({ error: 'No perteneces a este grupo' });
   const existing = await activeGroupCall(g.id);
   if (existing) return res.json({ roomId: existing.roomId, callType: existing.callType, groupName: g.name, joined: true });
@@ -1995,7 +2125,9 @@ router.post('/groups/:groupId/call', async (req, res) => {
 router.post('/groups/:groupId/call/invite', (req, res) => {
   const g = groupStore.get(req.params.groupId);
   if (!g) return res.status(404).json({ error: 'Grupo no encontrado' });
-  const { userId, inviteeIds } = req.body || {};
+  const { inviteeIds } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   if (!isGroupMember(g, userId)) return res.status(403).json({ error: 'No perteneces a este grupo' });
   const call = groupCalls.get(g.id);
   if (!call) return res.status(404).json({ error: 'La llamada ya terminó' });
@@ -2006,8 +2138,9 @@ router.post('/groups/:groupId/call/invite', (req, res) => {
 
 /** POST /groups/:groupId/call/leave — { userId } salgo yo; si no queda nadie, la llamada termina y deja de sonar */
 router.post('/groups/:groupId/call/leave', async (req, res) => {
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   const g = groupStore.get(req.params.groupId);
-  const { userId } = req.body || {};
   const call = g ? groupCalls.get(g.id) : null;
   if (!call || !isGroupMember(g, userId)) return res.json({ ended: false });
   const peers = await rtcRoomPeers(call.roomId);
@@ -2029,8 +2162,10 @@ setInterval(() => { for (const id of [...groupCalls.keys()]) activeGroupCall(id)
 
 /** POST /call-log — Registra una llamada realizada o recibida */
 router.post('/call-log', (req, res) => {
-  const { userId, contactId, contactName, type, duration, direction, timestamp } = req.body || {};
-  if (!userId || !contactId) return res.status(400).json({ error: 'userId y contactId son requeridos' });
+  const { contactId, contactName, type, duration, direction, timestamp } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
+  if (!contactId) return res.status(400).json({ error: 'userId y contactId son requeridos' });
 
   const entry = {
     id:          `call_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -2071,16 +2206,16 @@ router.post('/call-log', (req, res) => {
 
 /** GET /call-log?userId= — Obtiene el historial de llamadas de un usuario */
 router.get('/call-log', (req, res) => {
-  const { userId } = req.query;
-  if (!userId) return res.status(400).json({ error: 'userId es requerido' });
+  const userId = authUser(req, res, req.query.userId);
+  if (!userId) return;
   const log = callLogStore.get(userId) || [];
   return res.json({ calls: log });
 });
 
 /** DELETE /call-log?userId= — Borra todo el historial de llamadas del usuario */
 router.delete('/call-log', (req, res) => {
-  const { userId } = req.query;
-  if (!userId) return res.status(400).json({ error: 'userId es requerido' });
+  const userId = authUser(req, res, req.query.userId);
+  if (!userId) return;
   callLogStore.set(userId, []);
   saveCallLog();
   return res.json({ success: true });
@@ -2088,8 +2223,8 @@ router.delete('/call-log', (req, res) => {
 
 /** DELETE /call-log/:callId?userId= — Borra una llamada específica */
 router.delete('/call-log/:callId', (req, res) => {
-  const { userId } = req.query;
-  if (!userId) return res.status(400).json({ error: 'userId es requerido' });
+  const userId = authUser(req, res, req.query.userId);
+  if (!userId) return;
   const log = callLogStore.get(userId) || [];
   const idx = log.findIndex(c => c.id === req.params.callId);
   if (idx === -1) return res.status(404).json({ error: 'Llamada no encontrada' });
@@ -2161,12 +2296,15 @@ const cleanText = (s, max) => String(s ?? '').replace(/[\u0000-\u0008\u000b-\u00
 
 /** GET /directos/permissions?userId= — ¿puede emitir este usuario? */
 router.get('/directos/permissions', (req, res) => {
-  res.json({ canBroadcast: canBroadcast(String(req.query.userId || '')), mode: liveSettings.mode });
+  const uid = authUser(req, res, req.query.userId);
+  if (!uid) return;
+  res.json({ canBroadcast: canBroadcast(uid), mode: liveSettings.mode });
 });
 
 /** GET /directos?userId= — directos que puede ver el usuario */
 router.get('/directos', (req, res) => {
-  const viewerId = req.query.userId || null;
+  const viewerId = authUser(req, res, req.query.userId);
+  if (!viewerId) return;
   const list = [...directoStore.values()].filter(d => canSeeDirecto(d, viewerId))
     .sort((a, b) => b.createdAt - a.createdAt).map(d => directoFor(d, viewerId));
   return res.json({ directos: list });
@@ -2196,8 +2334,10 @@ router.post('/directos', (req, res) => {
 /** GET /directos/:id?userId= — un directo (no existe para quien no puede verlo) */
 router.get('/directos/:id', (req, res, next) => {
   if (req.params.id === 'recordings') return next();   // GET /directos/recordings va más abajo
+  // El servidor RTC pregunta en nombre de quien entra (secreto interno); la app, con su sesión
+  const viewerId = isInternalRequest(req) ? (req.query.userId || null) : authUser(req, res, req.query.userId);
+  if (!viewerId) return res.headersSent ? undefined : res.status(404).json({ error: 'Directo no encontrado' });
   const d = directoStore.get(req.params.id);
-  const viewerId = req.query.userId || null;
   if (!d || !canSeeDirecto(d, viewerId)) return res.status(404).json({ error: 'Directo no encontrado' });
   const creator = findUserById(d.creatorId);
   return res.json({ ...directoFor(d, viewerId), creatorAvatar: avatarFor(creator, viewerId),
@@ -2291,7 +2431,8 @@ router.post('/internal/live-recordings', (req, res) => {
 
 /** GET /directos/recordings?userId=&ownerId= — grabaciones que puede ver el usuario (de un canal o de todos) */
 router.get('/directos/recordings', (req, res) => {
-  const viewerId = req.query.userId || null;
+  const viewerId = authUser(req, res, req.query.userId);
+  if (!viewerId) return;
   const ownerId = req.query.ownerId || null;
   const list = [...liveRecStore.values()]
     .filter(r => (!ownerId || r.ownerId === ownerId) && canSeeRecording(r, viewerId))
@@ -2302,8 +2443,9 @@ router.get('/directos/recordings', (req, res) => {
 
 /** POST /directos/recordings/:id/view — { userId } una reproducción más */
 router.post('/directos/recordings/:id/view', (req, res) => {
+  const viewerId = authUser(req, res, req.body?.userId);
+  if (!viewerId) return;
   const r = liveRecStore.get(req.params.id);
-  const viewerId = req.body?.userId;
   if (!r || !canSeeRecording(r, viewerId)) return res.status(404).json({ error: 'Grabación no encontrada' });
   if (viewerId !== r.ownerId) { r.views = (r.views || 0) + 1; saveLiveRecs(); }
   res.json({ views: r.views || 0 });
@@ -2627,7 +2769,8 @@ router.get('/poll/meta', (_req, res) => {
 
 /** GET /poll/polls?userId= — encuestas visibles (activas + cerradas) */
 router.get('/poll/polls', (req, res) => {
-  const { userId } = req.query;
+  const userId = authUser(req, res, req.query.userId);   // marca qué votó: solo lo suyo
+  if (!userId) return;
   const visible = [...pollStore.values()]
     .map(p => serializePoll(p, userId))
     .filter(p => p.status === 'active' || p.status === 'closed');
@@ -2639,19 +2782,22 @@ router.get('/poll/polls', (req, res) => {
 
 /** GET /poll/polls/:id?userId= — detalle con resultados y demografía */
 router.get('/poll/polls/:id', (req, res) => {
+  const userId = authUser(req, res, req.query.userId);
+  if (!userId) return;
   const p = pollStore.get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Encuesta no encontrada' });
   const status = pollStatus(p);
   if (status === 'draft' || status === 'scheduled') return res.status(404).json({ error: 'Encuesta no disponible' });
-  res.json({ poll: serializePoll(p, req.query.userId, { withDemographics: true }) });
+  res.json({ poll: serializePoll(p, userId, { withDemographics: true }) });
 });
 
 /** POST /poll/polls/:id/vote — { userId, optionId } */
 router.post('/poll/polls/:id/vote', (req, res) => {
-  const { userId, optionId } = req.body || {};
+  const { optionId } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   const p = pollStore.get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Encuesta no encontrada' });
-  if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
   if (pollStatus(p) !== 'active') return res.status(400).json({ error: 'Esta encuesta no acepta votos' });
   if (!pollProfileStore.has(userId)) return res.status(409).json({ error: 'Completa tu perfil para votar', needsProfile: true });
   if (!p.options.some(o => o.id === optionId)) return res.status(400).json({ error: 'Opción no válida' });
@@ -2666,13 +2812,16 @@ router.post('/poll/polls/:id/vote', (req, res) => {
 
 /** GET /poll/profile/:userId */
 router.get('/poll/profile/:userId', (req, res) => {
-  res.json({ profile: pollProfileStore.get(req.params.userId) || null });
+  const uid = authUser(req, res, req.params.userId);   // edad, sexo y código postal: solo el propio usuario
+  if (!uid) return;
+  res.json({ profile: pollProfileStore.get(uid) || null });
 });
 
 /** POST /poll/profile — { userId, age, sex, postalCode, nationality } */
 router.post('/poll/profile', (req, res) => {
-  const { userId, age, sex, postalCode, nationality } = req.body || {};
-  if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  const { age, sex, postalCode, nationality } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   const ageNum = parseInt(age, 10);
   if (Number.isNaN(ageNum) || ageNum < 16 || ageNum > 120) return res.status(400).json({ error: 'La edad debe estar entre 16 y 120' });
   if (!POLL_SEX.includes(sex)) return res.status(400).json({ error: 'Sexo no válido' });
@@ -2686,8 +2835,8 @@ router.post('/poll/profile', (req, res) => {
 
 /** GET /poll/history?userId= — encuestas en las que ha votado el usuario */
 router.get('/poll/history', (req, res) => {
-  const { userId } = req.query;
-  if (!userId) return res.status(400).json({ error: 'userId requerido' });
+  const userId = authUser(req, res, req.query.userId);
+  if (!userId) return;
   const list = [...pollStore.values()]
     .filter(p => (pollVoteStore.get(p.id) || {})[userId])
     .map(p => serializePoll(p, userId))
@@ -2845,8 +2994,8 @@ const KARAOKE_UPLOAD_EXT = {
   'video/webm': '.webm', 'video/mp4': '.mp4', 'audio/webm': '.webm', 'audio/mp4': '.m4a', 'audio/ogg': '.ogg',
 };
 router.post('/karaoke/upload', express.raw({ type: () => true, limit: '120mb' }), (req, res) => {
-  const userId = req.query.userId;
-  if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  const userId = authUser(req, res, req.query.userId);
+  if (!userId) return;
   if (isKaraokeBanned(userId)) return res.status(403).json({ error: 'Tu cuenta no puede usar el karaoke' });
   const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
   const ext = KARAOKE_UPLOAD_EXT[type];
@@ -2868,8 +3017,9 @@ router.post('/karaoke/upload', express.raw({ type: () => true, limit: '120mb' })
  *                              duetPart ('A' abre un dúo), duetOf (id del dúo al que se une → parte B) }
  */
 router.post('/karaoke/recordings', (req, res) => {
-  const { userId, songId, audioUrl, duration, video, score, duetPart, duetOf } = req.body || {};
-  if (!userId || !findUserById(userId)) return res.status(401).json({ error: 'Usuario no válido' });
+  const { songId, audioUrl, duration, video, score, duetPart, duetOf } = req.body || {};
+  const userId = authUser(req, res, req.body?.userId);
+  if (!userId) return;
   if (isKaraokeBanned(userId)) return res.status(403).json({ error: 'Tu cuenta no puede usar el karaoke' });
   if (!karaokeSongStore.has(songId)) return res.status(404).json({ error: 'Canción no encontrada' });
   if (!audioUrl || !/^\/files\/[\w.-]+$/.test(audioUrl)) return res.status(400).json({ error: 'Grabación no válida' });
@@ -2894,8 +3044,8 @@ router.post('/karaoke/recordings', (req, res) => {
 
 /** GET /karaoke/recordings?userId= — grabaciones del usuario (sin userId no se lista nada) */
 router.get('/karaoke/recordings', (req, res) => {
-  const { userId } = req.query;
-  if (!userId) return res.json({ recordings: [] });
+  const userId = authUser(req, res, req.query.userId);
+  if (!userId) return;
   const list = [...karaokeRecStore.values()]
     .filter(r => r.userId === userId)
     .sort((a, b) => b.createdAt - a.createdAt).slice(0, 100).map(recSummary);
@@ -2904,8 +3054,8 @@ router.get('/karaoke/recordings', (req, res) => {
 
 /** GET /karaoke/duets?userId= — dúos abiertos (parte A grabada) míos o de mis contactos */
 router.get('/karaoke/duets', (req, res) => {
-  const viewerId = req.query.userId || null;
-  if (!viewerId) return res.json({ duets: [] });
+  const viewerId = authUser(req, res, req.query.userId);
+  if (!viewerId) return;
   const list = [...karaokeRecStore.values()]
     .filter(r => r.duetPart && !r.duetOf && karaokeSongStore.get(r.songId)?.published !== false)
     .filter(r => r.userId === viewerId || isContactOf(r.userId, viewerId))
@@ -2921,9 +3071,11 @@ router.get('/karaoke/recordings/:id', (req, res) => {
 });
 
 router.delete('/karaoke/recordings/:id', (req, res) => {
+  const uid = authUser(req, res, req.query.userId);
+  if (!uid) return;
   const r = karaokeRecStore.get(req.params.id);
   if (!r) return res.status(404).json({ error: 'Grabación no encontrada' });
-  if (r.userId !== req.query.userId) return res.status(403).json({ error: 'Solo puedes borrar tus grabaciones' });
+  if (r.userId !== uid) return res.status(403).json({ error: 'Solo puedes borrar tus grabaciones' });
   karaokeRecStore.delete(r.id);
   saveKaraokeRecs();
   try { fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(r.audioUrl))); } catch { /* ya no estaba */ }
@@ -3200,6 +3352,12 @@ app.get('/.well-known/assetlinks.json', (_req, res) => {
     relation: ['delegate_permission/common.handle_all_urls'],
     target: { namespace: 'android_app', package_name: 'com.oldface.app', sha256_cert_fingerprints: [...new Set(ANDROID_CERTS)] },
   }]);
+});
+
+// ── OldFace AI (Willy): rutas /ai/* con la sesión del usuario — ver ai/index.js ──
+const ai = require('./ai')({
+  router, authUser, dataDir: DATA_DIR,
+  deps: { chatStore: chatStore2, groupStore, messageStore, findUserById, contactsOf, isChatMember },
 });
 
 // ── Montar router ─────────────────────────────────────────────────
