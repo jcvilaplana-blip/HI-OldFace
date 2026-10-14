@@ -26,8 +26,13 @@ export function setVoiceOn(on) {
   if (!on) stopSpeaking();
 }
 
-/** Lo que se lee: sin emojis ni marcas de formato (sonarían raro) */
-const forSpeech = (t) => String(t || '').replace(/[*_#`>]/g, '').replace(/\p{Extended_Pictographic}/gu, '').replace(/\s+/g, ' ').trim();
+/** "OldFace" se pronuncia en inglés ("ould feis"); la voz española lo leería letra a letra en español */
+const OLDFACE_SPOKEN = LANG === 'es' ? 'Ould Feis' : 'Old Face';
+
+/** Lo que se lee: sin emojis ni marcas de formato (sonarían raro) y con OldFace bien pronunciado */
+const forSpeech = (t) => String(t || '')
+  .replace(/old\s?face/gi, OLDFACE_SPOKEN)
+  .replace(/[*_#`>]/g, '').replace(/\p{Extended_Pictographic}/gu, '').replace(/\s+/g, ' ').trim();
 
 export async function speak(text) {
   const t = forSpeech(text);
