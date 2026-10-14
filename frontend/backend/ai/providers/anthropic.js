@@ -58,7 +58,12 @@ function createAnthropicProvider({ apiKey, model, effort, maxTokens, fallbacks }
       } catch (err) {
         if (err instanceof AnthropicClient.AuthenticationError) throw new ProviderError('Willy no está bien configurado (clave de la IA no válida)', { status: 503 });
         if (err instanceof AnthropicClient.RateLimitError) throw new ProviderError('Willy está muy ocupado ahora mismo. Inténtalo en un momento.', { status: 503, retryable: true });
-        if (err instanceof AnthropicClient.BadRequestError) { console.warn('[ai] petición rechazada:', err.message); throw new ProviderError('Willy no ha podido procesar esa petición'); }
+        if (err instanceof AnthropicClient.BadRequestError) {
+          console.warn('[ai] petición rechazada:', err.message);
+          // Sin saldo en la cuenta de Anthropic: no es culpa del usuario
+          if (/credit balance/i.test(err.message)) throw new ProviderError('Willy no está disponible ahora mismo', { status: 503 });
+          throw new ProviderError('Willy no ha podido procesar esa petición');
+        }
         if (err instanceof AnthropicClient.APIError) { console.warn(`[ai] error ${err.status}:`, err.message); throw new ProviderError('Willy no está disponible ahora mismo', { status: 503, retryable: true }); }
         throw err;
       }

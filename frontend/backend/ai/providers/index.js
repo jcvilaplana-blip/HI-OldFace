@@ -6,6 +6,9 @@
  */
 const { createAnthropicProvider, ProviderError } = require('./anthropic');
 
+/** Modelos que admiten el reintento automático en el servidor de Anthropic si la petición se rechaza */
+const FALLBACK_MODELS = /^claude-(opus-5(-5)?|fable-5-1|sonnet-5-5)$/;
+
 /**
  * Proveedor de pruebas: no llama a ninguna IA. Último mensaje del usuario:
  *   "#tool <nombre> <json>"  → pide esa herramienta con esos parámetros (aunque no existan o no sean válidos)
@@ -43,12 +46,14 @@ function createProvider(env = process.env) {
   const kind = (env.AI_PROVIDER || (env.ANTHROPIC_API_KEY ? 'anthropic' : 'off')).toLowerCase();
   if (kind === 'mock') return createMockProvider();
   if (kind === 'anthropic' && env.ANTHROPIC_API_KEY) {
+    const model = env.AI_MODEL || 'claude-opus-5-5';
     return createAnthropicProvider({
       apiKey: env.ANTHROPIC_API_KEY,
-      model: env.AI_MODEL || 'claude-opus-5-5',
+      model,
       effort: ['low', 'medium', 'high', 'xhigh', 'max'].includes(env.AI_EFFORT) ? env.AI_EFFORT : 'medium',
       maxTokens: Math.min(Math.max(parseInt(env.AI_MAX_TOKENS || '16000', 10) || 16000, 1024), 64000),
-      fallbacks: env.AI_FALLBACKS !== '0',
+      // El reintento con otro modelo solo existe para algunos (Haiku no lo tiene: la petición fallaría)
+      fallbacks: env.AI_FALLBACKS !== '0' && FALLBACK_MODELS.test(model),
     });
   }
   return null;   // sin proveedor: Willy aparece como "no disponible"
