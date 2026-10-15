@@ -199,7 +199,6 @@ export default function LoginPage() {
             <img src="/logo-oldface.png" alt="OldFace" className="w-28 h-28 object-contain drop-shadow-2xl"
                  onError={(e) => { e.target.style.display='none'; }} />
           </div>
-          <h1 style={{ fontSize: 30, fontWeight: 900, color: '#1d4ed8', margin: 0, letterSpacing: '-0.02em' }}>OldFace</h1>
           <p className="text-oldface-500 text-sm mt-1 font-medium">{tr('Conecta con quien más quieres')}</p>
         </div>
 
