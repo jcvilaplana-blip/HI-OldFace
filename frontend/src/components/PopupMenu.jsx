@@ -188,7 +188,7 @@ export default function PopupMenu({ onClose, onGroups }) {
             {/* Logo */}
             <div
               className="flex items-center justify-center overflow-hidden"
-              style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: BRAND }}
+              style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: 'white', border: '1px solid #e2e8f0' }}
             >
               <img
                 src="/logo-oldface.png"
