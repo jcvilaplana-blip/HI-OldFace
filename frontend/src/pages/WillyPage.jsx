@@ -97,8 +97,7 @@ export default function WillyPage() {
               Willy <span style={{ fontSize: 11, fontWeight: 800, background: 'rgba(255,255,255,0.22)', borderRadius: 6, padding: '2px 6px', verticalAlign: 'middle' }}>{tr('IA')}</span>
             </h1>
             <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>
-              {tr('Tu asistente de OldFace')}
-              {status?.available && status.remaining !== undefined ? ` · ${tr('te quedan {n} consultas hoy', { n: status.remaining })}` : ''}
+              {tr('Willy tu asistente personal inteligente en OldFace')}
             </p>
           </div>
           <button onClick={toggleVoice} aria-label={voice ? tr('Silenciar a Willy') : tr('Activar la voz de Willy')} aria-pressed={voice}

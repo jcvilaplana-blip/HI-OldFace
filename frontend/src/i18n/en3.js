@@ -473,6 +473,7 @@ export default {
   "IA": "AI",
   "Willy, tu asistente con IA": "Willy, your AI assistant",
   "Tu asistente de OldFace": "Your OldFace assistant",
+  "Willy tu asistente personal inteligente en OldFace": "Willy, your smart personal assistant in OldFace",
   "te quedan {n} consultas hoy": "{n} questions left today",
   "Nueva": "New",
   "Hola, soy Willy, tu asistente personal en OldFace.\nDime qué necesitas que haga por ti.": "Hi, I'm Willy, your personal assistant on OldFace.\nTell me what you need me to do for you.",
