@@ -16,7 +16,8 @@ const crypto = require('crypto');
 const { createProvider, ProviderError } = require('./providers');
 const { createVoice } = require('./providers/tts');
 const { createAccess } = require('./access');
-const { runAgent } = require('./agent');
+const { runAgent, SYSTEM_PROMPT } = require('./agent');
+const { toolSpecs } = require('./tools');
 const { validate } = require('./validate');
 
 const MAX_TURNS = 40, MAX_CHARS_PER_TURN = 4000, MAX_TOTAL_CHARS = 40_000;
@@ -81,6 +82,12 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
 
   console.log(`🤖 Willy (IA): ${provider ? `${provider.name} · ${provider.model}` : 'desactivado (sin ANTHROPIC_API_KEY)'}`
     + ` · voz: ${voice ? voice.name : 'la del móvil'}`);
+  // Modelo local: que procese ya las instrucciones fijas para que la primera pregunta no espere ~30 s
+  if (provider?.warmUp) {
+    setTimeout(() => provider.warmUp({ system: SYSTEM_PROMPT, tools: toolSpecs() })
+      .then(() => console.log('🤖 Willy: modelo local preparado'))
+      .catch(() => console.warn('[ai] modelo local: no responde todavía')), 3000).unref?.();
+  }
 
   /** GET /ai/status — ¿está Willy disponible y cuántas peticiones me quedan hoy? */
   router.get('/ai/status', (req, res) => {

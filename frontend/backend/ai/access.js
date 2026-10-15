@@ -3,7 +3,7 @@
  *
  *   const access = createAccess(deps);   // una vez, con los almacenes del backend
  *   const my = access.forUser(userId);   // userId SIEMPRE el de la sesión verificada (nunca el que diga el modelo)
- *   my.listChats({ kind, limit }) · my.findContacts(query, limit) · my.resolveChat(ref) · my.chatTitle(chatId)
+ *   my.listChats({ kind, limit, query, unreadOnly }) · my.findContacts(query, limit) · my.resolveChat(ref) · my.chatTitle(chatId)
  *
  * Todo se filtra por pertenencia: solo los chats en los que está el usuario y sus contactos (misma regla que la
  * privacidad: agenda con OldFace + chats 1 a 1 en los que ha escrito, más con quien ya tiene un chat 1 a 1).
@@ -40,9 +40,12 @@ function createAccess({ chatStore, groupStore, messageStore, findUserById, conta
     const myChats = () => [...chatStore.values()].filter(c => Array.isArray(c.participants) && c.participants.includes(uid));
 
     return {
-      listChats({ kind = 'all', limit = 10 } = {}) {
+      listChats({ kind = 'all', limit = 10, query = '', unreadOnly = false } = {}) {
+        const q = fold(query);
         return myChats()
           .filter(c => kind === 'all' || (kind === 'group' ? !!c.isGroup : !c.isGroup))
+          .filter(c => !q || fold(chatName(c, uid)).includes(q))
+          .filter(c => !unreadOnly || unreadIn(c.id, uid) > 0)
           .sort((a, b) => (b.lastTime || 0) - (a.lastTime || 0))
           .slice(0, limit)
           .map(c => ({

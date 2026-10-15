@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -84,6 +85,14 @@ try {
   check('list_chats: cuenta no leídos (1 de Bea)', /"name":"Bea"[^}]*"unread":1/.test(lc.body.reply), lc.body.reply);
   check('list_chats: al modelo no le llegan ids con teléfono', !/user_3460|chat_user|group_group/.test(lc.body.reply) && /"chat_ref":"c_[0-9a-f]{12}"/.test(lc.body.reply));
   check('list_chats kind=group: solo Familia', (await ask('#tool list_chats {"kind":"group"}')).body.reply.match(/"name"/g)?.length === 1);
+  const qFam = (await ask('#tool list_chats {"query":"FAMÍLIA"}')).body.reply;
+  check('list_chats query: busca el grupo por nombre (sin mayúsculas ni tildes)', qFam.includes('"name":"Familia"') && qFam.match(/"name"/g)?.length === 1, qFam);
+  check('list_chats query: nunca encuentra chats ajenos', (await ask('#tool list_chats {"query":"secreto"}')).body.reply.includes('"chats":[]'));
+  check('list_chats query demasiado larga → rechazada', (await ask('#tool list_chats {"query":"' + 'x'.repeat(61) + '"}')).body.reply.includes('Parámetros no válidos'));
+  const unr = (await ask('#tool list_chats {"unread_only":true}')).body.reply;
+  check('list_chats unread_only: solo Bea (1 sin leer), no Familia', unr.includes('"name":"Bea"') && !unr.includes('Familia'), unr);
+  check('list_chats unread_only no booleano → rechazado', (await ask('#tool list_chats {"unread_only":"si"}')).body.reply.includes('Parámetros no válidos'));
+  check('find_contact sin resultado: pista para buscar el grupo', (await ask('#tool find_contact {"query":"familia"}')).body.reply.includes('list_chats'));
   const lcC = await ask('#tool list_chats {}', C);
   check('Carlos ve el suyo y no los de Ana', lcC.body.reply.includes('"name":"Dani"') && !lcC.body.reply.includes('"name":"Bea"') && !lcC.body.reply.includes('Familia'));
   const refOf = (reply, name) => (reply.match(new RegExp(`"chat_ref":"(c_[0-9a-f]{12})","name":"${name}"`)) || [])[1];
@@ -172,6 +181,42 @@ try {
   check('registro: la voz no anota el texto leído', !fs.readFileSync(path.join(srv.dir, 'data', 'ai_audit.log'), 'utf8').includes('Güili')
     && !fs.readFileSync(path.join(srv.dir, 'data', 'ai_usage.json'), 'utf8').includes('Güili'));
   check('log del servidor: sin el texto leído', !srv.log().includes('Güili'));
+
+  // ── Modelo local (llm-server/): servidor simulado con la API de llama.cpp ──
+  const seen = [];
+  const stub = http.createServer((req, res) => {
+    let b = ''; req.on('data', d => { b += d; }); req.on('end', () => {
+      const body = JSON.parse(b || '{}'); seen.push(body);
+      const last = body.messages[body.messages.length - 1];
+      const firstUser = body.messages.find(m => m.role === 'user')?.content || '';
+      const reply = (message, finish = 'stop') => res.end(JSON.stringify({ choices: [{ message, finish_reason: finish }], usage: { prompt_tokens: 7, completion_tokens: 3 } }));
+      res.setHeader('Content-Type', 'application/json');
+      if (last.role === 'tool') return reply({ role: 'assistant', content: `resultado: ${last.content}` });
+      if (firstUser === '#local-tool') return reply({ role: 'assistant', content: '', tool_calls: [{ type: 'function', function: { name: 'list_chats', arguments: '{"unread_only":true}' } }] }, 'tool_calls');
+      if (firstUser === '#local-bad') return reply({ role: 'assistant', content: '', tool_calls: [{ id: 'x1', type: 'function', function: { name: 'list_chats', arguments: 'no es json' } }] }, 'tool_calls');
+      if (firstUser === '#local-think') return reply({ role: 'assistant', content: '<think>razono en secreto</think>Hola, soy Willy' });
+      reply({ role: 'assistant', content: 'vale' });
+    });
+  });
+  await new Promise(r => stub.listen(3987, '127.0.0.1', r));
+  const loc = makeServer(3986, { AI_PROVIDER: 'local', LOCAL_LLM_URL: 'http://127.0.0.1:3987' });
+  const locDead = makeServer(3985, { AI_PROVIDER: 'local', LOCAL_LLM_URL: 'http://127.0.0.1:9' });
+  for (const s of [loc, locDead]) for (let i = 0; i < 50; i++) { try { await fetch(`${s.base}/health`); break; } catch { await sleep(200); } }
+  await sleep(3500);   // el precalentamiento sale a los 3 s
+  const warm = seen.find(b => b.max_tokens === 1);
+  check('local: precalienta con las instrucciones y herramientas de Willy', !!warm && warm.messages[0].role === 'system' && warm.messages[0].content.includes('Willy') && warm.tools.some(t => t.function.name === 'list_chats'));
+  check('local: sin "pensar" (más rápido)', warm?.chat_template_kwargs?.enable_thinking === false);
+  check('local: status disponible', (await call(loc.base, 'GET', '/ai/status', null, as(A))).body.available === true);
+  const askLoc = (t) => call(loc.base, 'POST', '/ai/chat', { messages: [{ role: 'user', content: t }] }, as(A));
+  const lt = await askLoc('#local-tool');
+  check('local: ejecuta la herramienta pedida (solo datos de Ana)', lt.status === 200 && lt.body.reply.includes('"name":"Bea"') && !lt.body.reply.includes('Secreto de Carlos'), lt.body.reply);
+  const turn = seen[seen.length - 1].messages;
+  const asst = turn.find(m => m.role === 'assistant'), toolMsg = turn.find(m => m.role === 'tool');
+  check('local: el id de la llamada coincide con el del resultado (aunque el modelo no lo ponga)', !!asst?.tool_calls?.[0]?.id && asst.tool_calls[0].id === toolMsg?.tool_call_id);
+  check('local: parámetros mal escritos → la herramienta no se ejecuta', (await askLoc('#local-bad')).body.reply.includes('Parámetros no válidos'));
+  check('local: no se ven los "pensamientos" del modelo', (await askLoc('#local-think')).body.reply === 'Hola, soy Willy');
+  check('local: modelo caído → 503', (await call(locDead.base, 'POST', '/ai/chat', { messages: [{ role: 'user', content: 'hola' }] }, as(A))).status === 503);
+  loc.proc.kill(); locDead.proc.kill(); stub.close();
 
   // ── Sin proveedor ──
   const offSt = await call(off.base, 'GET', '/ai/status', null, as(A));

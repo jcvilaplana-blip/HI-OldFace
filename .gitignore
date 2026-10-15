@@ -6,6 +6,8 @@ backend/node_modules/
 # Servicio de voz: entorno de Python y modelos (se instalan en el VPS)
 voice-server/venv/
 voice-server/models/
+llm-server/llama/
+llm-server/models/
 __pycache__/
 
 # Build outputs

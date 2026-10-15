@@ -1,10 +1,13 @@
 /**
  * Elección del proveedor de IA por .env — cambiar de proveedor = añadir un adaptador aquí, sin tocar el agente.
- *   AI_PROVIDER = anthropic (por defecto si hay ANTHROPIC_API_KEY) · mock (pruebas) · off
+ *   AI_PROVIDER = anthropic (por defecto si hay ANTHROPIC_API_KEY) · local (modelo libre en llm-server/) · mock (pruebas) · off
  *   AI_MODEL (por defecto claude-opus-5-5) · AI_EFFORT (low|medium|high, por defecto medium) · AI_MAX_TOKENS
  *   AI_FALLBACKS=0 desactiva el reintento automático con otro modelo si Claude rechaza una petición
+ *   Local: LOCAL_LLM_URL (p. ej. http://127.0.0.1:8089) · LOCAL_LLM_MODEL (nombre informativo, por defecto qwen3-8b)
+ *          LOCAL_LLM_MAX_TOKENS (por defecto 1024) · LOCAL_LLM_THINKING=1 deja que el modelo "piense" (más lento)
  */
 const { createAnthropicProvider, ProviderError } = require('./anthropic');
+const { createLocalProvider } = require('./local');
 
 /** Modelos que admiten el reintento automático en el servidor de Anthropic si la petición se rechaza */
 const FALLBACK_MODELS = /^claude-(opus-5(-5)?|fable-5-1|sonnet-5-5)$/;
@@ -45,6 +48,14 @@ function createMockProvider() {
 function createProvider(env = process.env) {
   const kind = (env.AI_PROVIDER || (env.ANTHROPIC_API_KEY ? 'anthropic' : 'off')).toLowerCase();
   if (kind === 'mock') return createMockProvider();
+  if (kind === 'local' && env.LOCAL_LLM_URL) {
+    return createLocalProvider({
+      baseUrl: env.LOCAL_LLM_URL,
+      model: env.LOCAL_LLM_MODEL || 'qwen3-8b',
+      maxTokens: Math.min(Math.max(parseInt(env.LOCAL_LLM_MAX_TOKENS || '1024', 10) || 1024, 128), 8192),
+      noThinking: env.LOCAL_LLM_THINKING !== '1',
+    });
+  }
   if (kind === 'anthropic' && env.ANTHROPIC_API_KEY) {
     const model = env.AI_MODEL || 'claude-opus-5-5';
     return createAnthropicProvider({

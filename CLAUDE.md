@@ -20,6 +20,7 @@ los datos del propio usuario y propone acciones que el usuario confirma.
 | `rtc-server/` | Tiempo real: señalización, SFU, grabación de directos | Socket.IO, mediasoup, ffmpeg-static (+ coturn en el VPS) | En memoria |
 | `taxi-server/` | API del taxi | Express, Socket.IO, `node:sqlite` | `data/taxi.db` |
 | `taxi-admin/` | Panel del taxi | React + Vite | — |
+| `llm-server/` | Cerebro libre de Willy (`oldface-llm`, solo 127.0.0.1:8089; la API lo usa con `AI_PROVIDER=local`) | llama.cpp b11327 + Qwen3 8B (6 núcleos, prioridad baja) | Sin datos; binario y modelo solo en el VPS |
 | `voice-server/` | Voz de Willy (`oldface-voice`, solo 127.0.0.1:5010; la API lo usa en `POST /ai/speak`) | Python 3.12, Piper (`es_ES-davefx-medium`) | Sin datos; modelo y venv solo en el VPS |
 | `docs/` | Planes de WebRTC y taxi | — | — |
 

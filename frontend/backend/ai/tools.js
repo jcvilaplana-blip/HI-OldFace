@@ -27,23 +27,29 @@ const TOOLS = [
     name: 'list_chats',
     kind: 'read',
     description: 'Lista los chats del usuario (individuales y de grupo) ordenados por actividad reciente: nombre, '
-      + 'si es grupo, última actividad y mensajes sin leer. No devuelve el contenido de los mensajes.',
+      + 'si es grupo, última actividad y mensajes sin leer. No devuelve el contenido de los mensajes. '
+      + 'Con query busca un chat o GRUPO por su nombre (úsalo para abrir un grupo: los grupos no son contactos). '
+      + 'Con unread_only solo los que tienen mensajes sin leer.',
     input_schema: {
       type: 'object',
       properties: {
         kind: { type: 'string', enum: ['all', 'direct', 'group'], description: 'Tipo de chat (por defecto all)' },
         limit: { type: 'integer', minimum: 1, maximum: 30, description: 'Cuántos chats (por defecto 10)' },
+        query: { type: 'string', minLength: 1, maxLength: 60, description: 'SOLO el nombre (o parte) del chat o grupo; no otras palabras' },
+        unread_only: { type: 'boolean', description: 'true = solo chats con mensajes sin leer' },
       },
       required: [],
       additionalProperties: false,
     },
-    run: ({ my }, { kind = 'all', limit = 10 }) => ({ chats: my.listChats({ kind, limit }) }),
+    run: ({ my }, { kind = 'all', limit = 10, query = '', unread_only = false }) =>
+      ({ chats: my.listChats({ kind, limit, query, unreadOnly: unread_only }) }),
   },
   {
     name: 'find_contact',
     kind: 'read',
-    description: 'Busca entre los contactos del usuario por nombre (o por las últimas cifras del teléfono). '
-      + 'Puede devolver varias personas: si hay más de una, pregunta al usuario cuál es antes de seguir.',
+    description: 'Busca PERSONAS entre los contactos del usuario por nombre (o por las últimas cifras del teléfono). '
+      + 'Puede devolver varias personas: si hay más de una, pregunta al usuario cuál es antes de seguir. '
+      + 'Para grupos usa list_chats con query.',
     input_schema: {
       type: 'object',
       properties: {
@@ -54,14 +60,16 @@ const TOOLS = [
     },
     run: ({ my }, { query }) => {
       const matches = my.findContacts(query, 10);
-      return { matches, count: matches.length, ambiguous: matches.length > 1 };
+      // Sin personas con ese nombre puede ser un grupo: se lo indicamos al modelo en vez de que se rinda
+      return { matches, count: matches.length, ambiguous: matches.length > 1,
+               ...(matches.length ? {} : { hint: 'Ninguna persona se llama así. Si es un grupo o chat, búscalo con list_chats y query.' }) };
     },
   },
   {
     name: 'open_screen',
     kind: 'read',
     description: 'Propone al usuario abrir una pantalla de OldFace (aparece un botón; no se abre sola). '
-      + 'Para abrir un chat concreto usa screen "chat" con su chat_ref (de list_chats o find_contact).',
+      + 'Para abrir un chat o grupo concreto usa screen "chat" con su chat_ref (de list_chats o find_contact).',
     input_schema: {
       type: 'object',
       properties: {
