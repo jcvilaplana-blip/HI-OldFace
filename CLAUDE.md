@@ -20,6 +20,7 @@ los datos del propio usuario y propone acciones que el usuario confirma.
 | `rtc-server/` | Tiempo real: señalización, SFU, grabación de directos | Socket.IO, mediasoup, ffmpeg-static (+ coturn en el VPS) | En memoria |
 | `taxi-server/` | API del taxi | Express, Socket.IO, `node:sqlite` | `data/taxi.db` |
 | `taxi-admin/` | Panel del taxi | React + Vite | — |
+| `voice-server/` | Voz de Willy (`oldface-voice`, solo 127.0.0.1:5010; la API lo usa en `POST /ai/speak`) | Python 3.12, Piper (`es_ES-davefx-medium`) | Sin datos; modelo y venv solo en el VPS |
 | `docs/` | Planes de WebRTC y taxi | — | — |
 
 - No hay base de datos en la API principal ni ningún proveedor de IA todavía.

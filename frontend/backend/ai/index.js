@@ -3,8 +3,9 @@
  *   const ai = require('./ai')({ router, authUser, dataDir, deps: { chatStore, groupStore, messageStore, findUserById,
  *                                                                    contactsOf, isChatMember } });
  * Rutas (siempre con la sesión del usuario; nada de lo que diga el modelo cambia quién es):
- *   GET  /ai/status → { available, name, dailyLimit, remaining }
+ *   GET  /ai/status → { available, name, dailyLimit, remaining, voice }
  *   POST /ai/chat   { messages: [{ role: 'user'|'assistant', content }] } → { reply, actions, remaining }
+ *   POST /ai/speak  { text } → audio/wav con la voz de Willy (servicio local voice-server/; el texto no se guarda)
  * La conversación con Willy la guarda la app (no el servidor). Aquí solo se cuentan peticiones y tokens por día
  * (data/ai_usage.json) y se anota qué herramientas se usaron (data/ai_audit.log, sin contenido y con el usuario
  * seudonimizado). Configuración en .env: ver providers/index.js y AI_DAILY_LIMIT (peticiones por usuario y día).
@@ -13,10 +14,19 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { createProvider, ProviderError } = require('./providers');
+const { createVoice } = require('./providers/tts');
 const { createAccess } = require('./access');
 const { runAgent } = require('./agent');
+const { validate } = require('./validate');
 
 const MAX_TURNS = 40, MAX_CHARS_PER_TURN = 4000, MAX_TOTAL_CHARS = 40_000;
+
+/** Lo que acepta /ai/speak: una frase (la app trocea las respuestas largas) */
+const SPEAK_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['text'],
+  properties: { text: { type: 'string', minLength: 1, maxLength: 800 }, userId: { type: 'string', maxLength: 200 } },
+};
+const MAX_VOICE_IN_FLIGHT = 2;   // la app pide la frase siguiente mientras suena la actual
 
 /** Comprueba la conversación que manda la app: devuelve el texto del error o null */
 function badHistory(messages) {
@@ -36,8 +46,11 @@ function badHistory(messages) {
 
 module.exports = function mountAi({ router, authUser, dataDir, deps, env = process.env }) {
   const provider = createProvider(env);
+  const voice = createVoice(env);
   const access = createAccess({ ...deps, refSecret: env.RTC_SECRET });
   const dailyLimit = Math.max(parseInt(env.AI_DAILY_LIMIT || '40', 10) || 40, 1);
+  const voiceLimit = Math.max(parseInt(env.AI_VOICE_DAILY_LIMIT || '400', 10) || 400, 1);   // frases leídas por usuario y día
+  const voiceInFlight = new Map();   // uid → frases generándose ahora
   const usageFile = path.join(dataDir, 'ai_usage.json');
   const auditFile = path.join(dataDir, 'ai_audit.log');
   const auditKey = env.RTC_SECRET || 'oldface-ai';
@@ -57,7 +70,7 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
   };
   const usageOf = (uid) => {
     if (usage.day !== today()) usage = { day: today(), users: {} };
-    return usage.users[uid] || (usage.users[uid] = { requests: 0, input: 0, output: 0 });
+    return usage.users[uid] || (usage.users[uid] = { requests: 0, input: 0, output: 0, voice: 0 });
   };
 
   /** Registro sin contenido: quién (seudónimo), qué herramientas, cuántos tokens y si fue bien */
@@ -66,13 +79,42 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
     fs.promises.appendFile(auditFile, `${JSON.stringify({ at: new Date().toISOString(), user, ...entry })}\n`).catch(() => {});
   };
 
-  console.log(`🤖 Willy (IA): ${provider ? `${provider.name} · ${provider.model}` : 'desactivado (sin ANTHROPIC_API_KEY)'}`);
+  console.log(`🤖 Willy (IA): ${provider ? `${provider.name} · ${provider.model}` : 'desactivado (sin ANTHROPIC_API_KEY)'}`
+    + ` · voz: ${voice ? voice.name : 'la del móvil'}`);
 
   /** GET /ai/status — ¿está Willy disponible y cuántas peticiones me quedan hoy? */
   router.get('/ai/status', (req, res) => {
     const uid = authUser(req, res, req.query.userId);
     if (!uid) return;
-    res.json({ available: !!provider, name: 'Willy', dailyLimit, remaining: Math.max(dailyLimit - usageOf(uid).requests, 0) });
+    res.json({ available: !!provider, name: 'Willy', dailyLimit, remaining: Math.max(dailyLimit - usageOf(uid).requests, 0), voice: !!voice });
+  });
+
+  /** POST /ai/speak — { text } una frase de Willy → audio/wav con la voz del servidor (sin guardar el texto) */
+  router.post('/ai/speak', async (req, res) => {
+    const uid = authUser(req, res, req.body?.userId);
+    if (!uid) return;
+    if (!voice) return res.status(503).json({ error: 'La voz de Willy no está disponible ahora' });
+    const v = validate(SPEAK_SCHEMA, req.body);
+    if (!v.ok || !req.body.text.trim()) return res.status(400).json({ error: 'El texto debe tener entre 1 y 800 caracteres' });
+    const mine = usageOf(uid);
+    if ((mine.voice || 0) >= voiceLimit) return res.status(429).json({ error: 'Willy ya ha hablado mucho hoy. Vuelve mañana.' });
+    const busy = voiceInFlight.get(uid) || 0;
+    if (busy >= MAX_VOICE_IN_FLIGHT) return res.status(429).json({ error: 'Espera a que Willy termine de hablar' });
+
+    voiceInFlight.set(uid, busy + 1);
+    mine.voice = (mine.voice || 0) + 1;
+    saveUsage();
+    try {
+      const { audio, mime } = await voice.speak(req.body.text.trim());
+      res.set({ 'Content-Type': mime, 'Cache-Control': 'no-store' }).send(audio);
+    } catch (e) {
+      if (e instanceof ProviderError) return res.status(e.status).json({ error: e.message });
+      console.error('[ai] voz:', e.message);
+      res.status(500).json({ error: 'La voz de Willy ha tenido un problema' });
+    } finally {
+      const n = (voiceInFlight.get(uid) || 1) - 1;
+      if (n > 0) voiceInFlight.set(uid, n); else voiceInFlight.delete(uid);
+    }
   });
 
   /** POST /ai/chat — { messages } la conversación con Willy (la guarda la app); responde el siguiente turno */

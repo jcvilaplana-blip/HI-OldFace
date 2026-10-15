@@ -1,0 +1,21 @@
+[Unit]
+Description=OldFace Voz de Willy (Piper, solo 127.0.0.1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=oldface.app_k1i7f62xmt8
+Group=psacln
+WorkingDirectory=/var/www/vhosts/oldface.app/voice-server
+Environment=VOICE_MODEL=/var/www/vhosts/oldface.app/voice-server/models/es_ES-davefx-medium.onnx
+Environment=VOICE_PORT=5010
+Environment=VOICE_THREADS=2
+Environment=OMP_NUM_THREADS=4
+ExecStart=/var/www/vhosts/oldface.app/voice-server/venv/bin/python /var/www/vhosts/oldface.app/voice-server/server.py
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

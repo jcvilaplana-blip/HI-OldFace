@@ -46,8 +46,9 @@ let ok = 0, fail = 0;
 const check = (name, cond, extra = '') => { cond ? ok++ : fail++; console.log(`${cond ? 'OK ' : 'FALLO'}  ${name}${cond ? '' : `  ${extra}`}`); };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-const srv = makeServer(3994, { AI_PROVIDER: 'mock', AI_DAILY_LIMIT: '30' });
-const off = makeServer(3993, { AI_PROVIDER: 'off' });
+const srv = makeServer(3994, { AI_PROVIDER: 'mock', AI_DAILY_LIMIT: '30', TTS_PROVIDER: 'mock' });
+const off = makeServer(3993, { AI_PROVIDER: 'off', TTS_PROVIDER: 'off' });
+const deadVoice = makeServer(3991, { AI_PROVIDER: 'mock', TTS_PROVIDER: 'piper', PIPER_URL: 'http://127.0.0.1:9' });   // servicio de voz caído
 const call = async (base, method, p, body, headers = {}) => {
   const r = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body ? JSON.stringify(body) : undefined });
   return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -55,7 +56,7 @@ const call = async (base, method, p, body, headers = {}) => {
 const ask = (text, uid = A, history = []) => call(srv.base, 'POST', '/ai/chat', { messages: [...history, { role: 'user', content: text }] }, as(uid));
 
 try {
-  for (const s of [srv, off]) for (let i = 0; i < 50; i++) { try { await fetch(`${s.base}/health`); break; } catch { await sleep(200); } }
+  for (const s of [srv, off, deadVoice]) for (let i = 0; i < 50; i++) { try { await fetch(`${s.base}/health`); break; } catch { await sleep(200); } }
 
   // ── Sesión ──
   check('status sin sesión → 401', (await call(srv.base, 'GET', '/ai/status')).status === 401);
@@ -140,6 +141,38 @@ try {
   check('el cupo es por usuario (Bea sigue pudiendo)', (await call(limited.base, 'POST', '/ai/chat', { messages: [{ role: 'user', content: 'x' }] }, as(B))).status === 200);
   limited.proc.kill();
 
+  // ── Voz de Willy (/ai/speak) ──
+  const say = async (base, body, headers) => {
+    const r = await fetch(`${base}/ai/speak`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+    return { status: r.status, type: r.headers.get('content-type') || '', cache: r.headers.get('cache-control') || '', buf: Buffer.from(await r.arrayBuffer()) };
+  };
+  check('status: voz del servidor disponible', st.body.voice === true);
+  check('speak sin sesión → 401', (await say(srv.base, { text: 'hola' })).status === 401);
+  check('speak con token falso → 401', (await say(srv.base, { text: 'hola' }, { Authorization: 'Bearer user_x.1.abc' })).status === 401);
+  check('speak en nombre de otro → 403', (await say(srv.base, { text: 'hola', userId: B }, as(A))).status === 403);
+  const wav = await say(srv.base, { text: 'Hola, soy Güili', userId: A }, as(A));
+  check('speak → audio WAV sin caché', wav.status === 200 && wav.type.startsWith('audio/wav') && wav.buf.subarray(0, 4).toString() === 'RIFF' && wav.cache.includes('no-store'));
+  check('speak: texto vacío → 400', (await say(srv.base, { text: '' }, as(A))).status === 400);
+  check('speak: solo espacios → 400', (await say(srv.base, { text: '   ' }, as(A))).status === 400);
+  check('speak: más de 800 caracteres → 400', (await say(srv.base, { text: 'x'.repeat(801) }, as(A))).status === 400);
+  check('speak: texto que no es texto → 400', (await say(srv.base, { text: 123 }, as(A))).status === 400);
+  check('speak: falta el texto → 400', (await say(srv.base, {}, as(A))).status === 400);
+  check('speak: campo no permitido → 400', (await say(srv.base, { text: 'hola', voice: '../../etc/passwd' }, as(A))).status === 400);
+  check('sin voz configurada: status voice=false', (await call(off.base, 'GET', '/ai/status', null, as(A))).body.voice === false);
+  check('sin voz configurada: speak → 503', (await say(off.base, { text: 'hola' }, as(A))).status === 503);
+  check('servicio de voz caído → 503 (la app usa la del móvil)', (await say(deadVoice.base, { text: 'hola' }, as(A))).status === 503);
+  const voiceLimited = makeServer(3990, { AI_PROVIDER: 'mock', TTS_PROVIDER: 'mock', AI_VOICE_DAILY_LIMIT: '2' });
+  for (let i = 0; i < 50; i++) { try { await fetch(`${voiceLimited.base}/health`); break; } catch { await sleep(200); } }
+  await say(voiceLimited.base, { text: '1' }, as(A)); await say(voiceLimited.base, { text: '2' }, as(A));
+  check('cupo diario de voz agotado → 429', (await say(voiceLimited.base, { text: '3' }, as(A))).status === 429);
+  check('cupo de voz por usuario (Bea sigue pudiendo)', (await say(voiceLimited.base, { text: '1' }, as(B))).status === 200);
+  check('la voz no gasta consultas a Willy', (await call(voiceLimited.base, 'GET', '/ai/status', null, as(A))).body.remaining === 40);
+  voiceLimited.proc.kill();
+  await sleep(2500);   // el contador de uso se guarda a los 2 s
+  check('registro: la voz no anota el texto leído', !fs.readFileSync(path.join(srv.dir, 'data', 'ai_audit.log'), 'utf8').includes('Güili')
+    && !fs.readFileSync(path.join(srv.dir, 'data', 'ai_usage.json'), 'utf8').includes('Güili'));
+  check('log del servidor: sin el texto leído', !srv.log().includes('Güili'));
+
   // ── Sin proveedor ──
   const offSt = await call(off.base, 'GET', '/ai/status', null, as(A));
   check('sin IA configurada: status no disponible', offSt.status === 200 && offSt.body.available === false);
@@ -150,7 +183,7 @@ try {
 } catch (e) {
   fail++; console.log('ERROR', e.stack);
 } finally {
-  srv.proc.kill(); off.proc.kill();
+  srv.proc.kill(); off.proc.kill(); deadVoice.proc.kill();
   console.log(`\n${ok} OK · ${fail} fallos`);
   if (fail) console.log(srv.log().split('\n').filter(l => /error|warn|\[ai\]/i.test(l)).slice(-15).join('\n'));
   process.exit(fail ? 1 : 0);

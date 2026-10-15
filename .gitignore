@@ -3,6 +3,11 @@ node_modules/
 frontend/node_modules/
 backend/node_modules/
 
+# Servicio de voz: entorno de Python y modelos (se instalan en el VPS)
+voice-server/venv/
+voice-server/models/
+__pycache__/
+
 # Build outputs
 frontend/dist/
 frontend/android/
