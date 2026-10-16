@@ -77,8 +77,10 @@ function createLocalProvider({ baseUrl, model, maxTokens, noThinking }) {
   return {
     name: 'local',
     model,
-    async chat({ system, messages, tools }) {
-      const data = await post({ max_tokens: maxTokens, temperature: 0.2, messages: toApiMessages(system, messages), tools: toApiTools(tools) });
+    // toolChoice 'required' = obligar a usar una herramienta (el agente lo pide cuando el modelo contesta sin hacer nada)
+    async chat({ system, messages, tools, toolChoice }) {
+      const data = await post({ max_tokens: maxTokens, temperature: 0.2, messages: toApiMessages(system, messages), tools: toApiTools(tools),
+                                ...(toolChoice ? { tool_choice: toolChoice } : {}) });
       const choice = data.choices?.[0] || {};
       return toResult(choice.message || {}, choice.finish_reason, data.usage);
     },
@@ -87,13 +89,14 @@ function createLocalProvider({ baseUrl, model, maxTokens, noThinking }) {
      * Igual que chat(), pero el texto llega a trozos: onDelta(texto) con cada parte nueva visible (sin "pensamientos").
      * Las llamadas a herramientas se van juntando y se devuelven al final, como en chat().
      */
-    async chatStream({ system, messages, tools }, onDelta) {
+    async chatStream({ system, messages, tools, toolChoice }, onDelta) {
       let r;
       try {
         r = await fetch(url, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(TIMEOUT_MS),
           body: JSON.stringify({ model, ...extra, max_tokens: maxTokens, temperature: 0.2, messages: toApiMessages(system, messages),
-                                 tools: toApiTools(tools), stream: true, stream_options: { include_usage: true } }),
+                                 tools: toApiTools(tools), stream: true, stream_options: { include_usage: true },
+                                 ...(toolChoice ? { tool_choice: toolChoice } : {}) }),
         });
       } catch { throw unavailable(); }
       if (!r.ok || !r.body) { console.warn(`[ai] modelo local: error ${r.status}`); throw unavailable(); }

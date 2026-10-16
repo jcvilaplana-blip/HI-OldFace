@@ -542,17 +542,31 @@ const TOOLS = [
         if (!p) return { error: 'Esa persona ya no está entre tus contactos' };
         target = { kind: 'person', userId: p.id, name: p.name };
         type = type || (missed.type === 'videollamada' ? 'video' : 'voice');
-      } else if (i.chat) {
-        const n = refsByName(my, { chat: i.chat });
-        if (n.stop) return n.stop;
-        target = my.callTarget(n.chatRef);
-        if (!target) return { error: 'No se puede llamar a ese chat' };
-      } else if (i.person) {
-        const n = refsByName(my, { person: i.person });
-        if (n.stop) return n.stop;
-        const p = my.personInfo(n.personRef);
-        if (!p) return { error: 'Esa persona no está entre los contactos del usuario' };
-        target = { kind: 'person', userId: p.id, name: p.name };
+      } else if (i.chat || i.person) {
+        // El modelo no siempre acierta si es persona o grupo: se prueba lo que dijo y, si no está, lo otro
+        const name = i.chat || i.person;
+        const asChat = () => {
+          const n = refsByName(my, { chat: name });
+          if (n.stop) return n;
+          const t = my.callTarget(n.chatRef);
+          return t ? { target: t } : { stop: { error: 'No se puede llamar a ese chat' } };
+        };
+        const asPerson = () => {
+          const n = refsByName(my, { person: name });
+          if (n.stop) return n;
+          const p = my.personInfo(n.personRef);
+          return p ? { target: { kind: 'person', userId: p.id, name: p.name } } : { stop: { error: 'Esa persona no está entre los contactos del usuario' } };
+        };
+        let found = i.chat ? asChat() : asPerson();
+        if (found.stop && !found.stop.ambiguous) {
+          const other = i.chat ? asPerson() : asChat();
+          if (!other.stop || other.stop.ambiguous) found = other;
+        }
+        if (found.stop) {
+          return found.stop.ambiguous ? found.stop
+            : { error: `No tienes ningún contacto ni grupo que se llame "${name}". Díselo al usuario y pídele el nombre como lo tiene guardado.` };
+        }
+        target = found.target;
       } else {
         return { error: 'Falta a quién llamar: person (persona) o chat (grupo)' };
       }

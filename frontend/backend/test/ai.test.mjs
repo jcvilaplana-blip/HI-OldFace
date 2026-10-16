@@ -476,8 +476,11 @@ try {
   check('llamar a quien no es contacto (Carlos) → error, sin tarjeta', !(await callCard({ person: 'Carlos' })).card);
   const cAmb = await callCard({ person: 'Luis' });
   check('nombre ambiguo ("Luis") → preguntar, sin tarjeta', cAmb.data?.ambiguous === true && !cAmb.card);
-  check('grupo o chat ajeno por nombre → error', (await callCard({ chat: 'Secreto de Carlos' })).raw.includes('No hay ningún chat'));
+  check('grupo o chat ajeno por nombre → error, sin tarjeta', (await callCard({ chat: 'Secreto de Carlos' })).raw.includes('ningún contacto ni grupo'));
   check('sin a quién → error', (await callCard({})).raw.includes('Falta a quién'));
+  check('una persona pedida como "chat" → se encuentra igual (Bea)', (await callCard({ chat: 'Bea' })).card?.to === 'Bea');
+  check('un grupo pedido como "person" → se encuentra igual (Familia)', (await callCard({ person: 'Familia', type: 'video' })).card?.text === 'Videollamada de grupo');
+  check('nombre que no existe → "no tienes ningún contacto ni grupo"', (await callCard({ person: 'Team' })).raw.includes('ningún contacto ni grupo'));
   check('tipo de llamada inventado → rechazado', (await callCard({ person: 'Bea', type: 'audio' })).raw.includes('valor no permitido'));
   check('campo no permitido (userId) → rechazado', (await callCard({ person: 'Bea', userId: C })).raw.includes('campo no permitido'));
 
@@ -663,6 +666,12 @@ try {
         : res.end(JSON.stringify({ choices: [{ message, finish_reason: finish }], usage: { prompt_tokens: 7, completion_tokens: 3 } })));
       res.setHeader('Content-Type', 'application/json');
       if (last.role === 'tool') return reply({ role: 'assistant', content: `resultado: ${last.content}` });
+      // Modelo "perezoso": ante una orden pregunta en vez de actuar, salvo que se le obligue a usar una herramienta
+      if (firstUser.startsWith('Llama a Team')) {
+        return body.tool_choice === 'required'
+          ? reply({ role: 'assistant', content: '', tool_calls: [{ type: 'function', function: { name: 'find_contact', arguments: '{"query":"Team"}' } }] }, 'tool_calls')
+          : reply({ role: 'assistant', content: '¿A quién te gustaría llamar?' });
+      }
       if (firstUser === '#local-talk-tool') return reply({ role: 'assistant', content: 'Voy a mirar', tool_calls: [{ type: 'function', function: { name: 'list_chats', arguments: '{}' } }] }, 'tool_calls');
       if (firstUser === '#local-tool') return reply({ role: 'assistant', content: '', tool_calls: [{ type: 'function', function: { name: 'list_chats', arguments: '{"unread_only":true}' } }] }, 'tool_calls');
       if (firstUser === '#local-bad') return reply({ role: 'assistant', content: '', tool_calls: [{ id: 'x1', type: 'function', function: { name: 'list_chats', arguments: 'no es json' } }] }, 'tool_calls');
@@ -708,6 +717,16 @@ try {
   const st5 = await streamAsk(srv.base, '#tool list_chats {}');
   check('directo con un proveedor sin streaming (mock) → estado y respuesta completa al final', st5.evs.some(e => e.type === 'status') && st5.done?.reply.startsWith('resultado:') && !st5.evs.some(e => e.type === 'delta'));
   check('sin stream: igual que antes (JSON)', (await askLoc('#local-think')).body.reply === 'Hola, soy Willy');
+
+  // Una orden contestada sin hacer nada ("¿A quién te gustaría llamar?") → se repite obligando a usar una herramienta
+  const lazy = await askLoc('Llama a Team');
+  check('orden sin herramienta → se repite con tool_choice required y busca el nombre', lazy.body.reply?.startsWith('resultado:') && lazy.body.reply.includes('"count":0')
+    && seen.some(b => b.tool_choice === 'required'), lazy.body.reply);
+  const lazyS = await streamAsk(loc.base, 'Llama a Team');
+  check('… en directo: se descarta la pregunta provisional (reset) y llega el resultado', lazyS.evs.some(e => e.type === 'reset') && lazyS.done?.reply.startsWith('resultado:'), JSON.stringify(lazyS.evs.map(e => e.type)));
+  const before2 = seen.filter(b => b.tool_choice === 'required').length;
+  await askLoc('#local-think');
+  check('lo que no es una orden no se repite (sin tool_choice)', seen.filter(b => b.tool_choice === 'required').length === before2);
   loc.proc.kill(); locDead.proc.kill(); stub.close();
 
   // ── Sin proveedor ──

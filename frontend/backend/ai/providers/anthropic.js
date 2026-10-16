@@ -39,13 +39,15 @@ function createAnthropicProvider({ apiKey, model, effort, maxTokens, fallbacks }
   return {
     name: 'anthropic',
     model,
-    async chat({ system, messages, tools }) {
+    async chat({ system, messages, tools, toolChoice }) {
       const params = {
         model,
         max_tokens: maxTokens,
         // Instrucciones y herramientas fijas → se pueden reutilizar en caché entre peticiones
         system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
         tools,
+        // 'required' (el agente lo pide si el modelo contestó sin hacer nada) = usar alguna herramienta
+        ...(toolChoice === 'required' ? { tool_choice: { type: 'any' } } : {}),
         messages: toApiMessages(messages),
         output_config: { effort },
       };

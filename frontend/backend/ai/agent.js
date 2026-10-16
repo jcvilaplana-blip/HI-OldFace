@@ -71,7 +71,11 @@ const STATUS = {
  * { type: 'reset' } descartar el texto provisional (el modelo pasó a consultar algo) · { type: 'status', text }.
  * La respuesta definitiva es siempre la que devuelve runAgent (la app la usa al terminar).
  */
+/** Mensajes que son órdenes (deben acabar en una herramienta, no en una pregunta genérica) */
+const ACTION_RX = /\b(ll[aá]ma(me|le|la|lo)?|videollamada|env[ií]a(le)?|m[aá]nda(le)?|dile|escribe|reenv[ií]a(le)?|silencia|recu[eé]rdame|busca(me)?|encuentra|res[uú]me(me)?|abre|p[ií]de(me)?)\b/i;
+
 async function runAgent({ provider, history, my, ctx = {}, maxRounds = 5, now = Date.now(), onEvent = null }) {
+  const lastUserText = String(history[history.length - 1]?.content || '');
   const messages = history.map((h, i) => (h.role === 'user'
     ? { role: 'user', text: i === history.length - 1 ? `${h.content}${nowNote(now)}` : h.content }
     : { role: 'assistant', text: h.content }));
@@ -82,10 +86,18 @@ async function runAgent({ provider, history, my, ctx = {}, maxRounds = 5, now = 
   for (let round = 0; ; round++) {
     const args = { system: SYSTEM_PROMPT, messages, tools: toolSpecs() };
     let streamed = false;
-    const r = onEvent && provider.chatStream
-      ? await provider.chatStream(args, (text) => { streamed = true; onEvent({ type: 'delta', text }); })
-      : await provider.chat(args);
+    const ask = (a) => (onEvent && provider.chatStream
+      ? provider.chatStream(a, (text) => { streamed = true; onEvent({ type: 'delta', text }); })
+      : provider.chat(a));
+    let r = await ask(args);
     tally(r.usage);
+    // Una ORDEN ("llama a Team", "envía a…", "busca…") contestada sin hacer nada (p. ej. "¿A quién quieres llamar?"):
+    // se repite esa vuelta obligando a usar una herramienta (así busca el nombre o propone la acción)
+    if (round === 0 && r.stopReason === 'end' && ACTION_RX.test(lastUserText)) {
+      if (streamed) { onEvent({ type: 'reset' }); streamed = false; }
+      r = await ask({ ...args, toolChoice: 'required' });
+      tally(r.usage);
+    }
     if (onEvent && r.stopReason === 'tool_use') {
       if (streamed) onEvent({ type: 'reset' });
       onEvent({ type: 'status', text: STATUS[r.toolCalls[0]?.name] || 'Consultando…' });
