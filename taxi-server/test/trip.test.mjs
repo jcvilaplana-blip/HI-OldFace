@@ -92,6 +92,26 @@ try {
   ok('conductor 1 se conecta (a ~1,5 km)', (await req('POST', '/api/app/driver/online', { online: true, lat: 40.4300, lng: -3.7038 }, D1)).d.online === true);
   ok('conductor 2 se conecta (a ~0,5 km)', (await req('POST', '/api/app/driver/online', { online: true, lat: 40.4210, lng: -3.7038 }, D2)).d.online === true);
 
+  // ── API interna para Willy (solo con el secreto interno; sin datos de conductores) ──
+  const internal = async (method, path, body, secret = SECRET) => {
+    const r = await fetch(`${B}/api/internal${path}`, { method, headers: { 'Content-Type': 'application/json', ...(secret ? { 'x-internal-secret': secret } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    return { s: r.status, d: await r.json().catch(() => null) };
+  };
+  ok('interna sin secreto → 403', (await internal('GET', `/nearby?lat=${MADRID.lat}&lng=${MADRID.lng}`, null, '')).s === 403);
+  ok('interna con secreto falso → 403', (await internal('GET', `/nearby?lat=${MADRID.lat}&lng=${MADRID.lng}`, null, 'x'.repeat(SECRET.length))).s === 403);
+  ok('interna con el token de la app (no el secreto) → 403', (await fetch(`${B}/api/internal/nearby?lat=1&lng=1`, { headers: { Authorization: `Bearer ${C}` } })).status === 403);
+  const near = await internal('GET', `/nearby?lat=${MADRID.lat}&lng=${MADRID.lng}`);
+  const nearEco = near.d?.rideTypes?.find(t => t.name === economy.name);
+  ok('taxis cerca: 2 económicos, el más cercano a ~0,5 km', near.s === 200 && near.d.served && nearEco?.available === 2 && nearEco.nearestKm === 0.5 && nearEco.etaMin >= 2, near.d);
+  const nearTxt = JSON.stringify(near.d);
+  ok('taxis cerca: sin datos de conductores (nombres, matrículas, posiciones)', !/Pedro|Marta|1234|9999|40\.43|40\.421|"lat"|driver/i.test(nearTxt), nearTxt);
+  ok('taxis cerca: punto no válido → 400', (await internal('GET', '/nearby?lat=999&lng=0')).s === 400);
+  ok('taxis cerca fuera de cobertura → sin servicio', (await internal('GET', '/nearby?lat=41.39&lng=2.17')).d?.served === false);
+  const est = await internal('POST', '/estimate', { pickup: MADRID, dropoff: ATOCHA });
+  ok('precio aproximado para Willy', est.s === 200 && est.d.served && est.d.options.length === 4 && est.d.options.every(o => o.total > 0) && est.d.currency === 'EUR', est.d);
+  ok('precio aproximado sin destino → 400', (await internal('POST', '/estimate', { pickup: MADRID })).s === 400);
+  ok('direcciones con el buscador caído → 503', (await internal('GET', '/places?q=atocha')).s === 503);
+
   // ── Presupuesto ──
   const q = (await req('POST', '/api/app/customer/quote', { pickup: MADRID, dropoff: ATOCHA }, C)).d;
   const eco = q.options.find(o => o.rideType.code === 'economy');

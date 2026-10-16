@@ -14,24 +14,28 @@ const FALLBACK_MODELS = /^claude-(opus-5(-5)?|fable-5-1|sonnet-5-5)$/;
 
 /**
  * Proveedor de pruebas: no llama a ninguna IA. Último mensaje del usuario:
- *   "#tool <nombre> <json>"  → pide esa herramienta con esos parámetros (aunque no existan o no sean válidos)
+ *   "#tool <nombre> <json>"  → pide esa herramienta con esos parámetros (aunque no existan o no sean válidos);
+ *                              lo que siga en una línea "## …" se ignora (simula el resto de la pregunta)
  *   "#loop"                  → pide list_chats en cada vuelta (para probar el límite de vueltas)
  *   cualquier otra cosa       → "eco: <texto>"
  * Tras recibir resultados de herramientas responde "resultado: <json>".
  */
 function createMockProvider() {
   let n = 0;
+  // El agente añade la fecha de hoy al último mensaje ("(Ahora: …)"): el simulador la ignora
+  // y lo que vaya tras "\n##" (texto libre de la pregunta, para probar lo que el servidor deduce de ella)
+  const plain = (s) => String(s || '').replace(/\n\n\(Ahora: [^)]*\)$/, '').split('\n##')[0];
   return {
     name: 'mock',
     model: 'mock',
     async chat({ messages }) {
       const last = messages[messages.length - 1];
       const usage = { input: 10, output: 5 };
-      const firstUser = messages.find(m => m.role === 'user' && m.text)?.text || '';
+      const firstUser = plain(messages.find(m => m.role === 'user' && m.text)?.text);
       if (last.toolResults && !firstUser.startsWith('#loop')) {
         return { text: `resultado: ${last.toolResults.map(r => r.content).join(' | ')}`, toolCalls: [], stopReason: 'end', usage, raw: null };
       }
-      const t = last.toolResults ? firstUser : String(last.text || '');
+      const t = last.toolResults ? firstUser : plain(last.text);
       const m = t.match(/^#tool\s+(\S+)\s*(.*)$/s);
       if (m || t.startsWith('#loop')) {
         let input = {};

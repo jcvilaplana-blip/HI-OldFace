@@ -3,6 +3,7 @@
  *
  *   /taxi/api/admin/…   panel de administración (CRUD con permisos por rol)
  *   /taxi/api/app/…     apps de cliente y conductor (token de sesión de OldFace)
+ *   /taxi/api/internal/… solo para la API de OldFace (Willy): taxis cerca, direcciones y precio aproximado
  *   /taxi/socket.io     tiempo real: ofertas de viaje, posición del conductor, estados
  *   /taxi/files/…       archivos subidos (documentos, fotos, iconos)
  *   /taxi/health        estado del servicio
@@ -31,6 +32,7 @@ app.get('/taxi/health', (_req, res) => res.json({ ok: true, service: 'oldface-ta
 
 app.use('/taxi/api/admin', require('./routes/admin'));
 app.use('/taxi/api/app', require('./routes/app'));
+app.use('/taxi/api/internal', require('./routes/internal'));   // solo la API de OldFace (Willy), con el secreto interno
 app.use('/taxi/files', express.static(path.join(path.dirname(DB_FILE), 'uploads'), { maxAge: '30d', fallthrough: false }));
 
 // Panel de administración (taxi-admin compilado en public/admin; rutas con hash → basta con index.html)

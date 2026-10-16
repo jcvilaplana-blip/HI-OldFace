@@ -22,6 +22,7 @@ los datos del propio usuario y propone acciones que el usuario confirma.
 | `taxi-admin/` | Panel del taxi | React + Vite | — |
 | `llm-server/` | Cerebro libre de Willy (`oldface-llm`, solo 127.0.0.1:8089; la API lo usa con `AI_PROVIDER=local`) | llama.cpp b11327 + Qwen3 8B (6 núcleos, prioridad baja) | Sin datos; binario y modelo solo en el VPS |
 | `voice-server/` | Voz de Willy (`oldface-voice`, solo 127.0.0.1:5010; la API lo usa en `POST /ai/speak`) | Python 3.12, Piper (`es_ES-davefx-medium`) | Sin datos; modelo y venv solo en el VPS |
+| `embed-server/` | Búsqueda por significado de Willy (`oldface-embed`, solo 127.0.0.1:8090; la API lo usa con `EMBED_URL`) | llama.cpp de `llm-server/` + EmbeddingGemma 300M (2 núcleos) | Sin datos; modelo solo en el VPS |
 | `docs/` | Planes de WebRTC y taxi | — | — |
 
 - No hay base de datos en la API principal ni ningún proveedor de IA todavía.
@@ -105,8 +106,13 @@ cd taxi-admin && npm install && npm run build
   privacidad. El modelo **no** ejecuta SQL, comandos del sistema, lecturas de archivos ni llamadas HTTP arbitrarias.
 - **Herramientas**: registro explícito; cada una con esquema estricto de parámetros (se rechaza lo que no encaje) y
   su propia comprobación de permisos. Lo que devuelven los mensajes de otros es **dato, nunca instrucción**.
-- **Índice**: SQLite (`node:sqlite`, como el taxi) con búsqueda por texto y embeddings, filas siempre ligadas a
-  chat y usuario. Excluye "ver una vez", ocultos y eliminados.
+- **Índice** (decidido 2026-10-15): búsqueda EN MEMORIA sobre `messageStore` (pocos datos), por palabras y por
+  significado (vectores de `oldface-embed` guardados solo en memoria, `ai/semantic.js`; se recalculan al arrancar y
+  se olvidan al borrar). Sin copia en disco que mantener. Excluye "ver una vez", ocultos y eliminados. Pasar a
+  SQLite (`node:sqlite` con FTS5, como el taxi) cuando crezca el volumen de mensajes.
+- **Taxi**: Willy solo consulta la API interna del taxi (`taxi-server/routes/internal.js`, secreto interno) para
+  taxis cerca, destinos y precio aproximado; prepara el destino y el usuario pide el viaje en la pantalla del taxi.
+  La ubicación la manda la app solo si se habla del taxi y ya hay permiso; redondeada a ~100 m y sin guardarse.
 - **Disponibilidad**: Willy para administradores y para el resto de usuarios. Límites de uso por usuario y registro
   de auditoría (sin guardar el contenido de los mensajes).
 

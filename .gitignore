@@ -8,6 +8,7 @@ voice-server/venv/
 voice-server/models/
 llm-server/llama/
 llm-server/models/
+embed-server/models/
 __pycache__/
 
 # Build outputs

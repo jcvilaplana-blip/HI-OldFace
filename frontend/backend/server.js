@@ -3357,7 +3357,7 @@ app.get('/.well-known/assetlinks.json', (_req, res) => {
 // ── OldFace AI (Willy): rutas /ai/* con la sesión del usuario — ver ai/index.js ──
 const ai = require('./ai')({
   router, authUser, dataDir: DATA_DIR,
-  deps: { chatStore: chatStore2, groupStore, messageStore, findUserById, contactsOf, isChatMember },
+  deps: { chatStore: chatStore2, groupStore, messageStore, findUserById, contactsOf, isChatMember, callLogStore },
 });
 
 // ── Montar router ─────────────────────────────────────────────────

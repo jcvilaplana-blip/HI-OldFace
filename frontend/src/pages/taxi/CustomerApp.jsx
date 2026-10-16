@@ -4,9 +4,10 @@
  *           → forma de pago y código promocional → Pedir → buscando conductor → conductor en camino (posición en
  *           directo) → ha llegado (código de 4 cifras) → en viaje → fin: total y valoración.
  *   Pestañas: Inicio · Mis viajes · Monedero · Perfil
+ *   Desde Willy (navigate('/taxi', { state: { taxiDropoff } })): llega con el destino puesto y el precio calculado.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { taxiApi, taxiSocket, tx, money, decodePolyline, currentPosition, taxiUrl } from '../../utils/taxiApi';
 import { BRAND, C, Btn, Sheet, Spinner, Toast, Stars, Tabs, inputStyle } from './ui.jsx';
 import TaxiMap from './TaxiMap.jsx';
@@ -146,6 +147,23 @@ function RideHome({ boot, notify, onExit }) {
     } catch (e) { notify(e.message, true); }
     setBusy(false);
   }, [notify]);
+
+  // Destino preparado por Willy (botón "Pedir taxi a …"): se pone el destino y se calcula el precio; el viaje lo
+  // pide el usuario con el botón Pedir, como siempre. Con un viaje en curso no se hace nada.
+  const location = useLocation();
+  const willyDrop = useRef(location.state?.taxiDropoff || null);
+  useEffect(() => {
+    const d = willyDrop.current;
+    if (!d) return;
+    if (step === 'trip') { willyDrop.current = null; return; }
+    if (!pickup && !locFailed) return;   // primero la posición de recogida
+    willyDrop.current = null;
+    navigate(location.pathname, { replace: true, state: null });   // al volver atrás no se pone otra vez
+    const place = { lat: Number(d.lat), lng: Number(d.lng), address: String(d.address || '') };
+    setDropoff(place);
+    if (pickup) getQuote(pickup, place, promo);
+    else { setPickField('pickup'); setStep('search'); }
+  }, [pickup, locFailed, step]); // eslint-disable-line
 
   const [cardPay, setCardPay] = useState(null);      // { booking, card } mientras se confirma la tarjeta de crédito
   const order = async () => {

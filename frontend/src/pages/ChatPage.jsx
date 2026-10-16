@@ -306,6 +306,15 @@ export default function ChatPage() {
     }
   }, [chatMessages]);
 
+  // Abierto desde Willy ("Ver mensaje"): cuando el mensaje está cargado, ir a él y resaltarlo (una sola vez)
+  const focusRef = useRef(state?.focusMessage || null);
+  useEffect(() => {
+    const id = focusRef.current;
+    if (!id || !chatMessages.some(m => m.id === id)) return;
+    focusRef.current = null;
+    setTimeout(() => jumpTo(id), 400);   // después del salto inicial al último mensaje
+  }, [chatMessages]); // eslint-disable-line
+
   // Cleanup al desmontar
   useEffect(() => {
     return () => {

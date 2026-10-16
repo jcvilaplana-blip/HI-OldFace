@@ -1,19 +1,25 @@
 /**
  * WillyPage — conversación con Willy, el asistente con IA de OldFace (/willy).
- * La conversación se guarda solo en este móvil. Willy puede proponer abrir una pantalla o un chat: aparece un botón
- * y es el usuario quien decide pulsarlo (Willy nunca hace nada por su cuenta).
+ * La conversación se guarda solo en este móvil. Willy puede proponer abrir una pantalla, un chat, un mensaje
+ * ("Ver mensaje") o el taxi con un destino ("Pedir taxi a …"): aparece un botón y es el usuario quien decide
+ * pulsarlo (Willy nunca hace nada por su cuenta; el taxi lo pide el usuario en la pantalla del taxi).
  * Voz: al entrar Willy saluda en voz alta y lee sus respuestas (botón de altavoz para silenciarlo); con el botón de
  * micrófono el usuario le habla y lo dicho se envía al terminar la frase. Voz y reconocimiento del propio móvil.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useThemeStore } from '../store/themeStore';
-import { willyStatus, askWilly, loadChat, saveChat } from '../utils/willy';
+import { willyStatus, askWilly, aboutTaxi, taxiLocation, loadChat, saveChat } from '../utils/willy';
 import { speak, stopSpeaking, listen, canListen, voiceOn, setVoiceOn } from '../utils/voice';
 import { tr } from '../i18n';
 
 const BRAND = '#3D5A80';
-const SUGGESTIONS = ['¿Qué chats tengo sin leer?', 'Busca a un contacto', '¿Qué puedes hacer?'];
+const SUGGESTIONS = ['¿Tengo mensajes urgentes sin leer?', '¿Quién me ha llamado hoy?', '¿Hay taxis cerca?', '¿Qué puedes hacer?'];
+
+/** Texto del botón de una propuesta de Willy */
+const actionText = (a) => (a.kind === 'message' ? `${tr('Ver mensaje')}: ${a.label}`
+  : a.kind === 'taxi' ? `${tr('Pedir taxi a')} ${a.label}`
+  : `${tr('Abrir')}${a.label ? `: ${a.translate ? tr(a.label) : a.label}` : ''}`);
 const GREETING = 'Hola, soy Willy, tu asistente personal en OldFace.\nDime qué necesitas que haga por ti.';
 
 export default function WillyPage() {
@@ -55,7 +61,9 @@ export default function WillyPage() {
     setError('');
     setBusy(true);
     try {
-      const r = await askWilly(next);
+      // La ubicación solo viaja cuando se habla del taxi (y si ya hay permiso; nunca se pide aquí)
+      const loc = aboutTaxi(content) ? await taxiLocation() : null;
+      const r = await askWilly(next, loc);
       setMessages(m => [...m, { role: 'assistant', content: r.reply, actions: r.actions || [] }]);
       setStatus(s => (s ? { ...s, remaining: r.remaining } : s));
       if (voiceRef.current) speak(r.reply);
@@ -153,9 +161,9 @@ export default function WillyPage() {
                 {m.content}
               </div>
               {(m.actions || []).map((a, j) => a.type === 'navigate' && (
-                <button key={j} onClick={() => navigate(a.path)}
-                  style={{ marginTop: 6, background: 'none', border: `1.5px solid ${BRAND}`, color: isDark ? '#9db4d4' : BRAND, borderRadius: 14, padding: '6px 12px', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>
-                  {tr('Abrir')}{a.label ? `: ${a.translate ? tr(a.label) : a.label}` : ''}
+                <button key={j} onClick={() => navigate(a.path, a.state ? { state: a.state } : undefined)}
+                  style={{ marginTop: 6, maxWidth: 'min(82vw, 520px)', textAlign: 'left', background: 'none', border: `1.5px solid ${BRAND}`, color: isDark ? '#9db4d4' : BRAND, borderRadius: 14, padding: '6px 12px', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>
+                  {actionText(a)}
                 </button>
               ))}
             </div>

@@ -1,0 +1,26 @@
+[Unit]
+Description=OldFace búsqueda por significado de Willy (llama.cpp + EmbeddingGemma 300M, solo 127.0.0.1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=oldface.app_k1i7f62xmt8
+Group=psacln
+WorkingDirectory=/var/www/vhosts/oldface.app/embed-server
+# Mismo llama.cpp que el cerebro de Willy (llm-server/llama)
+Environment=LD_LIBRARY_PATH=/var/www/vhosts/oldface.app/llm-server/llama
+# 2 núcleos y prioridad baja: llamadas, videollamadas y directos van primero
+ExecStart=/var/www/vhosts/oldface.app/llm-server/llama/llama-server \
+  -m /var/www/vhosts/oldface.app/embed-server/models/embeddinggemma-300m-qat-Q8_0.gguf --alias embeddinggemma \
+  --embedding --host 127.0.0.1 --port 8090 -c 2048 -b 2048 -ub 2048 -np 1 -t 2 \
+  --no-webui --no-webui-mcp-proxy --no-slots
+Nice=10
+CPUQuota=200%
+MemoryMax=2G
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,10 +1,12 @@
 /**
  * OldFace AI — Willy. Se monta desde server.js con lo mínimo:
  *   const ai = require('./ai')({ router, authUser, dataDir, deps: { chatStore, groupStore, messageStore, findUserById,
- *                                                                    contactsOf, isChatMember } });
+ *                                                                    contactsOf, isChatMember, callLogStore } });
  * Rutas (siempre con la sesión del usuario; nada de lo que diga el modelo cambia quién es):
  *   GET  /ai/status → { available, name, dailyLimit, remaining, voice }
- *   POST /ai/chat   { messages: [{ role: 'user'|'assistant', content }] } → { reply, actions, remaining }
+ *   POST /ai/chat   { messages: [{ role: 'user'|'assistant', content }], location?: { lat, lng } } → { reply, actions, remaining }
+ *                   location = posición del móvil que la app manda SOLO si el usuario habla del taxi; se redondea a
+ *                   ~100 m, se usa en esa petición y no se guarda ni se anota en ningún registro.
  *   POST /ai/speak  { text } → audio/wav con la voz de Willy (servicio local voice-server/; el texto no se guarda)
  * La conversación con Willy la guarda la app (no el servidor). Aquí solo se cuentan peticiones y tokens por día
  * (data/ai_usage.json) y se anota qué herramientas se usaron (data/ai_audit.log, sin contenido y con el usuario
@@ -16,11 +18,22 @@ const crypto = require('crypto');
 const { createProvider, ProviderError } = require('./providers');
 const { createVoice } = require('./providers/tts');
 const { createAccess } = require('./access');
+const { createSemantic } = require('./semantic');
+const { createTaxi } = require('./taxi');
 const { runAgent, SYSTEM_PROMPT } = require('./agent');
 const { toolSpecs } = require('./tools');
 const { validate } = require('./validate');
 
 const MAX_TURNS = 40, MAX_CHARS_PER_TURN = 4000, MAX_TOTAL_CHARS = 40_000;
+const INDEX_EVERY_MS = 60_000;   // el índice por significado (en memoria) se pone al día cada minuto
+
+/** Posición que manda la app (opcional): números válidos, redondeados a 3 decimales (~100 m); si no, null */
+function roughLocation(loc) {
+  if (!loc || typeof loc !== 'object' || Array.isArray(loc)) return null;
+  const lat = Number(loc.lat), lng = Number(loc.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat: Math.round(lat * 1000) / 1000, lng: Math.round(lng * 1000) / 1000 };
+}
 
 /** Lo que acepta /ai/speak: una frase (la app trocea las respuestas largas) */
 const SPEAK_SCHEMA = {
@@ -48,7 +61,10 @@ function badHistory(messages) {
 module.exports = function mountAi({ router, authUser, dataDir, deps, env = process.env }) {
   const provider = createProvider(env);
   const voice = createVoice(env);
-  const access = createAccess({ ...deps, refSecret: env.RTC_SECRET });
+  const semantic = createSemantic(env);
+  const taxi = createTaxi(env);
+  const access = createAccess({ ...deps, semantic, refSecret: env.RTC_SECRET });
+  const placesOf = new Map();   // uid → destinos de taxi encontrados por Willy (caducan a los 30 min)
   const dailyLimit = Math.max(parseInt(env.AI_DAILY_LIMIT || '40', 10) || 40, 1);
   const voiceLimit = Math.max(parseInt(env.AI_VOICE_DAILY_LIMIT || '400', 10) || 400, 1);   // frases leídas por usuario y día
   const voiceInFlight = new Map();   // uid → frases generándose ahora
@@ -81,7 +97,19 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
   };
 
   console.log(`🤖 Willy (IA): ${provider ? `${provider.name} · ${provider.model}` : 'desactivado (sin ANTHROPIC_API_KEY)'}`
-    + ` · voz: ${voice ? voice.name : 'la del móvil'}`);
+    + ` · voz: ${voice ? voice.name : 'la del móvil'} · búsqueda: ${semantic ? 'palabras y significado' : 'palabras'}`
+    + ` · taxi: ${taxi ? 'sí' : 'no'}`);
+  // Índice por significado SOLO en memoria: mensajes nuevos o editados se calculan en segundo plano y los
+  // borrados se olvidan (prune). Al reiniciar se vuelve a calcular todo.
+  if (semantic && provider) {
+    const refresh = () => {
+      const items = access.searchableItems();
+      semantic.prune(new Set(items.map(i => i.key)));
+      semantic.backfill(items);
+    };
+    setTimeout(refresh, 10_000).unref?.();
+    setInterval(refresh, INDEX_EVERY_MS).unref?.();
+  }
   // Modelo local: que procese ya las instrucciones fijas para que la primera pregunta no espere ~30 s
   if (provider?.warmUp) {
     setTimeout(() => provider.warmUp({ system: SYSTEM_PROMPT, tools: toolSpecs() })
@@ -139,7 +167,9 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
     mine.requests++;
     saveUsage();
     try {
-      const out = await runAgent({ provider, history: req.body.messages, my: access.forUser(uid) });
+      if (!placesOf.has(uid)) placesOf.set(uid, new Map());
+      const ctx = { taxi, location: roughLocation(req.body.location), places: placesOf.get(uid) };
+      const out = await runAgent({ provider, history: req.body.messages, my: access.forUser(uid), ctx });
       mine.input += out.usage.input;
       mine.output += out.usage.output;
       saveUsage();
@@ -157,6 +187,6 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
 
   return {
     /** Al eliminar la cuenta: borrar su contador de uso (el registro ya no lleva su userId) */
-    forgetUser(uid) { if (usage.users[uid]) { delete usage.users[uid]; saveUsage(); } },
+    forgetUser(uid) { placesOf.delete(uid); if (usage.users[uid]) { delete usage.users[uid]; saveUsage(); } },
   };
 };
