@@ -22,8 +22,8 @@ const actionText = (a) => (a.kind === 'message' ? `${tr('Ver mensaje')}: ${a.lab
   : `${tr('Abrir')}${a.label ? `: ${a.translate ? tr(a.label) : a.label}` : ''}`);
 const GREETING = 'Hola, soy Willy, tu asistente personal en OldFace.\nDime qué necesitas que haga por ti.';
 
-const CARD_TITLE = { send: 'Enviar mensaje', forward: 'Reenviar', mute: 'Avisos del chat', reminder: 'Recordatorio' };
-const DONE_TEXT = { send: '✓ Enviado', forward: '✓ Reenviado', mute: '✓ Hecho', reminder: '✓ Recordatorio guardado' };
+const CARD_TITLE = { send: 'Enviar mensaje', forward: 'Reenviar', mute: 'Avisos del chat', reminder: 'Recordatorio', call: 'Llamar' };
+const DONE_TEXT = { send: '✓ Enviado', forward: '✓ Reenviado', mute: '✓ Hecho', reminder: '✓ Recordatorio guardado', call: '✓ Llamando…' };
 
 /**
  * Propuesta de Willy (Fase 4): enviar, reenviar, silenciar o recordar. No se hace nada hasta pulsar Confirmar; el

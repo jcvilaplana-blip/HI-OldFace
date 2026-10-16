@@ -219,13 +219,14 @@ export const useCallStore = create((set, get) => ({
     set({ pendingCallOut: { calleeId, calleeName, callType: 'video', roomId } });
   },
 
-  sendVoiceCall: async (calleeId, calleeName) => {
+  /** opts.speaker = empezar con el altavoz (p. ej. "llama a Carlos por el altavoz" desde Willy) */
+  sendVoiceCall: async (calleeId, calleeName, opts = {}) => {
     if (!(await get()._ensureConnected())) {
       get().setCallError(tr('Sin conexión — espera un momento e inténtalo de nuevo'));
       return;
     }
     notifyCall(calleeId, 'voice', '');
-    set({ pendingCallOut: { calleeId, calleeName, callType: 'voice' } });
+    set({ pendingCallOut: { calleeId, calleeName, callType: 'voice', speaker: !!opts.speaker } });
   },
 
   clearPendingCall: () => set({ pendingCallOut: null }),

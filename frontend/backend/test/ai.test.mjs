@@ -455,6 +455,32 @@ try {
   const audit4 = fs.readFileSync(path.join(srv.dir, 'data', 'ai_audit.log'), 'utf8');
   check('registro de confirmaciones sin el texto de los mensajes', audit4.includes('"action":"confirm"') && !/Llego en 10|Contestar a Luis|Mañana no voy/.test(audit4));
 
+  // ══ FASE 5: llamadas y videollamadas con Confirmar ══
+  const callCard = async (input, uid = A) => { const t = await tool('propose_call', input, uid); return { ...t, card: t.actions.find(a => a.type === 'confirm') }; };
+  const c1 = await callCard({ person: 'Bea' });
+  check('llamar a Bea: tarjeta "Llamada de voz" (no llama sin confirmar)', c1.card?.kind === 'call' && c1.card.to === 'Bea' && c1.card.text === 'Llamada de voz' && c1.raw.includes('NO digas que ya está hecho'), JSON.stringify(c1.actions));
+  check('llamada: otro usuario no puede confirmarla → 404', (await act(srv.base, 'confirm', c1.card.id, B)).status === 404);
+  const cc1 = await act(srv.base, 'confirm', c1.card.id);
+  check('llamada confirmada → a quién y de qué tipo (la app llama con su ruta normal)', cc1.body.action?.kind === 'call' && cc1.body.action.callType === 'voice' && cc1.body.action.toUserId === B && cc1.body.action.speaker === false, JSON.stringify(cc1.body));
+  check('llamada: confirmar dos veces → 409', (await act(srv.base, 'confirm', c1.card.id)).status === 409);
+  const c2 = await callCard({ person: 'Bea', speaker: true });
+  check('llamar con el altavoz', c2.card?.text === 'Llamada de voz con el altavoz' && (await act(srv.base, 'confirm', c2.card.id)).body.action?.speaker === true);
+  const c3 = await callCard({ person: 'Luis Pérez', type: 'video', speaker: true });
+  check('videollamada (el altavoz no aplica)', c3.card?.text === 'Videollamada' && (await act(srv.base, 'confirm', c3.card.id)).body.action?.callType === 'video');
+  const c4 = await callCard({ chat: 'el grupo de la familia', type: 'video' });
+  const cc4 = await act(srv.base, 'confirm', c4.card.id);
+  check('videollamada con el grupo Familia', c4.card?.text === 'Videollamada de grupo' && cc4.body.action?.groupId === GID && !cc4.body.action.toUserId, JSON.stringify(cc4.body));
+  const c5 = await callCard({ return_missed: true });
+  check('devolver la llamada perdida → a Bea, de voz', c5.card?.to === 'Bea' && c5.card.text.includes('devolver la llamada perdida') && (await act(srv.base, 'confirm', c5.card.id)).body.action?.toUserId === B, c5.raw);
+  check('devolver la llamada perdida de quien no llamó → error', (await callCard({ return_missed: true, person: 'Luis Pérez' })).raw.includes('No hay llamadas perdidas'));
+  check('llamar a quien no es contacto (Carlos) → error, sin tarjeta', !(await callCard({ person: 'Carlos' })).card);
+  const cAmb = await callCard({ person: 'Luis' });
+  check('nombre ambiguo ("Luis") → preguntar, sin tarjeta', cAmb.data?.ambiguous === true && !cAmb.card);
+  check('grupo o chat ajeno por nombre → error', (await callCard({ chat: 'Secreto de Carlos' })).raw.includes('No hay ningún chat'));
+  check('sin a quién → error', (await callCard({})).raw.includes('Falta a quién'));
+  check('tipo de llamada inventado → rechazado', (await callCard({ person: 'Bea', type: 'audio' })).raw.includes('valor no permitido'));
+  check('campo no permitido (userId) → rechazado', (await callCard({ person: 'Bea', userId: C })).raw.includes('campo no permitido'));
+
   // Caducidad y aviso de los recordatorios (tiempos cortos)
   const timers = makeServer(3982, { AI_PROVIDER: 'mock', AI_ACTION_TTL_MS: '300', REMINDER_TICK_MS: '200' });
   for (let i = 0; i < 50; i++) { try { await fetch(`${timers.base}/health`); break; } catch { await sleep(200); } }

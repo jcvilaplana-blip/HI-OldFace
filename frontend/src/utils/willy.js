@@ -86,6 +86,15 @@ export async function confirmAction(id) {
   }
   if (a.kind === 'mute') { await setMute(a.chatId, a.until); return { chatId: a.chatId }; }
   if (a.kind === 'reminder') { await addReminder({ text: a.text, at: a.at, chatId: a.chatId }); return {}; }
+  if (a.kind === 'call') {
+    // Igual que pulsar llamar en el chat: la app abre la pantalla de llamada sola (pendingCallOut en App.jsx)
+    const { useCallStore } = await import('../store/callStore');
+    const calls = useCallStore.getState();
+    if (a.groupId) await calls.startGroupCall(a.groupId, a.toName, a.callType);
+    else if (a.callType === 'video') await calls.sendVideoCall(a.toUserId, a.toName);
+    else await calls.sendVoiceCall(a.toUserId, a.toName, { speaker: !!a.speaker });
+    return {};
+  }
   throw new Error(tr('Acción desconocida'));
 }
 

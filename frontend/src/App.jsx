@@ -549,7 +549,7 @@ function AppShell() {
       return;
     }
     const path = callType === 'video' ? 'video-call' : 'call';
-    navigate(`/${path}/${calleeId}`, { state: { chat: { name: calleeName }, isIncoming: false, roomId } });
+    navigate(`/${path}/${calleeId}`, { state: { chat: { name: calleeName }, isIncoming: false, roomId, speaker: !!pendingCallOut.speaker } });
   }, [pendingCallOut]);
 
   // ── Navegar a call room cuando el usuario acepta una llamada ─────────────

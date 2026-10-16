@@ -533,6 +533,8 @@ export default {
   "Consultando el taxi…": "Checking the taxi service…",
   "Preparando la propuesta…": "Preparing the proposal…",
   "Consultando…": "Checking…",
+  "Preparando la llamada…": "Preparing the call…",
+  "✓ Llamando…": "✓ Calling…",
   "Willy ha tenido un problema. Inténtalo de nuevo.": "Willy ran into a problem. Please try again.",
   "Analiza en nuestro servidor lo que se ve en las fotos y vídeos que envías, lo que dices en tus audios y el texto de tus documentos, para que Willy los encuentre. Si lo desactivas, se borra lo analizado.": "Analyses on our own server what can be seen in the photos and videos you send, what you say in your voice messages and the text in your documents, so Willy can find them. If you turn it off, the analysis is deleted.",
   "Abrir": "Open",

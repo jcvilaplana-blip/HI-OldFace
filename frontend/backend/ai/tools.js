@@ -505,6 +505,66 @@ const TOOLS = [
                      { to: label, text: i.text.trim(), when: stamp(at) });
     },
   },
+  // ══ Fase 5: llamadas y videollamadas (solo PROPONEN; la app llama al pulsar Confirmar) ══
+  {
+    name: 'propose_call',
+    kind: 'action',
+    description: 'Propone LLAMAR o hacer una VIDEOLLAMADA a una persona (person) o a un grupo (chat; si ya hay una llamada '
+      + 'del grupo en curso, el usuario se une). No llama: la app muestra Confirmar. speaker = empezar con el altavoz. '
+      + 'Para "devuélvele la llamada perdida a X" usa return_missed = true (y person si lo dice): se llama a quien llamó, '
+      + 'con el mismo tipo de llamada. Si hay varias personas con ese nombre, pregunta cuál. Compartir pantalla no existe.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        person: { type: 'string', minLength: 1, maxLength: 60, description: 'Nombre de la persona' },
+        chat: { type: 'string', minLength: 1, maxLength: 60, description: 'Nombre del grupo (o chat)' },
+        type: { type: 'string', enum: ['voice', 'video'], description: 'voice = llamada, video = videollamada (por defecto voice)' },
+        speaker: { type: 'boolean', description: 'true = empezar con el altavoz (solo llamadas de voz)' },
+        return_missed: { type: 'boolean', description: 'true = devolver la última llamada perdida (de person si se indica)' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    run: (ctx, i, ui) => {
+      const { my } = ctx;
+      let type = i.type || null, target = null;
+      if (i.return_missed) {
+        // La última llamada perdida (de esa persona si la dice): se devuelve a quien llamó y del mismo tipo
+        let personRef = null;
+        if (i.person) {
+          const n = refsByName(my, { person: i.person });
+          if (n.stop) return n.stop;
+          personRef = n.personRef;
+        }
+        const missed = my.calls({ direction: 'missed', limit: 50 }).find(c => c.person_ref && (!personRef || c.person_ref === personRef));
+        if (!missed) return { error: i.person ? `No hay llamadas perdidas de ${i.person}` : 'No hay llamadas perdidas de tus contactos' };
+        const p = my.personInfo(missed.person_ref);
+        if (!p) return { error: 'Esa persona ya no está entre tus contactos' };
+        target = { kind: 'person', userId: p.id, name: p.name };
+        type = type || (missed.type === 'videollamada' ? 'video' : 'voice');
+      } else if (i.chat) {
+        const n = refsByName(my, { chat: i.chat });
+        if (n.stop) return n.stop;
+        target = my.callTarget(n.chatRef);
+        if (!target) return { error: 'No se puede llamar a ese chat' };
+      } else if (i.person) {
+        const n = refsByName(my, { person: i.person });
+        if (n.stop) return n.stop;
+        const p = my.personInfo(n.personRef);
+        if (!p) return { error: 'Esa persona no está entre los contactos del usuario' };
+        target = { kind: 'person', userId: p.id, name: p.name };
+      } else {
+        return { error: 'Falta a quién llamar: person (persona) o chat (grupo)' };
+      }
+      type = type || 'voice';
+      const speaker = type === 'voice' && target.kind === 'person' && !!i.speaker;
+      const what = target.kind === 'group' ? (type === 'video' ? 'Videollamada de grupo' : 'Llamada de grupo')
+        : `${type === 'video' ? 'Videollamada' : 'Llamada de voz'}${speaker ? ' con el altavoz' : ''}`;
+      return propose(ctx, ui, { kind: 'call', callType: type, speaker, toName: target.name,
+                                ...(target.kind === 'group' ? { groupId: target.groupId } : { toUserId: target.userId }) },
+                     { to: target.name, text: `${what}${i.return_missed ? ' (devolver la llamada perdida)' : ''}` });
+    },
+  },
   {
     name: 'open_screen',
     kind: 'read',

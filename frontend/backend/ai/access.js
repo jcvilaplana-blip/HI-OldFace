@@ -207,6 +207,19 @@ function createAccess({ chatStore, groupStore, messageStore, findUserById, conta
       },
 
       /**
+       * A quién se llama desde un chat (Fase 5): un grupo → { kind: 'group', groupId, name }; un chat 1 a 1 →
+       * { kind: 'person', userId, name } (el otro participante). Solo chats del usuario; si no, null.
+       */
+      callTarget(ref) {
+        const chatId = resolveChat(ref);
+        const c = chatId && chatStore.get(chatId);
+        if (!c) return null;
+        if (c.isGroup) return c.groupId && groupStore.has(c.groupId) ? { kind: 'group', groupId: c.groupId, name: chatName(c, uid) } : null;
+        const other = c.participants.find(p => p !== uid);
+        return other && findUserById(other) ? { kind: 'person', userId: other, name: nameOf(other) } : null;
+      },
+
+      /**
        * Lo que se reenvía de un mensaje (Fase 4): solo de sus chats, nunca "ver una vez" (visibleIn ya los quita),
        * ni ubicaciones en tiempo real. → { type, text, url, fileName, duration, shown, from } o null
        */

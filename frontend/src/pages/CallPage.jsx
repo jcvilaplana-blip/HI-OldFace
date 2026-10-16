@@ -40,12 +40,12 @@ export default function CallPage() {
   const earpieceTimer       = useRef([]);
   const keepAliveRef        = useRef(null); // AudioContext silencioso → evita throttling en background
   const micOnRef            = useRef(true); // ref síncrona del estado del mic
-  const speakerOnRef        = useRef(false); // ref síncrona del altavoz (los timers de auricular la respetan)
+  const speakerOnRef        = useRef(state?.speaker === true); // ref síncrona del altavoz (los timers de auricular la respetan); state.speaker = empezar con altavoz
 
   const [status,     setStatus]    = useState('calling');
   const [duration,   setDuration]  = useState(0);
   const [micOn,      setMicOn]     = useState(true);
-  const [speakerOn,  setSpeakerOn] = useState(false);
+  const [speakerOn,  setSpeakerOn] = useState(state?.speaker === true);
   const [showInvite, setShowInvite] = useState(false);
   const [inviteSent, setInviteSent] = useState({});
   const [animKey,    setAnimKey]   = useState(0); // fuerza remount de animaciones al volver de background
