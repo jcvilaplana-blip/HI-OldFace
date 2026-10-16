@@ -97,7 +97,10 @@ const taxiStub = http.createServer((req, res) => {
     if (u.pathname.endsWith('/places')) {
       const q = u.searchParams.get('q') || '';
       const places = /atocha/i.test(q) ? [{ name: 'Estación de Atocha', address: 'Estación de Atocha, Madrid', lat: 40.4065, lng: -3.6895 }]
-        : /mayor/i.test(q) ? [{ name: 'Calle Mayor', address: 'Calle Mayor, Madrid', lat: 40.415, lng: -3.709 }, { name: 'Calle Mayor', address: 'Calle Mayor, Alcalá de Henares', lat: 40.482, lng: -3.364 }] : [];
+        : /mayor/i.test(q) ? [{ name: 'Calle Mayor', address: 'Calle Mayor, Madrid', lat: 40.415, lng: -3.709 }, { name: 'Calle Mayor', address: 'Calle Mayor, Alcalá de Henares', lat: 40.482, lng: -3.364 }]
+        : /castellar/i.test(q) ? [{ name: 'Municipio Santiago de Callapa', address: 'Municipio Santiago de Callapa, Pacajes, Bolivia', lat: -17.4, lng: -68.35 },
+                                  { name: 'Castellar de Santiago', address: 'Castellar de Santiago, Castilla-La Mancha, España', lat: 38.539, lng: -3.2755 },
+                                  { name: 'Ayuntamiento de Castellar de Santiago', address: 'Ayuntamiento de Castellar de Santiago, Plaza de la Constitución 1, Castellar de Santiago, Castilla-La Mancha, España', lat: 38.54, lng: -3.278 }] : [];
       return res.end(JSON.stringify({ places }));
     }
     if (u.pathname.endsWith('/estimate')) return res.end(JSON.stringify({ served: true, currency: 'EUR', distanceKm: 2.1, durationMin: 8, options: [{ name: 'Económico', seats: 4, total: 7.5 }] }));
@@ -346,7 +349,13 @@ try {
   check('taxi a Atocha: un lugar, precio aproximado y botón "Pedir taxi"', td.data?.places?.length === 1 && td.data.estimate_for_first?.prices?.[0] === 'Económico: 7.5 EUR'
     && td.actions[0]?.kind === 'taxi' && td.actions[0].state?.taxiDropoff?.address === 'Estación de Atocha, Madrid', td.raw);
   const tdm = await tool('taxi_destination', { destination: 'calle Mayor' });
-  check('taxi a "calle Mayor": varios lugares → preguntar (sin botón)', tdm.data?.ambiguous === true && tdm.actions.length === 0 && /^l_[0-9a-f]{12}$/.test(tdm.data.places[1].place_ref));
+  const tdmTaxi = tdm.actions.filter(a => a.kind === 'taxi');
+  check('taxi a "calle Mayor": varios lugares → preguntar, con un botón por lugar y el de abrir el taxi', tdm.data?.ambiguous === true && tdm.data.hint.includes('ENUMÉRALOS')
+    && tdmTaxi.length === 2 && tdmTaxi[1].label === 'Calle Mayor, Alcalá de Henares' && tdm.actions.some(a => a.path === '/taxi' && !a.kind) && /^l_[0-9a-f]{12}$/.test(tdm.data.places[1].place_ref), JSON.stringify(tdm.actions));
+  const cas = await tool('taxi_destination', { destination: 'el municipio de Castellar de Santiago' }, A, { location: { lat: 40.4168, lng: -3.7038 } });
+  check('taxi a "el municipio de Castellar de Santiago": se busca sin "municipio de"', taxiSeen.some(x => x.path.endsWith('/places') && x.query.q === 'Castellar de Santiago'));
+  check('… nada a más de 300 km (Bolivia fuera) y el de nombre exacto primero', cas.data?.places?.length === 2 && cas.data.places[0].name === 'Castellar de Santiago' && !cas.raw.includes('Bolivia'), cas.raw);
+  check('… nombre exacto → destino claro con su botón "Pedir taxi"', cas.data?.ambiguous === false && cas.actions.filter(a => a.kind === 'taxi').length === 1 && cas.actions[0].state.taxiDropoff.address.startsWith('Castellar de Santiago'), JSON.stringify(cas.actions));
   const pick = await tool('open_screen', { screen: 'taxi', place_ref: tdm.data.places[1].place_ref });
   check('elegido el lugar → botón "Pedir taxi" con ese destino', pick.actions[0]?.state?.taxiDropoff?.address === 'Calle Mayor, Alcalá de Henares');
   check('place_ref inventado → error', (await tool('open_screen', { screen: 'taxi', place_ref: 'l_000000000000' })).raw.includes('ya no es válido'));

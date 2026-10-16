@@ -83,6 +83,20 @@ const offerChat = (my, ui, ref) => {
   ui.push({ type: 'navigate', path: `/chat/${encodeURIComponent(chatId)}`, label: my.chatTitle(chatId) });
   return true;
 };
+const MAX_TAXI_KM = 300;
+/** Distancia en línea recta en km */
+const kmBetween = (a, b) => {
+  const r = (x) => x * Math.PI / 180, dLat = r(b.lat - a.lat), dLng = r(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+};
+/** "Calle Mayor, Alcalá de Henares" (nombre + localidad) para distinguir lugares que se llaman igual */
+const shortAddress = (p) => {
+  const parts = String(p.address || '').split(',').map(s => s.trim()).filter(Boolean);
+  const rest = parts.filter(s => s !== p.name);
+  return [p.name || parts[0], rest[rest.length >= 3 ? rest.length - 3 : 0]].filter(Boolean).join(', ');
+};
+
 /** Botón "Pedir taxi a …": abre la pantalla del taxi con el destino puesto; el viaje lo pide el usuario allí */
 const offerTaxi = (ui, place) => ui.push({ type: 'navigate', kind: 'taxi', path: '/taxi',
   state: { taxiDropoff: { lat: place.lat, lng: place.lng, address: place.address } }, label: place.name || place.address });
@@ -292,16 +306,29 @@ const TOOLS = [
     },
     run: async ({ taxi, location, places }, { destination }, ui) => {
       if (!taxi) return { error: 'El servicio de taxi no está disponible ahora mismo' };
-      const { places: found = [] } = await taxi.places(destination, location || {});
-      if (!found.length) return { places: [], hint: 'No encuentro ese destino. Pide al usuario una dirección más concreta.' };
+      // "el municipio de Castellar de Santiago" → "Castellar de Santiago"
+      const dest = destination.replace(/^\s*(?:(?:el|la)\s+)?(?:municipio|pueblo|ciudad|localidad|villa|aldea)\s+(?:de\s+)?/i, '').trim() || destination;
+      let { places: found = [] } = await taxi.places(dest, location || {});
+      // Con la ubicación del usuario: lo más cercano primero y nada a más de 300 km (un taxi no va a otro país)
+      if (location) {
+        found = found.map(p => ({ ...p, km: kmBetween(location, p) })).filter(p => p.km <= MAX_TAXI_KM).sort((a, b) => a.km - b.km);
+      }
+      if (!found.length) {
+        ui.push({ type: 'navigate', path: SCREENS.taxi.path, label: SCREENS.taxi.label, translate: true });
+        return { places: [], hint: 'No encuentro ese destino cerca del usuario. Pide una dirección más concreta o que la busque en la pantalla del taxi.' };
+      }
+      // Si uno se llama exactamente como lo pedido, es ese (los demás quedan como alternativas)
+      const exact = found.filter(p => fold(p.name) === fold(dest));
+      if (exact.length === 1) found = [exact[0], ...found.filter(p => p !== exact[0])];
       const now = Date.now();
       for (const [k, v] of places) if (v.exp < now) places.delete(k);
-      const list = found.map(p => {
+      const list = found.slice(0, 5).map(p => {
         const ref = `l_${crypto.randomBytes(6).toString('hex')}`;
         places.set(ref, { ...p, exp: now + PLACE_TTL_MS });
-        return { place_ref: ref, name: p.name, address: p.address };
+        return { place_ref: ref, name: p.name, address: p.address, ...(p.km !== undefined ? { km_from_user: Math.round(p.km) } : {}) };
       });
-      const out = { places: list, ambiguous: list.length > 1 };
+      const clear = list.length === 1 || exact.length === 1;
+      const out = { places: list, ambiguous: !clear };
       if (location) {
         try {
           const e = await taxi.estimate(location, found[0]);
@@ -309,8 +336,12 @@ const TOOLS = [
             ? { distance_km: e.distanceKm, duration_min: e.durationMin, prices: e.options.map(o => `${o.name}: ${o.total} ${e.currency}`) }
             : { served: false };
         } catch { /* sin precio: no pasa nada */ }
-      } else out.hint = 'Sin la ubicación del usuario no hay precio; en la pantalla del taxi lo verá.';
-      if (list.length === 1) offerTaxi(ui, found[0]);
+      } else out.hint_price = 'Sin la ubicación del usuario no hay precio; en la pantalla del taxi lo verá.';
+      // Botones: el destino claro, o los 3 primeros para que el usuario elija pulsando (aunque el modelo no los nombre)
+      for (const p of clear ? found.slice(0, 1) : found.slice(0, 3)) offerTaxi(ui, { ...p, name: clear ? p.name : shortAddress(p) });
+      ui.push({ type: 'navigate', path: SCREENS.taxi.path, label: SCREENS.taxi.label, translate: true });
+      out.hint = clear ? 'Di el destino y el precio aproximado; el usuario pide el taxi con el botón "Pedir taxi a …".'
+        : 'Hay varios lugares: ENUMÉRALOS al usuario (nombre y dirección) y pregúntale cuál; también puede pulsar su botón.';
       return out;
     },
   },
