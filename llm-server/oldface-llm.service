@@ -8,13 +8,17 @@ User=oldface.app_k1i7f62xmt8
 Group=psacln
 WorkingDirectory=/var/www/vhosts/oldface.app/llm-server
 Environment=LD_LIBRARY_PATH=/var/www/vhosts/oldface.app/llm-server/llama
-# 6 de los 12 núcleos y prioridad baja: llamadas, videollamadas y directos van primero
+# Núcleos y contexto: por defecto 6 y 16k; se cambian SIN root en llm-server/llm.env (LLM_THREADS=, LLM_CTX=)
+# y "touch llm-server/.restart". Prioridad baja: llamadas, videollamadas y directos van primero.
+Environment=LLM_THREADS=6 LLM_CTX=16384
+EnvironmentFile=-/var/www/vhosts/oldface.app/llm-server/llm.env
 ExecStart=/var/www/vhosts/oldface.app/llm-server/llama/llama-server \
   -m /var/www/vhosts/oldface.app/llm-server/models/qwen3-8b-q4km.gguf --alias qwen3-8b \
-  --host 127.0.0.1 --port 8089 -c 16384 -np 1 -t 6 --jinja \
+  --host 127.0.0.1 --port 8089 -c ${LLM_CTX} -np 1 -t ${LLM_THREADS} --jinja \
   --no-webui --no-webui-mcp-proxy --no-slots
 Nice=10
-CPUQuota=600%
+# Tope de CPU para hasta 10 núcleos (el número real lo marca LLM_THREADS)
+CPUQuota=1000%
 MemoryMax=10G
 Restart=always
 RestartSec=3

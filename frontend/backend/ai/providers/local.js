@@ -4,6 +4,7 @@
  *
  * Misma interfaz que anthropic.js:
  *   chat({ system, messages, tools }) → { text, toolCalls: [{ id, name, input }], stopReason, usage: { input, output }, raw }
+ *   chatStream({ system, messages, tools }, onDelta) → lo mismo, con el texto a trozos según se escribe
  *   warmUp({ system, tools }) → deja procesadas en el servidor las instrucciones fijas (la 1.ª pregunta va más rápida)
  * Dentro de una petición el turno del asistente se devuelve tal cual (raw, formato OpenAI) con sus tool_calls.
  */
@@ -21,6 +22,15 @@ function toApiMessages(system, messages) {
   }
   return out;
 }
+
+/** Quita los "pensamientos" (<think>…</think>); con open = true también uno que aún no se ha cerrado (streaming) */
+const stripThink = (s, open = false) => String(s || '').replace(open ? /<think>[\s\S]*?(<\/think>|$)/g : /<think>[\s\S]*?<\/think>/g, '');
+
+/** No enseñar aún el final si puede ser el principio de "<think>" (llega a trozos: "<thi" + "nk>") */
+const holdBack = (s) => {
+  for (let n = Math.min(6, s.length); n > 0; n--) if ('<think>'.startsWith(s.slice(-n))) return s.slice(0, -n);
+  return s;
+};
 
 const toApiTools = (tools) => tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
 
@@ -43,31 +53,85 @@ function createLocalProvider({ baseUrl, model, maxTokens, noThinking }) {
     return r.json();
   }
 
+  /** Respuesta del modelo (completa o reconstruida del streaming) → formato común del proveedor */
+  function toResult(msg, finishReason, u = {}) {
+    const calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+    const toolCalls = calls.map((tc, i) => {
+      // Si el modelo escribe mal los parámetros, llegan como texto y la validación de la herramienta los rechaza
+      let input;
+      try { input = JSON.parse(tc.function?.arguments || '{}'); } catch { input = String(tc.function?.arguments || ''); }
+      return { id: tc.id || `call_${i}`, name: String(tc.function?.name || ''), input };
+    });
+    // Al devolverle el turno, los ids deben coincidir con los de los resultados (algunos modelos no los ponen)
+    const rawCalls = calls.map((tc, i) => ({ id: toolCalls[i].id, type: 'function',
+      function: { name: toolCalls[i].name, arguments: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {}) } }));
+    const text = stripThink(msg.content).trim();
+    return {
+      text, toolCalls,
+      stopReason: toolCalls.length ? 'tool_use' : finishReason === 'length' ? 'max_tokens' : 'end',
+      usage: { input: u.prompt_tokens || 0, output: u.completion_tokens || 0 },
+      raw: { role: 'assistant', content: msg.content || '', ...(rawCalls.length ? { tool_calls: rawCalls } : {}) },
+    };
+  }
+
   return {
     name: 'local',
     model,
     async chat({ system, messages, tools }) {
       const data = await post({ max_tokens: maxTokens, temperature: 0.2, messages: toApiMessages(system, messages), tools: toApiTools(tools) });
       const choice = data.choices?.[0] || {};
-      const msg = choice.message || {};
-      const calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
-      const toolCalls = calls.map((tc, i) => {
-        // Si el modelo escribe mal los parámetros, llegan como texto y la validación de la herramienta los rechaza
-        let input;
-        try { input = JSON.parse(tc.function?.arguments || '{}'); } catch { input = String(tc.function?.arguments || ''); }
-        return { id: tc.id || `call_${i}`, name: String(tc.function?.name || ''), input };
-      });
-      // Al devolverle el turno, los ids deben coincidir con los de los resultados (algunos modelos no los ponen)
-      const rawCalls = calls.map((tc, i) => ({ id: toolCalls[i].id, type: 'function',
-        function: { name: toolCalls[i].name, arguments: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {}) } }));
-      const text = String(msg.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-      const u = data.usage || {};
-      return {
-        text, toolCalls,
-        stopReason: toolCalls.length ? 'tool_use' : choice.finish_reason === 'length' ? 'max_tokens' : 'end',
-        usage: { input: u.prompt_tokens || 0, output: u.completion_tokens || 0 },
-        raw: { role: 'assistant', content: msg.content || '', ...(rawCalls.length ? { tool_calls: rawCalls } : {}) },
+      return toResult(choice.message || {}, choice.finish_reason, data.usage);
+    },
+
+    /**
+     * Igual que chat(), pero el texto llega a trozos: onDelta(texto) con cada parte nueva visible (sin "pensamientos").
+     * Las llamadas a herramientas se van juntando y se devuelven al final, como en chat().
+     */
+    async chatStream({ system, messages, tools }, onDelta) {
+      let r;
+      try {
+        r = await fetch(url, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(TIMEOUT_MS),
+          body: JSON.stringify({ model, ...extra, max_tokens: maxTokens, temperature: 0.2, messages: toApiMessages(system, messages),
+                                 tools: toApiTools(tools), stream: true, stream_options: { include_usage: true } }),
+        });
+      } catch { throw unavailable(); }
+      if (!r.ok || !r.body) { console.warn(`[ai] modelo local: error ${r.status}`); throw unavailable(); }
+      const dec = new TextDecoder();
+      let buf = '', content = '', shown = 0, finish = null, usage = {};
+      const calls = [];
+      const handle = (line) => {
+        if (!line.startsWith('data:')) return;
+        const data = line.slice(5).trim();
+        if (!data || data === '[DONE]') return;
+        let j;
+        try { j = JSON.parse(data); } catch { return; }
+        if (j.usage) usage = j.usage;
+        const ch = j.choices?.[0];
+        if (!ch) return;
+        if (ch.finish_reason) finish = ch.finish_reason;
+        const d = ch.delta || {};
+        if (d.content) {
+          content += d.content;
+          const visible = holdBack(stripThink(content, true).replace(/^\s+/, ''));
+          if (visible.length > shown) { onDelta?.(visible.slice(shown)); shown = visible.length; }
+        }
+        for (const tc of d.tool_calls || []) {
+          const c = calls[tc.index ?? calls.length] ||= { id: '', type: 'function', function: { name: '', arguments: '' } };
+          if (tc.id) c.id = tc.id;
+          if (tc.function?.name) c.function.name += tc.function.name;
+          if (tc.function?.arguments) c.function.arguments += tc.function.arguments;
+        }
       };
+      try {
+        for await (const chunk of r.body) {
+          buf += dec.decode(chunk, { stream: true });
+          let i;
+          while ((i = buf.indexOf('\n')) >= 0) { handle(buf.slice(0, i).trim()); buf = buf.slice(i + 1); }
+        }
+        if (buf.trim()) handle(buf.trim());
+      } catch { throw unavailable(); }
+      return toResult({ content, tool_calls: calls.filter(Boolean) }, finish, usage);
     },
     async warmUp({ system, tools }) {
       await post({ max_tokens: 1, messages: toApiMessages(system, [{ role: 'user', text: 'Hola' }]), tools: toApiTools(tools) });

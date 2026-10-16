@@ -2,7 +2,8 @@
  * Willy (OldFace AI) — API del backend y conversación guardada en el móvil.
  *
  *   willyStatus()            → { available, name, dailyLimit, remaining }
- *   askWilly(history, loc)   → { reply, actions, remaining }   history = [{ role: 'user'|'assistant', content }]
+ *   askWilly(history, loc, onEvent) → { reply, actions, remaining }   history = [{ role: 'user'|'assistant', content }]
+ *                              onEvent(ev) = respuesta en directo: { type: 'delta', text } · 'reset' · { type: 'status', text }
  *   aboutTaxi(text) / taxiLocation() → posición aproximada SOLO si el usuario habla del taxi y ya dio permiso
  *   confirmAction(id) / cancelAction(id) → tarjetas Confirmar / Cancelar de las propuestas de Willy (Fase 4)
  *   loadChat() / saveChat()  → la conversación con Willy vive solo en este dispositivo (localStorage)
@@ -32,14 +33,35 @@ export async function willyStatus() {
  * Manda la conversación (solo rol y texto, empezando por un mensaje del usuario) y devuelve la respuesta.
  * loc = { lat, lng } aproximada, solo cuando el usuario habla del taxi (el servidor no la guarda).
  */
-export async function askWilly(history, loc = null) {
+export async function askWilly(history, loc = null, onEvent = null) {
   let msgs = history.map(({ role, content }) => ({ role, content })).slice(-KEEP);
   while (msgs.length && msgs[0].role !== 'user') msgs = msgs.slice(1);
-  return json(await fetch(`${BACKEND}/ai/chat`, {
+  const res = await fetch(`${BACKEND}/ai/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId: me(), messages: msgs, ...(loc ? { location: loc } : {}) }),
-  }));
+    body: JSON.stringify({ userId: me(), messages: msgs, ...(loc ? { location: loc } : {}), ...(onEvent ? { stream: true } : {}) }),
+  });
+  // Respuesta en directo: una línea JSON por evento (texto a trozos, "Buscando…") y al final 'done' con la respuesta
+  if (!onEvent || !res.ok || !res.body || !(res.headers.get('content-type') || '').includes('ndjson')) return json(res);
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = '', done = null;
+  const handle = (line) => {
+    if (!line.trim()) return;
+    let ev;
+    try { ev = JSON.parse(line); } catch { return; }
+    if (ev.type === 'error') throw new Error(ev.error || tr('Willy ha tenido un problema. Inténtalo de nuevo.'));
+    if (ev.type === 'done') done = ev; else onEvent(ev);
+  };
+  for (;;) {
+    const { value, done: end } = await reader.read();
+    if (end) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) { handle(buf.slice(0, i)); buf = buf.slice(i + 1); }
+  }
+  handle(buf);
+  if (!done) throw new Error(tr('No se pudo conectar con el servidor'));
+  return done;
 }
 
 /**

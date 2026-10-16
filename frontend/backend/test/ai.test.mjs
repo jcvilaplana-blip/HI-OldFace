@@ -621,9 +621,23 @@ try {
       const body = JSON.parse(b || '{}'); seen.push(body);
       const last = body.messages[body.messages.length - 1];
       const firstUser = (body.messages.find(m => m.role === 'user')?.content || '').replace(/\n\n\(Ahora: [^)]*\)$/, '');
-      const reply = (message, finish = 'stop') => res.end(JSON.stringify({ choices: [{ message, finish_reason: finish }], usage: { prompt_tokens: 7, completion_tokens: 3 } }));
+      // Con stream: true responde como llama.cpp (SSE): primero el texto a trozos de 5 letras y luego las herramientas
+      const sse = (message, finish) => {
+        res.setHeader('Content-Type', 'text/event-stream');
+        const parts = [];
+        const txt = message.content || '';
+        for (let k = 0; k < txt.length; k += 5) parts.push({ choices: [{ delta: { content: txt.slice(k, k + 5) } }] });
+        (message.tool_calls || []).forEach((tc, i) => parts.push(
+          { choices: [{ delta: { tool_calls: [{ index: i, ...(tc.id ? { id: tc.id } : {}), function: { name: tc.function.name, arguments: '' } }] } }] },
+          { choices: [{ delta: { tool_calls: [{ index: i, function: { arguments: tc.function.arguments } }] } }] }));
+        parts.push({ choices: [{ delta: {}, finish_reason: finish }] }, { choices: [], usage: { prompt_tokens: 7, completion_tokens: 3 } });
+        res.end(`${parts.map(p => `data: ${JSON.stringify(p)}\n\n`).join('')}data: [DONE]\n\n`);
+      };
+      const reply = (message, finish = 'stop') => (body.stream ? sse(message, finish)
+        : res.end(JSON.stringify({ choices: [{ message, finish_reason: finish }], usage: { prompt_tokens: 7, completion_tokens: 3 } })));
       res.setHeader('Content-Type', 'application/json');
       if (last.role === 'tool') return reply({ role: 'assistant', content: `resultado: ${last.content}` });
+      if (firstUser === '#local-talk-tool') return reply({ role: 'assistant', content: 'Voy a mirar', tool_calls: [{ type: 'function', function: { name: 'list_chats', arguments: '{}' } }] }, 'tool_calls');
       if (firstUser === '#local-tool') return reply({ role: 'assistant', content: '', tool_calls: [{ type: 'function', function: { name: 'list_chats', arguments: '{"unread_only":true}' } }] }, 'tool_calls');
       if (firstUser === '#local-bad') return reply({ role: 'assistant', content: '', tool_calls: [{ id: 'x1', type: 'function', function: { name: 'list_chats', arguments: 'no es json' } }] }, 'tool_calls');
       if (firstUser === '#local-think') return reply({ role: 'assistant', content: '<think>razono en secreto</think>Hola, soy Willy' });
@@ -648,6 +662,26 @@ try {
   check('local: parámetros mal escritos → la herramienta no se ejecuta', (await askLoc('#local-bad')).body.reply.includes('Parámetros no válidos'));
   check('local: no se ven los "pensamientos" del modelo', (await askLoc('#local-think')).body.reply === 'Hola, soy Willy');
   check('local: modelo caído → 503', (await call(locDead.base, 'POST', '/ai/chat', { messages: [{ role: 'user', content: 'hola' }] }, as(A))).status === 503);
+
+  // Respuesta en directo (stream: true): eventos en líneas JSON
+  const streamAsk = async (base, t) => {
+    const r = await fetch(`${base}/ai/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...as(A) }, body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: t }] }) });
+    const evs = (await r.text()).split('\n').filter(Boolean).map(l => JSON.parse(l));
+    return { status: r.status, type: r.headers.get('content-type') || '', evs, deltas: evs.filter(e => e.type === 'delta').map(e => e.text).join(''), done: evs.find(e => e.type === 'done') };
+  };
+  const st1 = await streamAsk(loc.base, '#local-think');
+  check('directo: líneas JSON (ndjson) y el texto llega a trozos', st1.type.startsWith('application/x-ndjson') && st1.evs.filter(e => e.type === 'delta').length >= 3, JSON.stringify(st1.evs));
+  check('directo: los trozos forman la respuesta final, sin "pensamientos"', st1.deltas === 'Hola, soy Willy' && st1.done?.reply === 'Hola, soy Willy', JSON.stringify(st1));
+  const st2 = await streamAsk(loc.base, '#local-tool');
+  check('directo: mientras consulta, el estado "Mirando tus chats…" y luego la respuesta', st2.evs.some(e => e.type === 'status' && e.text === 'Mirando tus chats…') && st2.done?.reply.includes('"name":"Bea"') && st2.deltas === st2.done.reply, JSON.stringify(st2.evs.slice(0, 3)));
+  const st3 = await streamAsk(loc.base, '#local-talk-tool');
+  const iReset = st3.evs.findIndex(e => e.type === 'reset');
+  check('directo: si escribe y luego consulta, se descarta lo provisional (reset)', iReset > 0 && st3.evs[0].type === 'delta' && st3.done?.reply.startsWith('resultado:'), JSON.stringify(st3.evs.map(e => e.type)));
+  const st4 = await streamAsk(locDead.base, 'hola');
+  check('directo con el modelo caído → evento de error 503', st4.evs.some(e => e.type === 'error' && e.status === 503) && !st4.done, JSON.stringify(st4.evs));
+  const st5 = await streamAsk(srv.base, '#tool list_chats {}');
+  check('directo con un proveedor sin streaming (mock) → estado y respuesta completa al final', st5.evs.some(e => e.type === 'status') && st5.done?.reply.startsWith('resultado:') && !st5.evs.some(e => e.type === 'delta'));
+  check('sin stream: igual que antes (JSON)', (await askLoc('#local-think')).body.reply === 'Hola, soy Willy');
   loc.proc.kill(); locDead.proc.kill(); stub.close();
 
   // ── Sin proveedor ──

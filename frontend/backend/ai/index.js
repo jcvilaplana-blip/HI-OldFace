@@ -4,7 +4,9 @@
  *                                                                    contactsOf, isChatMember, callLogStore } });
  * Rutas (siempre con la sesión del usuario; nada de lo que diga el modelo cambia quién es):
  *   GET  /ai/status → { available, name, dailyLimit, remaining, voice }
- *   POST /ai/chat   { messages: [{ role: 'user'|'assistant', content }], location?: { lat, lng } } → { reply, actions, remaining }
+ *   POST /ai/chat   { messages: [{ role: 'user'|'assistant', content }], location?: { lat, lng }, stream? } → { reply, actions, remaining }
+ *                   stream: true → respuesta en directo (application/x-ndjson): { type: 'delta', text } · { type: 'reset' } ·
+ *                   { type: 'status', text } · al final { type: 'done', reply, actions, remaining } o { type: 'error', error }
  *                   location = posición del móvil que la app manda SOLO si el usuario habla del taxi; se redondea a
  *                   ~100 m, se usa en esa petición y no se guarda ni se anota en ningún registro.
  *   POST /ai/speak  { text } → audio/wav con la voz de Willy (servicio local voice-server/; el texto no se guarda)
@@ -173,23 +175,34 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
     if (mine.requests >= dailyLimit) return res.status(429).json({ error: `Has usado las ${dailyLimit} consultas de hoy a Willy. Vuelve mañana.` });
     if (inFlight.has(uid)) return res.status(429).json({ error: 'Willy aún está respondiendo a tu mensaje anterior' });
 
+    const stream = req.body?.stream === true;
+    const send = (ev) => { if (!res.writableEnded) res.write(`${JSON.stringify(ev)}\n`); };
     inFlight.add(uid);
     mine.requests++;
     saveUsage();
     try {
       if (!placesOf.has(uid)) placesOf.set(uid, new Map());
       const ctx = { taxi, location: roughLocation(req.body.location), places: placesOf.get(uid), actions, uid };
-      const out = await runAgent({ provider, history: req.body.messages, my: access.forUser(uid), ctx });
+      // Respuesta en directo (stream: true, APK nuevos): una línea JSON por evento y al final { type: 'done', … }
+      if (stream) {
+        res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
+        res.flushHeaders?.();
+      }
+      const out = await runAgent({ provider, history: req.body.messages, my: access.forUser(uid), ctx, onEvent: stream ? send : null });
       mine.input += out.usage.input;
       mine.output += out.usage.output;
       saveUsage();
-      audit(uid, { tools: out.tools, rounds: out.rounds, input: out.usage.input, output: out.usage.output, ok: true });
-      res.json({ reply: out.reply, actions: out.actions, remaining: Math.max(dailyLimit - mine.requests, 0) });
+      audit(uid, { tools: out.tools, rounds: out.rounds, input: out.usage.input, output: out.usage.output, ok: true, ...(stream ? { stream: true } : {}) });
+      const payload = { reply: out.reply, actions: out.actions, remaining: Math.max(dailyLimit - mine.requests, 0) };
+      if (stream) { send({ type: 'done', ...payload }); return res.end(); }
+      res.json(payload);
     } catch (e) {
       audit(uid, { ok: false, error: e instanceof ProviderError ? e.message : 'interno' });
-      if (e instanceof ProviderError) return res.status(e.status).json({ error: e.message });
-      console.error('[ai] error:', e.message);
-      res.status(500).json({ error: 'Willy ha tenido un problema. Inténtalo de nuevo.' });
+      const status = e instanceof ProviderError ? e.status : 500;
+      const error = e instanceof ProviderError ? e.message : 'Willy ha tenido un problema. Inténtalo de nuevo.';
+      if (!(e instanceof ProviderError)) console.error('[ai] error:', e.message);
+      if (stream && res.headersSent) { send({ type: 'error', status, error }); return res.end(); }
+      res.status(status).json({ error });
     } finally {
       inFlight.delete(uid);
     }

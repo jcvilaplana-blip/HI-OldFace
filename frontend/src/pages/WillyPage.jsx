@@ -95,6 +95,7 @@ export default function WillyPage() {
   const [voice, setVoice] = useState(voiceOn);      // Willy habla en voz alta
   const [micOk, setMicOk] = useState(false);        // ¿se le puede hablar en este dispositivo?
   const [listening, setListening] = useState(false);
+  const [live, setLive] = useState(null);           // respuesta en directo: { text, status } mientras Willy escribe
   const endRef = useRef(null);
   const listenRef = useRef(null);
   const voiceRef = useRef(voice);
@@ -108,7 +109,7 @@ export default function WillyPage() {
     canListen().then(setMicOk);
     return () => { stopSpeaking(); listenRef.current?.stop(); };   // al salir, se calla y deja de escuchar
   }, []);
-  useEffect(() => { saveChat(messages); endRef.current?.scrollIntoView({ block: 'end' }); }, [messages, busy, listening]);
+  useEffect(() => { saveChat(messages); endRef.current?.scrollIntoView({ block: 'end' }); }, [messages, busy, listening, live]);
 
   const back = () => (window.history.length > 1 ? navigate(-1) : navigate('/', { replace: true }));
 
@@ -124,7 +125,15 @@ export default function WillyPage() {
     try {
       // La ubicación solo viaja cuando se habla del taxi (y si ya hay permiso; nunca se pide aquí)
       const loc = aboutTaxi(content) ? await taxiLocation() : null;
-      const r = await askWilly(next, loc);
+      // En directo: el texto aparece según se escribe; mientras consulta, qué está haciendo ("Buscando en tus mensajes…")
+      setLive({ text: '', status: '' });
+      const r = await askWilly(next, loc, (ev) => setLive((l) => {
+        const cur = l || { text: '', status: '' };
+        if (ev.type === 'delta') return { text: cur.text + ev.text, status: '' };
+        if (ev.type === 'reset') return { text: '', status: cur.status };
+        if (ev.type === 'status') return { text: cur.text, status: ev.text };
+        return cur;
+      }));
       setMessages(m => [...m, { role: 'assistant', content: r.reply, actions: r.actions || [] }]);
       setStatus(s => (s ? { ...s, remaining: r.remaining } : s));
       if (voiceRef.current) speak(r.reply);
@@ -132,6 +141,7 @@ export default function WillyPage() {
       setError(e.message);
     } finally {
       setBusy(false);
+      setLive(null);
     }
   };
 
@@ -235,7 +245,16 @@ export default function WillyPage() {
             </div>
           );
         })}
-        {busy && <p style={{ fontSize: 13, color: T.textMuted, margin: '4px 6px' }}>{tr('Willy está pensando…')}</p>}
+        {busy && (live?.text ? (
+          <div style={{ display: 'flex', marginBottom: 10 }}>
+            <div style={{ maxWidth: 'min(82vw, 520px)', padding: '9px 13px', borderRadius: 16, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 15, lineHeight: 1.4,
+                          background: T.bgSurface, color: T.textPrimary, border: `1px solid ${T.border}` }}>
+              {live.text}<span style={{ opacity: 0.5 }}>▍</span>
+            </div>
+          </div>
+        ) : (
+          <p style={{ fontSize: 13, color: T.textMuted, margin: '4px 6px' }}>{live?.status ? tr(live.status) : tr('Willy está pensando…')}</p>
+        ))}
         {error && <p style={{ fontSize: 13, color: '#dc2626', margin: '4px 6px', fontWeight: 700 }}>{error}</p>}
         <div ref={endRef} />
       </div>

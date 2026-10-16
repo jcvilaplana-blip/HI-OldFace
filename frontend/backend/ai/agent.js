@@ -55,7 +55,21 @@ const uniqueActions = (actions) => {
   return actions.filter(a => { const k = a.id || `${a.path}|${JSON.stringify(a.state || null)}`; return !seen.has(k) && seen.add(k); }).slice(0, 5);
 };
 
-async function runAgent({ provider, history, my, ctx = {}, maxRounds = 5, now = Date.now() }) {
+/** Lo que ve el usuario mientras Willy consulta (respuesta en directo) */
+const STATUS = {
+  list_chats: 'Mirando tus chats…', find_contact: 'Buscando el contacto…', search_messages: 'Buscando en tus mensajes…',
+  read_chat: 'Leyendo la conversación…', pending_messages: 'Revisando lo pendiente…', call_history: 'Mirando tus llamadas…',
+  taxi_nearby: 'Consultando el taxi…', taxi_destination: 'Consultando el taxi…', open_screen: 'Preparando…',
+  propose_message: 'Preparando la propuesta…', propose_forward: 'Preparando la propuesta…', propose_mute: 'Preparando la propuesta…',
+  propose_reminder: 'Preparando la propuesta…',
+};
+
+/**
+ * onEvent (opcional) = respuesta en directo: { type: 'delta', text } trozos de texto según se escriben ·
+ * { type: 'reset' } descartar el texto provisional (el modelo pasó a consultar algo) · { type: 'status', text }.
+ * La respuesta definitiva es siempre la que devuelve runAgent (la app la usa al terminar).
+ */
+async function runAgent({ provider, history, my, ctx = {}, maxRounds = 5, now = Date.now(), onEvent = null }) {
   const messages = history.map((h, i) => (h.role === 'user'
     ? { role: 'user', text: i === history.length - 1 ? `${h.content}${nowNote(now)}` : h.content }
     : { role: 'assistant', text: h.content }));
@@ -64,8 +78,16 @@ async function runAgent({ provider, history, my, ctx = {}, maxRounds = 5, now = 
   const tally = (u) => { usage.input += u?.input || 0; usage.output += u?.output || 0; };
 
   for (let round = 0; ; round++) {
-    const r = await provider.chat({ system: SYSTEM_PROMPT, messages, tools: toolSpecs() });
+    const args = { system: SYSTEM_PROMPT, messages, tools: toolSpecs() };
+    let streamed = false;
+    const r = onEvent && provider.chatStream
+      ? await provider.chatStream(args, (text) => { streamed = true; onEvent({ type: 'delta', text }); })
+      : await provider.chat(args);
     tally(r.usage);
+    if (onEvent && r.stopReason === 'tool_use') {
+      if (streamed) onEvent({ type: 'reset' });
+      onEvent({ type: 'status', text: STATUS[r.toolCalls[0]?.name] || 'Consultando…' });
+    }
     const done = (reply) => ({ reply, actions: uniqueActions(actions), tools, rounds: round, usage });
 
     if (r.stopReason === 'refusal') return done('Lo siento, no puedo ayudarte con eso.');
