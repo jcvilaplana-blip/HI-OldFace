@@ -1,0 +1,27 @@
+[Unit]
+Description=OldFace visión de Willy (llama.cpp + Qwen3-VL 2B: qué se ve en fotos y vídeos, solo 127.0.0.1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=oldface.app_k1i7f62xmt8
+Group=psacln
+WorkingDirectory=/var/www/vhosts/oldface.app/vision-server
+# Mismo llama.cpp que el cerebro de Willy (llm-server/llama)
+Environment=LD_LIBRARY_PATH=/var/www/vhosts/oldface.app/llm-server/llama
+# 4 núcleos y la prioridad más baja: solo analiza en segundo plano; llamadas, directos y Willy van primero
+ExecStart=/var/www/vhosts/oldface.app/llm-server/llama/llama-server \
+  -m /var/www/vhosts/oldface.app/vision-server/models/Qwen3-VL-2B-Instruct-Q8_0.gguf \
+  --mmproj /var/www/vhosts/oldface.app/vision-server/models/mmproj-Qwen3-VL-2B-Instruct-Q8_0.gguf --alias qwen3-vl-2b \
+  --host 127.0.0.1 --port 8091 -c 4096 -np 1 -t 4 --jinja \
+  --no-webui --no-webui-mcp-proxy --no-slots
+Nice=15
+CPUQuota=400%
+MemoryMax=5G
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

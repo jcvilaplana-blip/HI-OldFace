@@ -25,6 +25,7 @@ import { startLiveShare, stopLiveShare, isSharingLive, onLiveSharesChange } from
 import { tr, LOCALE } from '../i18n';
 import ZoomImage from '../components/ZoomImage.jsx';
 import { useBackClose } from '../utils/backHandler';
+import { getMutes, isMutedNow, setMute } from '../utils/mutesReminders';
 
 const CHAT_BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const EMPTY = [];   // misma lista vacía en cada render (no dispara efectos que dependen de los mensajes)
@@ -157,6 +158,20 @@ export default function ChatPage() {
     if (isComposite) return routeChatId;
     return `chat_${[user.id, routeChatId].sort().join('_')}`;
   }, [routeChatId, user?.id, isComposite]);
+
+  // Silenciar avisos de este chat (los mensajes siguen llegando, sin notificación)
+  const [muteUntil, setMuteUntil] = useState(null);       // ms · 0 = siempre · null = con avisos
+  const [showMuteSheet, setShowMuteSheet] = useState(false);
+  useBackClose(showMuteSheet, () => setShowMuteSheet(false));
+  useEffect(() => {
+    if (!user?.id) return;
+    getMutes().then(m => setMuteUntil(isMutedNow(m, msgChatId) ? m[msgChatId] : null)).catch(() => {});
+  }, [msgChatId, user?.id]);
+  const muted = isMutedNow({ [msgChatId]: muteUntil }, msgChatId);
+  const applyMute = async (until) => {
+    setShowMuteSheet(false);
+    try { const r = await setMute(msgChatId, until); setMuteUntil(r.until); } catch (e) { alert(e.message); }
+  };
 
   // Hasta que conteste el servidor se ven los últimos mensajes guardados en el móvil (el chat abre al instante)
   const chatMessages = messages[msgChatId] || cachedMessages(msgChatId) || EMPTY;
@@ -823,12 +838,28 @@ export default function ChatPage() {
                                                           borderRadius: 14, boxShadow: '0 6px 24px rgba(0,0,0,0.2)', padding: 6, minWidth: 210 }}>
               {[...(isGroup && groupId ? [[tr('Info del grupo'), () => setShowGroupInfo(true)]] : []),
                 [tr('Mensajes destacados{p0}', { p0: starredMsgs.length ? ` (${starredMsgs.length})` : '' }), () => setShowStarred(true)],
+                [muted ? `🔔 ${tr('Activar avisos')}` : `🔕 ${tr('Silenciar avisos')}`, () => (muted ? applyMute(null) : setShowMuteSheet(true))],
                 [tr('Fondo del chat'), () => setShowBgSheet(true)]].map(([label, fn]) => (
                 <button key={label} onClick={() => { setShowChatMenu(false); fn(); }}
                   style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '11px 14px', borderRadius: 10, cursor: 'pointer', color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
                   {label}
                 </button>
               ))}
+            </div>
+          )}
+          {showMuteSheet && (
+            <div onClick={() => setShowMuteSheet(false)} style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+              <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 520, background: T.bgSurface, borderRadius: '20px 20px 0 0', padding: '16px 14px calc(var(--sab, 0px) + 16px)' }}>
+                <p style={{ margin: '0 4px 4px', fontSize: 16, fontWeight: 800, color: T.textPrimary }}>{tr('Silenciar avisos')}</p>
+                <p style={{ margin: '0 4px 10px', fontSize: 13, color: T.textSecondary }}>{tr('Los mensajes seguirán llegando, pero sin notificación.')}</p>
+                {[[tr('8 horas'), Date.now() + 8 * 3600000], [tr('1 semana'), Date.now() + 7 * 86400000], [tr('Siempre'), 0]].map(([label, until]) => (
+                  <button key={label} onClick={() => applyMute(until)}
+                    style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '13px 6px', borderBottom: `1px solid ${T.border}`, color: T.textPrimary, fontSize: 15, fontWeight: 600, textAlign: 'left', cursor: 'pointer' }}>
+                    {label}
+                  </button>
+                ))}
+                <button onClick={() => setShowMuteSheet(false)} style={{ display: 'block', width: '100%', marginTop: 8, background: 'none', border: 'none', padding: 12, color: T.textMuted, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>{tr('Cancelar')}</button>
+              </div>
             </div>
           )}
         </div>

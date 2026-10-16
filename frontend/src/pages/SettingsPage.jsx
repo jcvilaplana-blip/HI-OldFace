@@ -271,6 +271,23 @@ export default function SettingsPage() {
         </div>
         {showDevices && <LinkedDevicesSheet onClose={() => setShowDevices(false)} />}
 
+        {/* ── Recordatorios (aviso a la hora elegida; también los propone Willy) ── */}
+        <div className="mx-4 mt-4 rounded-3xl shadow-sm overflow-hidden" style={{ backgroundColor: cardBg }}>
+          <button onClick={() => navigate('/reminders')} className="w-full flex items-center gap-3 px-5 py-4 text-left">
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-xl" style={{ backgroundColor: isDark ? 'rgba(152,193,217,0.15)' : '#E3EDF2' }}>⏰</span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-semibold text-sm" style={{ color: textClr }}>{tr('Recordatorios')}</span>
+              <span className="block text-xs mt-0.5" style={{ color: labelClr }}>{tr('Te avisamos a la hora que elijas')}</span>
+            </span>
+            <svg className="w-4 h-4" style={{ color: labelClr }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+
+        {/* ── Willy: analizar mis fotos, vídeos, audios y documentos (para encontrarlos por su contenido) ── */}
+        <MediaAnalysisCard userId={user?.id} cardBg={cardBg} textClr={textClr} labelClr={labelClr} />
+
         {/* ── Sección: Sonidos (tono de mensaje) ── */}
         <ToneSection userId={user?.id} cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} isDark={isDark} />
 
@@ -314,6 +331,40 @@ function CardTitle({ children, labelClr, borderClr }) {
   return (
     <div className="px-5 py-3" style={{ borderBottom: `1px solid ${borderClr}` }}>
       <p className="text-xs font-black tracking-wider uppercase" style={{ color: labelClr }}>{children}</p>
+    </div>
+  );
+}
+
+/**
+ * Willy puede buscar por lo que hay DENTRO de los archivos que envío (lo que se ve en fotos y vídeos, lo que digo en
+ * audios, el texto de documentos). Activado por defecto; al desactivarlo el servidor borra lo ya analizado.
+ */
+function MediaAnalysisCard({ userId, cardBg, textClr, labelClr }) {
+  const [on, setOn] = useState(null);
+  useEffect(() => {
+    if (!userId) return;
+    fetch(`${BACKEND}/user/prefs?userId=${encodeURIComponent(userId)}`).then(r => (r.ok ? r.json() : null))
+      .then(p => setOn(p ? p.mediaAnalysis !== false : true)).catch(() => setOn(true));
+  }, [userId]);
+  const toggle = async () => {
+    const next = !on;
+    setOn(next);
+    try {
+      const r = await fetch(`${BACKEND}/user/prefs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, mediaAnalysis: next }) });
+      if (!r.ok) throw new Error();
+    } catch { setOn(!next); }
+  };
+  return (
+    <div className="mx-4 mt-4 rounded-3xl shadow-sm overflow-hidden" style={{ backgroundColor: cardBg }}>
+      <div className="flex items-center gap-3 px-5 py-4">
+        <span className="flex-1 min-w-0">
+          <span className="block font-semibold text-sm" style={{ color: textClr }}>{tr('Willy: buscar dentro de mis archivos')}</span>
+          <span className="block text-xs mt-0.5" style={{ color: labelClr }}>
+            {tr('Analiza en nuestro servidor lo que se ve en las fotos y vídeos que envías, lo que dices en tus audios y el texto de tus documentos, para que Willy los encuentre. Si lo desactivas, se borra lo analizado.')}
+          </span>
+        </span>
+        {on !== null && <Toggle on={on} onPress={toggle} label={tr('Willy: buscar dentro de mis archivos')} />}
+      </div>
     </div>
   );
 }

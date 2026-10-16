@@ -11,7 +11,7 @@ Environment=LD_LIBRARY_PATH=/var/www/vhosts/oldface.app/llm-server/llama
 # 6 de los 12 núcleos y prioridad baja: llamadas, videollamadas y directos van primero
 ExecStart=/var/www/vhosts/oldface.app/llm-server/llama/llama-server \
   -m /var/www/vhosts/oldface.app/llm-server/models/qwen3-8b-q4km.gguf --alias qwen3-8b \
-  --host 127.0.0.1 --port 8089 -c 8192 -np 1 -t 6 --jinja \
+  --host 127.0.0.1 --port 8089 -c 16384 -np 1 -t 6 --jinja \
   --no-webui --no-webui-mcp-proxy --no-slots
 Nice=10
 CPUQuota=600%

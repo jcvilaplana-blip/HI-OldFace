@@ -600,17 +600,28 @@ router.post('/register-fcm-token', (req, res) => {
 
 /** POST /user/prefs — tono de mensaje del usuario (para el sonido de los avisos con la app cerrada) */
 router.post('/user/prefs', (req, res) => {
-  const { messageTone, lang } = req.body || {};
+  const { messageTone, lang, mediaAnalysis } = req.body || {};
   const userId = authUser(req, res, req.body?.userId);
   if (!userId) return;
-  if ((messageTone !== undefined && !MESSAGE_TONES.includes(messageTone)) || (lang !== undefined && !['es', 'en'].includes(lang)))
+  if ((messageTone !== undefined && !MESSAGE_TONES.includes(messageTone)) || (lang !== undefined && !['es', 'en'].includes(lang))
+      || (mediaAnalysis !== undefined && typeof mediaAnalysis !== 'boolean'))
     return res.status(400).json({ error: 'datos no válidos' });
   const patch = {};
   if (messageTone !== undefined) patch.messageTone = messageTone;
   if (lang !== undefined) patch.lang = lang;   // idioma del dispositivo: los avisos se redactan en él
+  if (mediaAnalysis !== undefined) patch.mediaAnalysis = mediaAnalysis;   // Willy analiza mis fotos, vídeos, audios y documentos
   prefsStore.set(String(userId), { ...(prefsStore.get(String(userId)) || {}), ...patch });
   savePrefs();
+  if (mediaAnalysis === false) ai.forgetMedia(userId);   // se borra lo ya analizado de lo que envió
   return res.json({ success: true });
+});
+
+/** GET /user/prefs?userId= — preferencias propias que la app enseña en Ajustes */
+router.get('/user/prefs', (req, res) => {
+  const userId = authUser(req, res, req.query.userId);
+  if (!userId) return;
+  const p = prefsStore.get(String(userId)) || {};
+  return res.json({ mediaAnalysis: p.mediaAnalysis !== false });
 });
 
 // ════════════════════════════════════════════════════════════════
@@ -1205,7 +1216,7 @@ router.post('/messages', async (req, res) => {
   const groupChat = chatStore2.get(chatId);
   if (groupChat?.isGroup) {
     for (const to of groupChat.participants || []) {
-      if (to === senderId) continue;
+      if (to === senderId || isMuted(to, chatId)) continue;   // grupo silenciado: sin aviso
       const T = pushText(to);   // en el idioma de cada destinatario
       const gName = groupStore.get(groupChat.groupId)?.name || groupChat.name || T.group;
       const who = senderUser?.name || T.someone;
@@ -1221,7 +1232,7 @@ router.post('/messages', async (req, res) => {
     const withoutPrefix = chatId.replace(/^chat_/, '');
     const parts = withoutPrefix.split(/_(?=user_)/);
     const recipientId = parts.find(p => p !== senderId);
-    if (recipientId) {
+    if (recipientId && !isMuted(recipientId, chatId)) {   // chat silenciado: sin aviso
       if (fcmTokensOf(recipientId).length) {
         // Buscar el nombre del remitente
         let senderName = 'OldFace';
@@ -1837,7 +1848,8 @@ function deleteAccount(userId) {
   saveUsers(); saveChats(); saveMessages(); saveGroups(); saveStories(); saveStickers(); saveCallLog(); saveDirectos();
   saveKaraokeRecs(); savePollProfiles(); savePollVotes(); saveSubs(); saveDevices(); saveFcm(); savePrefs(); savePrivacy();
   saveContacts(); saveStoryPrivacy();
-  ai.forgetUser(userId);   // contador de uso de Willy
+  muteStore.delete(userId); reminderStore.delete(userId); saveMutes(); saveReminders();   // silencios y recordatorios
+  ai.forgetUser(userId);   // contador de uso y acciones pendientes de Willy
   rtcEmit(userId, 'device:revoked', { deviceId: '*' });   // cierra la sesión en sus otros dispositivos abiertos
 }
 
@@ -3354,10 +3366,107 @@ app.get('/.well-known/assetlinks.json', (_req, res) => {
   }]);
 });
 
+// ════════════════════════════════════════════════════════════════
+//  SILENCIAR CHATS Y RECORDATORIOS
+// ════════════════════════════════════════════════════════════════
+// Silenciar: los mensajes de ese chat no avisan al usuario hasta `until` (0 = siempre); siguen llegando al chat.
+// Recordatorios: aviso al propio usuario a la hora pedida (opcionalmente ligado a uno de sus chats).
+const muteStore     = new Map(Object.entries(loadJSON('muted_chats.json', {})));   // userId → { chatId: until (ms, 0 = siempre) }
+const saveMutes     = () => saveJSON('muted_chats.json', Object.fromEntries(muteStore));
+const reminderStore = new Map(Object.entries(loadJSON('reminders.json', {})));     // userId → [{ id, text, at, chatId, createdAt, firedAt }]
+const saveReminders = () => saveJSON('reminders.json', Object.fromEntries(reminderStore));
+const MAX_REMINDERS = 100, REMINDER_MAX_AHEAD_MS = 366 * 86400000;
+
+/** ¿Tiene `userId` silenciado este chat ahora mismo? */
+function isMuted(userId, chatId) {
+  const until = muteStore.get(userId)?.[chatId];
+  return until === 0 || (typeof until === 'number' && until > Date.now());
+}
+
+/** GET /mutes?userId= — { muted: { chatId: until } } solo los silencios en vigor (0 = siempre) */
+router.get('/mutes', (req, res) => {
+  const uid = authUser(req, res, req.query.userId);
+  if (!uid) return;
+  const muted = Object.fromEntries(Object.entries(muteStore.get(uid) || {}).filter(([chatId]) => isMuted(uid, chatId)));
+  res.json({ muted });
+});
+
+/** PUT /mutes/:chatId — { userId, until } until: ms en el futuro, 0 = siempre, null = volver a avisar */
+router.put('/mutes/:chatId', (req, res) => {
+  const uid = authUser(req, res, req.body?.userId);
+  if (!uid) return;
+  const { chatId } = req.params;
+  if (!isChatMember(chatId, uid)) return res.status(403).json({ error: 'No perteneces a este chat' });
+  const until = req.body?.until;
+  const mine = { ...(muteStore.get(uid) || {}) };
+  for (const [id, u] of Object.entries(mine)) if (u !== 0 && u <= Date.now()) delete mine[id];   // limpiar caducados
+  if (until === null) delete mine[chatId];
+  else if (until === 0 || (Number.isFinite(until) && until > Date.now() && until - Date.now() <= REMINDER_MAX_AHEAD_MS)) mine[chatId] = until;
+  else return res.status(400).json({ error: 'Duración del silencio no válida' });
+  muteStore.set(uid, mine);
+  saveMutes();
+  res.json({ ok: true, chatId, until: mine[chatId] ?? null });
+});
+
+/** GET /reminders?userId= — recordatorios pendientes y los de las últimas 24 h */
+router.get('/reminders', (req, res) => {
+  const uid = authUser(req, res, req.query.userId);
+  if (!uid) return;
+  const since = Date.now() - 86400000;
+  res.json({ reminders: (reminderStore.get(uid) || []).filter(r => !r.firedAt || r.at > since).sort((a, b) => a.at - b.at) });
+});
+
+/** POST /reminders — { userId, text, at, chatId? } */
+router.post('/reminders', (req, res) => {
+  const uid = authUser(req, res, req.body?.userId);
+  if (!uid) return;
+  const text = String(req.body?.text || '').trim();
+  const at = Number(req.body?.at);
+  const chatId = req.body?.chatId || null;
+  if (!text || text.length > 200) return res.status(400).json({ error: 'El recordatorio debe tener entre 1 y 200 caracteres' });
+  if (!Number.isFinite(at) || at <= Date.now() || at - Date.now() > REMINDER_MAX_AHEAD_MS) return res.status(400).json({ error: 'La hora del recordatorio debe ser futura (como mucho dentro de un año)' });
+  if (chatId && !isChatMember(chatId, uid)) return res.status(403).json({ error: 'No perteneces a este chat' });
+  const list = (reminderStore.get(uid) || []).filter(r => !r.firedAt || r.at > Date.now() - 86400000);
+  if (list.filter(r => !r.firedAt).length >= MAX_REMINDERS) return res.status(429).json({ error: `Como mucho ${MAX_REMINDERS} recordatorios pendientes` });
+  const r = { id: `rem_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`, text, at: Math.round(at), chatId, createdAt: Date.now(), firedAt: null };
+  list.push(r);
+  reminderStore.set(uid, list);
+  saveReminders();
+  res.status(201).json({ reminder: r });
+});
+
+/** DELETE /reminders/:id?userId= */
+router.delete('/reminders/:id', (req, res) => {
+  const uid = authUser(req, res, req.query.userId);
+  if (!uid) return;
+  const list = reminderStore.get(uid) || [];
+  if (!list.some(r => r.id === req.params.id)) return res.status(404).json({ error: 'Recordatorio no encontrado' });
+  reminderStore.set(uid, list.filter(r => r.id !== req.params.id));
+  saveReminders();
+  res.json({ ok: true });
+});
+
+/** Cada 30 s: avisa de los recordatorios que ya tocan (una sola vez) */
+function fireReminders() {
+  let changed = false;
+  for (const [uid, list] of reminderStore) {
+    for (const r of list) {
+      if (r.firedAt || r.at > Date.now()) continue;
+      r.firedAt = Date.now(); changed = true;
+      const title = userLang(uid) === 'en' ? '⏰ Reminder' : '⏰ Recordatorio';
+      pushToUser(uid, title, r.text, { type: 'reminder', reminderId: r.id, ...(r.chatId ? { chatId: r.chatId } : {}) });
+      rtcEmit(uid, 'reminder', { id: r.id, text: r.text, chatId: r.chatId });
+    }
+  }
+  if (changed) saveReminders();
+}
+setInterval(fireReminders, Number(process.env.REMINDER_TICK_MS) || 30_000).unref?.();
+
 // ── OldFace AI (Willy): rutas /ai/* con la sesión del usuario — ver ai/index.js ──
 const ai = require('./ai')({
   router, authUser, dataDir: DATA_DIR,
-  deps: { chatStore: chatStore2, groupStore, messageStore, findUserById, contactsOf, isChatMember, callLogStore },
+  deps: { chatStore: chatStore2, groupStore, messageStore, findUserById, contactsOf, isChatMember, callLogStore,
+          uploadsDir: UPLOADS_DIR, mediaAllowed: (uid) => prefsStore.get(String(uid))?.mediaAnalysis !== false },
 });
 
 // ── Montar router ─────────────────────────────────────────────────

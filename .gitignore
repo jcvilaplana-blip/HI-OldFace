@@ -9,6 +9,10 @@ voice-server/models/
 llm-server/llama/
 llm-server/models/
 embed-server/models/
+vision-server/models/
+whisper-server/bin/
+whisper-server/models/
+whisper-server/build-tools/
 __pycache__/
 
 # Build outputs

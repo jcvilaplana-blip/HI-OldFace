@@ -4,11 +4,14 @@
  *   willyStatus()            → { available, name, dailyLimit, remaining }
  *   askWilly(history, loc)   → { reply, actions, remaining }   history = [{ role: 'user'|'assistant', content }]
  *   aboutTaxi(text) / taxiLocation() → posición aproximada SOLO si el usuario habla del taxi y ya dio permiso
+ *   confirmAction(id) / cancelAction(id) → tarjetas Confirmar / Cancelar de las propuestas de Willy (Fase 4)
  *   loadChat() / saveChat()  → la conversación con Willy vive solo en este dispositivo (localStorage)
  *
  * La sesión (Bearer) la añade utils/authFetch.js; la clave de la IA nunca está en la app.
  */
 import { useAuthStore } from '../store/authStore';
+import { useChatStore } from '../store/chatStore';
+import { setMute, addReminder } from './mutesReminders';
 import { tr } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
@@ -36,6 +39,38 @@ export async function askWilly(history, loc = null) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userId: me(), messages: msgs, ...(loc ? { location: loc } : {}) }),
+  }));
+}
+
+/**
+ * El usuario pulsó Confirmar en una propuesta de Willy: el servidor la marca como usada (solo una vez, solo suya,
+ * antes de que caduque) y devuelve qué hacer; la app lo hace con sus rutas normales y su sesión.
+ * → { chatId } (para el botón "Abrir chat") · lanza Error con el motivo si no se puede
+ */
+export async function confirmAction(id) {
+  const { action: a } = await json(await fetch(`${BACKEND}/ai/actions/${encodeURIComponent(id)}/confirm`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: me() }),
+  }));
+  const uid = me(), chats = useChatStore.getState();
+  if (a.kind === 'send' || a.kind === 'forward') {
+    let chatId = a.chatId;
+    if (!chatId && a.toUserId) chatId = (await chats.createOrGetChat(uid, a.toUserId, a.toName))?.id;   // primer mensaje a ese contacto
+    if (!chatId) throw new Error(tr('No se pudo abrir el chat'));
+    const m = a.kind === 'send' ? { type: 'text', text: a.text } : a.message;
+    const saved = await chats.persistMessage(chatId, uid, m.text || ' ', m.type || 'text', m.url || null, null, m.fileName || null,
+                                             m.duration ? { duration: m.duration } : {});
+    if (!saved) throw new Error(tr('No se pudo enviar el mensaje'));
+    return { chatId };
+  }
+  if (a.kind === 'mute') { await setMute(a.chatId, a.until); return { chatId: a.chatId }; }
+  if (a.kind === 'reminder') { await addReminder({ text: a.text, at: a.at, chatId: a.chatId }); return {}; }
+  throw new Error(tr('Acción desconocida'));
+}
+
+/** El usuario pulsó Cancelar */
+export async function cancelAction(id) {
+  return json(await fetch(`${BACKEND}/ai/actions/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: me() }),
   }));
 }
 

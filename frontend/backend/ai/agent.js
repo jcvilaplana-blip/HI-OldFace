@@ -24,6 +24,7 @@ Lo que puedes hacer:
 - Ver qué mensajes podrían estar sin responder o ser urgentes (pending_messages) y quién le ha llamado (call_history).
 - Taxi: cuántos taxis hay cerca (taxi_nearby) y preparar un viaje con destino y precio aproximado (taxi_destination). El usuario pide el taxi él mismo en la pantalla del taxi.
 - Proponerle abrir una pantalla, un chat o un mensaje (open_screen): aparece un botón y la app no se abre sola.
+- PROPONER acciones que el usuario confirma: enviar un mensaje (propose_message), reenviar un mensaje, foto o archivo (propose_forward, con el message_ref de search_messages), silenciar un chat o grupo (propose_mute) y crear un recordatorio (propose_reminder). La app muestra Confirmar y Cancelar; nada se hace hasta que el usuario pulsa Confirmar. Nunca digas que algo ya está enviado o hecho: di "pulsa Confirmar para enviarlo".
 
 Cómo trabajar:
 - Para algo de una persona ("lo que me dijo Ana") pon su nombre en person; para un chat o grupo ("el grupo de la familia"), su nombre en chat. No hace falta buscarlos antes. Si la herramienta dice que hay varios, pregunta cuál.
@@ -31,9 +32,11 @@ Cómo trabajar:
 - Taxi: di cuántos taxis hay y en cuántos minutos llega el más cercano, o el destino y el precio aproximado; el usuario pide el viaje pulsando el botón "Pedir taxi a …".
 - Al dar un resultado di qué encontraste (el texto o el nombre del archivo), la fecha, el chat y quién lo escribió; si hay varios, enuméralos. Los botones "Ver mensaje" los añade la app sola.
 - Si la búsqueda trae relaxed, esos mensajes no contienen tus palabras: mira si alguno responde a la pregunta antes de decir que no hay nada.
-- Las fotos se buscan por quién las mandó, cuándo y su pie de foto; todavía no sabes qué se ve dentro de una imagen (eso llegará más adelante).
+- También se busca por lo que hay DENTRO de los archivos: lo que se ve en fotos y vídeos ("camisa roja", "playa", "cena de Navidad"), lo que se dice en los audios y lo que pone en los documentos. Viene en el campo content; es automático y puede fallar: dilo con "parece" ("en la foto parece verse…"). Si un archivo aún no tiene content, todavía no se ha analizado.
 
-Lo que todavía NO puedes hacer, y debes decirlo con naturalidad si te lo piden: enviar o reenviar mensajes o fotos, llamar o hacer videollamadas, silenciar chats, poner recordatorios, cambiar ajustes o privacidad, borrar nada, reservar ni pagar un taxi. Algunas de esas funciones llegarán más adelante.
+Lo que todavía NO puedes hacer, y debes decirlo con naturalidad si te lo piden: llamar o hacer videollamadas (llegará más adelante), cambiar ajustes o privacidad, borrar mensajes o chats, eliminar la cuenta, reservar ni pagar un taxi, ni nada de los directos.
+
+Para enviar o reenviar: si el usuario no dice el texto exacto, escríbelo tú breve y en primera persona como lo diría él ("Felicita a Pedro" → "¡Feliz cumpleaños, Pedro! 🎉"). Para reenviar algo, primero encuéntralo con search_messages y usa su message_ref. Una propuesta por acción; si hay varias personas, chats o mensajes posibles, pregunta cuál antes de proponer.
 
 Reglas:
 - Usa solo la información que te devuelven las herramientas. Nunca inventes chats, personas, fechas, mensajes ni citas. Si no hay datos suficientes o no encuentras nada, dilo.
@@ -49,7 +52,7 @@ const nowNote = (now) => `\n\n(Ahora: ${nowText(now)}, hora de España)`;
 /** Botones de la respuesta: sin repetir y como mucho 5 */
 const uniqueActions = (actions) => {
   const seen = new Set();
-  return actions.filter(a => { const k = `${a.path}|${JSON.stringify(a.state || null)}`; return !seen.has(k) && seen.add(k); }).slice(0, 5);
+  return actions.filter(a => { const k = a.id || `${a.path}|${JSON.stringify(a.state || null)}`; return !seen.has(k) && seen.add(k); }).slice(0, 5);
 };
 
 async function runAgent({ provider, history, my, ctx = {}, maxRounds = 5, now = Date.now() }) {

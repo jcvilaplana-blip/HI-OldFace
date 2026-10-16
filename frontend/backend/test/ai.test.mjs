@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -20,7 +20,7 @@ const GID = 'group_1_test', GCHAT = `group_${GID}`;
 const NOW = Date.now(), H = 3_600_000;
 const msg = (id, chatId, senderId, text, ago, extra = {}) => ({ id, chatId, senderId, text, type: 'text', createdAt: NOW - ago, readBy: [A], ...extra });
 
-function makeServer(port, extraEnv) {
+function makeServer(port, extraEnv, prepare) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oldface-ai-'));
   fs.mkdirSync(path.join(dir, 'data')); fs.mkdirSync(path.join(dir, 'uploads'));
   for (const f of ['server.js', 'admin.html']) fs.copyFileSync(path.join(SRC, f), path.join(dir, f));
@@ -62,6 +62,7 @@ function makeServer(port, extraEnv) {
   });
   w('groups.json', { [GID]: { id: GID, name: 'Familia', adminId: A, members: [A, B], memberNames: {}, createdAt: 1, updatedAt: 1 } });
   w('user_contacts.json', { [A]: [B, L1, L2] });
+  prepare?.(dir, w);
   const env = { ...process.env, PORT: String(port), RTC_SECRET: SECRET, NODE_PATH: path.join(SRC, 'node_modules'), RTC_INTERNAL_URL: '', ANTHROPIC_API_KEY: '', ...extraEnv };
   const proc = spawn(process.execPath, ['server.js'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; proc.stdout.on('data', d => { log += d; }); proc.stderr.on('data', d => { log += d; });
@@ -368,6 +369,198 @@ try {
   const LEAK = /-3\.70|"lat"|lat=|Bodega|urgente|ES91/;
   check('registro: sin la ubicación ni textos de mensajes', !LEAK.test(audit2) && audit2.includes('search_messages'), audit2.match(new RegExp(`.{0,80}(${LEAK.source}).{0,80}`))?.[0]);
   check('log del servidor: sin ubicación ni contenido de mensajes', !LEAK.test(srv.log()), srv.log().match(new RegExp(`.{0,120}(${LEAK.source}).{0,80}`))?.[0]);
+
+  // ══ FASE 4: acciones con confirmación ══
+  const act = (base, op, id, uid = A, body = {}) => call(base, 'POST', `/ai/actions/${id}/${op}`, body, uid ? as(uid) : {});
+  const before = (await call(srv.base, 'GET', `/messages/${CHAT_AB}`, null, as(A))).body.messages.length;
+  const pm = await tool('propose_message', { person: 'Bea', text: 'Llego en 10 minutos' });
+  const card = pm.actions.find(a => a.type === 'confirm');
+  check('propose_message: tarjeta Confirmar con destinatario y texto', card?.kind === 'send' && card.to === 'Bea' && card.text === 'Llego en 10 minutos' && /^a_[0-9a-f]{24}$/.test(card.id) && card.expiresAt > Date.now(), JSON.stringify(pm.actions));
+  check('propose_message: al modelo le dice que NO está enviado', pm.raw.includes('NO digas que ya está hecho'));
+  check('propose_message: no se envía nada sin confirmar', (await call(srv.base, 'GET', `/messages/${CHAT_AB}`, null, as(A))).body.messages.length === before);
+  check('confirmar sin sesión → 401', (await act(srv.base, 'confirm', card.id, null)).status === 401);
+  check('confirmar con otro usuario (Bea) → 404', (await act(srv.base, 'confirm', card.id, B)).status === 404);
+  check('confirmar en nombre de otro (userId ajeno) → 403', (await act(srv.base, 'confirm', card.id, A, { userId: B })).status === 403);
+  const ok1 = await act(srv.base, 'confirm', card.id);
+  check('confirmar (dueño) → lo que hay que enviar', ok1.status === 200 && ok1.body.action.kind === 'send' && ok1.body.action.chatId === CHAT_AB && ok1.body.action.text === 'Llego en 10 minutos', JSON.stringify(ok1.body));
+  check('confirmar dos veces → 409', (await act(srv.base, 'confirm', card.id)).status === 409);
+  check('id inventado → 404', (await act(srv.base, 'confirm', 'a_000000000000000000000000')).status === 404);
+  check('id con formato raro → 404', (await act(srv.base, 'confirm', '..%2F..%2Fetc')).status === 404);
+  const sent = await call(srv.base, 'POST', '/messages', { chatId: ok1.body.action.chatId, text: ok1.body.action.text }, as(A));
+  check('la app lo envía con la ruta normal (y su sesión)', sent.status === 200 && sent.body.senderId === A);
+  const pc = (await tool('propose_message', { person: 'Bea', text: 'otro' })).actions.find(a => a.type === 'confirm');
+  check('cancelar → 200', (await act(srv.base, 'cancel', pc.id)).status === 200);
+  check('confirmar lo cancelado → 409', (await act(srv.base, 'confirm', pc.id)).status === 409);
+  const nochat = (await tool('propose_message', { person: 'Luis Gómez', text: 'Hola Luis' })).actions.find(a => a.type === 'confirm');
+  const nc = await act(srv.base, 'confirm', nochat.id);
+  check('a un contacto sin chat aún → se creará al confirmar (toUserId)', nc.body.action?.chatId === null && nc.body.action.toUserId === L2, JSON.stringify(nc.body));
+  check('a un grupo por nombre', (await act(srv.base, 'confirm', (await tool('propose_message', { chat: 'Familia', text: 'Mañana no voy' })).actions.find(a => a.type === 'confirm').id)).body.action?.chatId === GCHAT);
+  const ambM = await tool('propose_message', { person: 'Luis', text: 'hola' });
+  check('nombre ambiguo ("Luis") → preguntar, sin tarjeta', ambM.data?.ambiguous === true && !ambM.actions.some(a => a.type === 'confirm'));
+  const noC = await tool('propose_message', { person: 'Carlos', text: 'hola' });
+  check('a quien no es contacto (Carlos) → error, sin tarjeta', noC.raw.includes('Ningún contacto') && !noC.actions.some(a => a.type === 'confirm'));
+  check('a un chat ajeno por nombre → error', (await tool('propose_message', { chat: 'Secreto de Carlos', text: 'x' })).raw.includes('No hay ningún chat'));
+  check('sin destinatario → error', (await tool('propose_message', { text: 'hola' })).raw.includes('Falta a quién'));
+  check('sin texto → rechazado', (await tool('propose_message', { person: 'Bea' })).raw.includes('falta'));
+  check('texto de más de 2000 → rechazado', (await tool('propose_message', { person: 'Bea', text: 'x'.repeat(2001) })).raw.includes('demasiado largo'));
+  check('campo no permitido (chatId) → rechazado', (await tool('propose_message', { person: 'Bea', text: 'x', chatId: CHAT_CD })).raw.includes('campo no permitido'));
+
+  // Reenviar
+  const photoRef = (await tool('search_messages', { type: 'photo', person: 'Luis Pérez' })).data.results[0].message_ref;
+  const fw = (await tool('propose_forward', { message_ref: photoRef, person: 'Bea' })).actions.find(a => a.type === 'confirm');
+  const fwc = await act(srv.base, 'confirm', fw.id);
+  check('reenviar una foto: tarjeta y, al confirmar, la foto con su archivo', fw.kind === 'forward' && fw.to === 'Bea' && fwc.body.action?.message?.type === 'image' && fwc.body.action.message.url === '/files/foto.jpg' && fwc.body.action.chatId === CHAT_AB, JSON.stringify(fwc.body));
+  check('reenviar con referencia inventada → error', (await tool('propose_forward', { message_ref: 'm_000000000000', person: 'Bea' })).raw.includes('no se puede reenviar'));
+  check('reenviar un mensaje de otro usuario (de Carlos) → error', (await tool('propose_forward', { message_ref: sC.data.results[0].message_ref, person: 'Bea' })).raw.includes('no se puede reenviar'));
+
+  // Silenciar
+  const pmu = (await tool('propose_mute', { chat: 'Familia', duration: '8h' })).actions.find(a => a.type === 'confirm');
+  const mc = await act(srv.base, 'confirm', pmu.id);
+  const until = mc.body.action?.until;
+  check('silenciar 8 h: tarjeta y hasta cuándo', pmu.kind === 'mute' && pmu.text.startsWith('Silenciar durante 8 horas') && Math.abs(until - (Date.now() + 8 * H)) < 60_000);
+  check('silenciar: PUT /mutes con la sesión → 200', (await call(srv.base, 'PUT', `/mutes/${GCHAT}`, { until }, as(A))).status === 200);
+  check('GET /mutes: el grupo silenciado', (await call(srv.base, 'GET', '/mutes', null, as(A))).body.muted?.[GCHAT] === until);
+  check('silenciar sin sesión → 401', (await call(srv.base, 'PUT', `/mutes/${GCHAT}`, { until })).status === 401);
+  check('silenciar un chat ajeno → 403', (await call(srv.base, 'PUT', `/mutes/${CHAT_CD}`, { until }, as(A))).status === 403);
+  check('silenciar con duración no válida → 400', (await call(srv.base, 'PUT', `/mutes/${GCHAT}`, { until: 5 }, as(A))).status === 400);
+  check('el silencio de Ana no es de Bea', !(await call(srv.base, 'GET', '/mutes', null, as(B))).body.muted?.[GCHAT]);
+  check('mensaje en el grupo silenciado se sigue entregando', (await call(srv.base, 'POST', '/messages', { chatId: GCHAT, text: 'hola grupo' }, as(B))).status === 200);
+  check('quitar el silencio (until null) → 200 y ya no está', (await call(srv.base, 'PUT', `/mutes/${GCHAT}`, { until: null }, as(A))).status === 200
+    && !(await call(srv.base, 'GET', '/mutes', null, as(A))).body.muted?.[GCHAT]);
+  check('silenciar para siempre (until 0) → 200', (await call(srv.base, 'PUT', `/mutes/${CHAT_AL}`, { until: 0 }, as(A))).body.until === 0);
+  check('propose_mute "hasta mañana" = mañana a las 8:00', /\(hasta \d{4}-\d{2}-\d{2} 08:00/.test((await tool('propose_mute', { chat: 'Familia', duration: 'until_tomorrow' })).actions.find(a => a.type === 'confirm')?.text || ''));
+  check('propose_mute de un contacto sin chat → error', (await tool('propose_mute', { person: 'Luis Gómez', duration: '1h' })).raw.includes('no hay nada que silenciar'));
+  check('propose_mute duración inventada → rechazada', (await tool('propose_mute', { chat: 'Familia', duration: '2h' })).raw.includes('valor no permitido'));
+
+  // Recordatorios
+  const pr = (await tool('propose_reminder', { text: 'Contestar a Luis', in_minutes: 30, person: 'Luis Pérez' })).actions.find(a => a.type === 'confirm');
+  const prc = await act(srv.base, 'confirm', pr.id);
+  check('recordatorio en 30 min: tarjeta con cuándo y, al confirmar, la hora y el chat', pr.kind === 'reminder' && /^\d{4}-\d{2}-\d{2} /.test(pr.when) && Math.abs(prc.body.action.at - (Date.now() + 30 * 60_000)) < 60_000 && prc.body.action.chatId === CHAT_AL, JSON.stringify(prc.body));
+  const rem = await call(srv.base, 'POST', '/reminders', { text: prc.body.action.text, at: prc.body.action.at, chatId: prc.body.action.chatId }, as(A));
+  check('POST /reminders con la sesión → 201', rem.status === 201 && rem.body.reminder.text === 'Contestar a Luis');
+  check('GET /reminders: el suyo', (await call(srv.base, 'GET', '/reminders', null, as(A))).body.reminders.some(r => r.id === rem.body.reminder.id));
+  check('Bea no ve los recordatorios de Ana', !(await call(srv.base, 'GET', '/reminders', null, as(B))).body.reminders.length);
+  check('Bea no puede borrar el de Ana → 404', (await call(srv.base, 'DELETE', `/reminders/${rem.body.reminder.id}`, null, as(B))).status === 404);
+  check('borrar el suyo → 200', (await call(srv.base, 'DELETE', `/reminders/${rem.body.reminder.id}`, null, as(A))).status === 200);
+  check('recordatorio en el pasado → 400', (await call(srv.base, 'POST', '/reminders', { text: 'x', at: Date.now() - 1000 }, as(A))).status === 400);
+  check('recordatorio ligado a un chat ajeno → 403', (await call(srv.base, 'POST', '/reminders', { text: 'x', at: Date.now() + H, chatId: CHAT_CD }, as(A))).status === 403);
+  check('recordatorio sin sesión → 401', (await call(srv.base, 'POST', '/reminders', { text: 'x', at: Date.now() + H })).status === 401);
+  check('recordatorio de más de 200 caracteres → 400', (await call(srv.base, 'POST', '/reminders', { text: 'x'.repeat(201), at: Date.now() + H }, as(A))).status === 400);
+  check('propose_reminder con fecha pasada → error', (await tool('propose_reminder', { text: 'x', day: '2020-01-01', time: '10:00' })).raw.includes('ya ha pasado'));
+  check('propose_reminder sin cuándo → error', (await tool('propose_reminder', { text: 'x' })).raw.includes('Falta cuándo'));
+  check('propose_reminder hora mal escrita → rechazada', (await tool('propose_reminder', { text: 'x', day: 'tomorrow', time: '25:00' })).raw.includes('formato no válido'));
+  const tmw = (await tool('propose_reminder', { text: 'Llamar al médico', day: 'tomorrow', time: '09:00' })).actions.find(a => a.type === 'confirm');
+  check('propose_reminder mañana a las 9 → hora de España', / 09:00 \(/.test(tmw?.when || ''), tmw?.when);
+  await sleep(300);
+  const audit4 = fs.readFileSync(path.join(srv.dir, 'data', 'ai_audit.log'), 'utf8');
+  check('registro de confirmaciones sin el texto de los mensajes', audit4.includes('"action":"confirm"') && !/Llego en 10|Contestar a Luis|Mañana no voy/.test(audit4));
+
+  // Caducidad y aviso de los recordatorios (tiempos cortos)
+  const timers = makeServer(3982, { AI_PROVIDER: 'mock', AI_ACTION_TTL_MS: '300', REMINDER_TICK_MS: '200' });
+  for (let i = 0; i < 50; i++) { try { await fetch(`${timers.base}/health`); break; } catch { await sleep(200); } }
+  const tr0 = await call(timers.base, 'POST', '/ai/chat', { messages: [{ role: 'user', content: '#tool propose_message {"person":"Bea","text":"tarde"}' }] }, as(A));
+  const late = tr0.body.actions?.find(a => a.type === 'confirm');
+  await sleep(600);
+  check('confirmar una propuesta caducada → 410', !!late && (await act(timers.base, 'confirm', late.id)).status === 410);
+  const soon = await call(timers.base, 'POST', '/reminders', { text: 'ya toca', at: Date.now() + 300 }, as(A));
+  await sleep(1200);
+  check('el recordatorio avisa a su hora (una vez)', (await call(timers.base, 'GET', '/reminders', null, as(A))).body.reminders.find(r => r.id === soon.body.reminder?.id)?.firedAt > 0);
+  timers.proc.kill();
+
+  // ══ FASE 3: lo que hay dentro de fotos, vídeos, audios y documentos ══
+  const FFMPEG = path.join(SRC, '..', '..', 'rtc-server', 'node_modules', 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+  if (!fs.existsSync(FFMPEG)) console.log('AVISO  sin ffmpeg (rtc-server/node_modules): se omiten las pruebas de la Fase 3');
+  else {
+    const visionSeen = [], whisperSeen = [];
+    const visionStub = http.createServer((req, res) => {
+      let b = ''; req.on('data', d => { b += d; }); req.on('end', () => {
+        const body = JSON.parse(b || '{}');
+        const img = body.messages?.[0]?.content?.find(x => x.type === 'image_url')?.image_url?.url || '';
+        visionSeen.push(img.slice(0, 30));
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ choices: [{ message: { content: 'Un hombre con camisa roja en la playa. Texto: OFERTA 2x1' } }] }));
+      });
+    });
+    const whisperStub = http.createServer((req, res) => {
+      let n = 0; req.on('data', d => { n += d.length; }); req.on('end', () => {
+        whisperSeen.push({ ct: req.headers['content-type'] || '', bytes: n, url: req.url });
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ text: ' Hola, te llamo por lo del contrato del piso. ' }));
+      });
+    });
+    await new Promise(r => visionStub.listen(3979, '127.0.0.1', r));
+    await new Promise(r => whisperStub.listen(3978, '127.0.0.1', r));
+    const PDF = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n'
+      + '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n'
+      + '4 0 obj<</Length 51>>stream\nBT /F1 18 Tf 20 60 Td (Contrato de alquiler) Tj ET\nendstream endobj\n'
+      + '5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n';
+    const mk = (id, chatId, sender, type, file, extra = {}) => ({ id, chatId, senderId: sender, text: `[${type}]`, type, url: `/files/${file}`, createdAt: NOW - H, readBy: [A], ...extra });
+    const mediaSrv = makeServer(3981, { AI_PROVIDER: 'mock', VISION_URL: 'http://127.0.0.1:3979', WHISPER_URL: 'http://127.0.0.1:3978',
+                                        FFMPEG_PATH: FFMPEG, AI_MEDIA_START_MS: '300', AI_MEDIA_LOOP_MS: '700' }, (dir, w) => {
+      const up = (f) => path.join(dir, 'uploads', f);
+      const ff = (args) => spawnSync(FFMPEG, ['-y', '-loglevel', 'error', ...args]);
+      ff(['-f', 'lavfi', '-i', 'color=c=red:s=64x64', '-frames:v', '1', up('red.jpg')]);
+      ff(['-f', 'lavfi', '-i', 'testsrc=duration=8:size=64x64:rate=5', '-pix_fmt', 'yuv420p', up('clip.mp4')]);
+      ff(['-f', 'lavfi', '-i', 'sine=frequency=440:duration=2', '-c:a', 'libopus', up('nota.webm')]);
+      for (const f of ['once.jpg', 'del.jpg', 'carlos.jpg', 'luis.jpg']) fs.copyFileSync(up('red.jpg'), up(f));
+      fs.writeFileSync(up('contrato.pdf'), PDF);
+      w('messages.json', {
+        [CHAT_AB]: [mk('p1', CHAT_AB, B, 'image', 'red.jpg'), mk('v1', CHAT_AB, B, 'video', 'clip.mp4'), mk('a1', CHAT_AB, B, 'audio', 'nota.webm', { duration: 2 }),
+                    mk('d1', CHAT_AB, B, 'document', 'contrato.pdf', { fileName: 'contrato.pdf', text: '[Archivo: contrato.pdf]' }),
+                    mk('o1', CHAT_AB, B, 'image', 'once.jpg', { viewOnce: true, openedBy: [] }), mk('x1', CHAT_AB, B, 'image', 'del.jpg', { deleted: true })],
+        [CHAT_CD]: [mk('c1', CHAT_CD, C, 'image', 'carlos.jpg')],
+        [CHAT_AL]: [mk('l1', CHAT_AL, L1, 'image', 'luis.jpg')],
+      });
+      w('chats.json', {
+        [CHAT_AB]: { id: CHAT_AB, participants: [A, B], name: 'x', createdAt: 1, lastTime: NOW },
+        [CHAT_CD]: { id: CHAT_CD, participants: [C, D], name: 'x', createdAt: 1, lastTime: NOW },
+        [CHAT_AL]: { id: CHAT_AL, participants: [A, L1], name: 'x', createdAt: 1, lastTime: NOW },
+      });
+      w('user_prefs.json', { [L1]: { mediaAnalysis: false } });   // Luis Pérez lo ha desactivado
+    });
+    for (let i = 0; i < 50; i++) { try { await fetch(`${mediaSrv.base}/health`); break; } catch { await sleep(200); } }
+    const mediaFile = path.join(mediaSrv.dir, 'data', 'ai_media.json');
+    const readMedia = () => { try { return JSON.parse(fs.readFileSync(mediaFile, 'utf8')); } catch { return {}; } };
+    for (let i = 0; i < 60 && Object.keys(readMedia()).length < 5; i++) await sleep(500);
+    await sleep(2500);   // se guarda a los 2 s
+    const st3 = readMedia();
+    const keyOf = (chatId, id) => `${chatId}|${id}`;
+    check('analiza foto, vídeo, audio y PDF (y la foto de Carlos para Carlos)', ['p1', 'v1', 'a1', 'd1'].every(id => st3[keyOf(CHAT_AB, id)] && !st3[keyOf(CHAT_AB, id)].err) && !!st3[keyOf(CHAT_CD, 'c1')], JSON.stringify(st3));
+    check('foto: descripción del modelo de visión', st3[keyOf(CHAT_AB, 'p1')]?.desc?.includes('camisa roja'));
+    check('vídeo: dos fotogramas (principio y más adelante)', /^Al principio: .*Más adelante: /.test(st3[keyOf(CHAT_AB, 'v1')]?.desc || ''));
+    check('audio: transcripción (WAV 16 kHz en multipart)', st3[keyOf(CHAT_AB, 'a1')]?.text === 'Hola, te llamo por lo del contrato del piso.' && whisperSeen[0]?.ct.startsWith('multipart/form-data') && whisperSeen[0].url === '/inference');
+    check('PDF: su texto', st3[keyOf(CHAT_AB, 'd1')]?.text?.includes('Contrato de alquiler'), JSON.stringify(st3[keyOf(CHAT_AB, 'd1')]));
+    check('nunca "ver una vez" ni eliminados', !st3[keyOf(CHAT_AB, 'o1')] && !st3[keyOf(CHAT_AB, 'x1')]);
+    check('nunca archivos de quien lo desactivó (Luis)', !st3[keyOf(CHAT_AL, 'l1')]);
+    check('al modelo de visión le llegan 4 imágenes (foto, foto de Carlos y 2 fotogramas), reducidas a JPEG', visionSeen.length === 4 && visionSeen.every(u => u.startsWith('data:image/jpeg;base64,')), JSON.stringify(visionSeen));
+    const mtool = async (name, input, uid = A) => {
+      const r = await call(mediaSrv.base, 'POST', '/ai/chat', { messages: [{ role: 'user', content: `#tool ${name} ${JSON.stringify(input)}` }] }, as(uid));
+      let data = null; try { data = JSON.parse((r.body.reply || '').replace(/^resultado: /, '')); } catch { /* error */ }
+      return { raw: r.body.reply || '', data };
+    };
+    const camisa = await mtool('search_messages', { query: 'foto camisa roja' });
+    check('buscar "foto camisa roja" → la foto, con lo que parece verse', camisa.data?.total === 1 && camisa.data.results[0].type === 'photo' && camisa.data.results[0].content.startsWith('Parece: Un hombre con camisa roja') && /automática/.test(camisa.data.results[0].content_note), camisa.raw);
+    check('buscar "vídeo playa" → el vídeo', (await mtool('search_messages', { query: 'vídeo playa' })).data?.results?.[0]?.type === 'video');
+    const contrato = await mtool('search_messages', { query: 'contrato' });
+    check('buscar "contrato" → el audio (Dice:) y el PDF (Contiene:)', contrato.data?.total === 2 && contrato.raw.includes('Dice: Hola, te llamo') && contrato.raw.includes('Contiene: Contrato de alquiler'), contrato.raw);
+    check('OCR: el texto de la imagen también se busca ("oferta")', (await mtool('search_messages', { query: 'oferta', type: 'photo' })).data?.total === 1);
+    check('Ana nunca encuentra la foto del chat de Carlos', (await mtool('search_messages', { query: 'camisa roja' })).data.results.every(r => r.chat === 'Bea'));
+    check('Carlos encuentra la suya', (await mtool('search_messages', { query: 'camisa roja', type: 'photo' }, C)).data?.total === 1);
+    check('resumen de un chat: incluye lo que hay en los archivos', (await mtool('read_chat', { chat: 'Bea' })).raw.includes('Parece: Un hombre con camisa roja'));
+    // Desactivarlo: se borra lo analizado de lo que envió y no se vuelve a analizar
+    check('mediaAnalysis no booleano → 400', (await call(mediaSrv.base, 'POST', '/user/prefs', { mediaAnalysis: 'no' }, as(B))).status === 400);
+    check('GET /user/prefs: activado por defecto', (await call(mediaSrv.base, 'GET', '/user/prefs', null, as(B))).body.mediaAnalysis === true);
+    check('desactivar el análisis (Bea) → 200', (await call(mediaSrv.base, 'POST', '/user/prefs', { mediaAnalysis: false }, as(B))).status === 200);
+    check('GET /user/prefs sin sesión → 401', (await call(mediaSrv.base, 'GET', '/user/prefs')).status === 401);
+    check('… y ya no se encuentra por su contenido', (await mtool('search_messages', { query: 'camisa roja' })).data?.total === 0);
+    // Borrar un mensaje (para todos) → se borra lo analizado
+    check('Carlos borra su foto para todos', (await call(mediaSrv.base, 'DELETE', `/messages/${CHAT_CD}/c1?scope=all`, null, as(C))).status === 200);
+    await sleep(3500);
+    const after = readMedia();
+    check('lo analizado de lo borrado y de quien lo desactivó desaparece del disco', !after[keyOf(CHAT_CD, 'c1')] && !Object.keys(after).some(k => k.startsWith(`${CHAT_AB}|`)), JSON.stringify(after));
+    check('el log no guarda descripciones ni transcripciones', !/camisa roja|contrato del piso|Contrato de alquiler/.test(mediaSrv.log()));
+    mediaSrv.proc.kill(); visionStub.close(); whisperStub.close();
+  }
 
   // ── Límites ──
   check('demasiadas vueltas de herramientas → corta', (await ask('#loop')).body.reply.includes('demasiados pasos'));

@@ -85,17 +85,20 @@ function shown(m, n = 220) {
   return clip(tag ? `${tag}${txt ? ` ${txt}` : ''}` : txt, n);
 }
 
-/** Datos del tipo pedido que aparecen en el mensaje */
-function extract(m, what) {
+/** Datos del tipo pedido que aparecen en el mensaje (o en lo analizado de su archivo: `extra`) */
+function extract(m, what, extra = '') {
   if (what === 'location') return kindOf(m) === 'location' ? [clip(m.text || 'ubicación', 120)] : [];
   // Las cuentas se enmascaran ANTES de buscar otros datos (sus cifras no deben salir como "teléfono")
-  const text = what === 'account' ? searchableText(m) : maskAccounts(searchableText(m));
+  const all = `${searchableText(m)} ${extra}`.trim();
+  const text = what === 'account' ? all : maskAccounts(all);
   const found = text.match(RX[what]) || [];
   const clean = what === 'phone' ? found.filter(p => digits(p).length >= 9 && !IS_ACCOUNT.test(p.trim())) : found;
   return [...new Set(clean.map(x => (what === 'account' ? maskAccounts(x) : clip(x, 120))))].slice(0, 5);
 }
 
-function createAccess({ chatStore, groupStore, messageStore, findUserById, contactsOf, isChatMember, callLogStore, semantic, refSecret }) {
+function createAccess({ chatStore, groupStore, messageStore, findUserById, contactsOf, isChatMember, callLogStore, semantic, mediaText = () => '', refSecret }) {
+  /** Texto buscable de un mensaje + lo analizado de su archivo (Fase 3: "Parece: …", "Dice: …", "Contiene: …") */
+  const fullText = (chatId, m) => [searchableText(m), mediaText(chatId, m)].filter(Boolean).join(' ');
   const secret = refSecret || crypto.randomBytes(32).toString('hex');
   /** Referencia opaca de `id` para el usuario `uid` (la misma en cada petición, distinta para cada usuario) */
   const refOf = (prefix, uid, id) => `${prefix}_${crypto.createHmac('sha256', secret).update(`${prefix}|${uid}|${id}`).digest('hex').slice(0, 12)}`;
@@ -136,10 +139,15 @@ function createAccess({ chatStore, groupStore, messageStore, findUserById, conta
     const resolveChat = (ref) => (typeof ref === 'string' ? myChats().find(x => refOf('c', uid, x.id) === ref)?.id || null : null);
     const resolvePerson = (ref) => (typeof ref === 'string' ? [...people()].find(id => refOf('p', uid, id) === ref) || null : null);
     const inRange = (m, range) => !range || ((m.createdAt || 0) >= range.from && (m.createdAt || 0) < range.to);
-    const row = (c, m, extra = {}) => ({
-      message_ref: msgRef(c.id, m), chat: chatName(c, uid), is_group: !!c.isGroup, from: nameOf(m.senderId),
-      date: stamp(m.createdAt), type: kindOf(m), text: shown(m), ...extra,
-    });
+    const row = (c, m, extra = {}) => {
+      const media = mediaText(c.id, m);
+      return {
+        message_ref: msgRef(c.id, m), chat: chatName(c, uid), is_group: !!c.isGroup, from: nameOf(m.senderId),
+        date: stamp(m.createdAt), type: kindOf(m), text: shown(m),
+        ...(media ? { content: clip(maskAccounts(media), 260), content_note: 'Descripción o transcripción automática: puede tener errores' } : {}),
+        ...extra,
+      };
+    };
 
     return {
       listChats({ kind = 'all', limit = 10, query = '', unreadOnly = false } = {}) {
@@ -190,6 +198,30 @@ function createAccess({ chatStore, groupStore, messageStore, findUserById, conta
         return c && c.participants?.includes(uid) ? chatName(c, uid) : null;
       },
 
+      /** person_ref → { id, name, chatId } (chatId = su chat 1 a 1 si ya existe) SOLO entre sus contactos; si no, null */
+      personInfo(ref) {
+        const id = resolvePerson(ref);
+        if (!id) return null;
+        const chatId = `chat_${[uid, id].sort().join('_')}`;
+        return { id, name: nameOf(id), chatId: chatStore.has(chatId) && isChatMember(chatId, uid) ? chatId : null };
+      },
+
+      /**
+       * Lo que se reenvía de un mensaje (Fase 4): solo de sus chats, nunca "ver una vez" (visibleIn ya los quita),
+       * ni ubicaciones en tiempo real. → { type, text, url, fileName, duration, shown, from } o null
+       */
+      forwardable(ref) {
+        if (typeof ref !== 'string') return null;
+        for (const c of myChats()) {
+          const m = visibleIn(c.id, uid).find(x => msgRef(c.id, x) === ref);
+          if (!m) continue;
+          if (m.type === 'live_location' || m.viewOnce) return null;
+          return { type: m.type || 'text', text: String(m.text || ''), url: m.url || null, fileName: m.fileName || null,
+                   duration: m.duration || null, shown: shown(m, 120), from: nameOf(m.senderId) };
+        }
+        return null;
+      },
+
       /** message_ref → { chatId, msgId, chatName } SOLO si es un mensaje que el usuario puede ver; si no, null */
       resolveMessage(ref) {
         if (typeof ref !== 'string') return null;
@@ -233,8 +265,8 @@ function createAccess({ chatStore, groupStore, messageStore, findUserById, conta
             if (fromMe === true && m.senderId !== uid) continue;
             if (fromMe === false && m.senderId === uid) continue;
             let found = null;
-            if (contains) { found = extract(m, contains); if (!found.length) continue; }
-            cands.push({ c, m, found, text: searchableText(m) });
+            if (contains) { found = extract(m, contains, mediaText(c.id, m)); if (!found.length) continue; }
+            cands.push({ c, m, found, text: fullText(c.id, m) });
           }
         }
 
@@ -290,7 +322,10 @@ function createAccess({ chatStore, groupStore, messageStore, findUserById, conta
         const page = list.slice(-limit);
         return {
           chat: chatName(c, uid), is_group: !!c.isGroup, count: page.length,
-          messages: page.map(m => ({ from: nameOf(m.senderId), date: stamp(m.createdAt), text: shown(m, 300) })),
+          messages: page.map(m => {
+            const media = mediaText(chatId, m);
+            return { from: nameOf(m.senderId), date: stamp(m.createdAt), text: shown(m, 300), ...(media ? { content: clip(maskAccounts(media), 160) } : {}) };
+          }),
           older_available: list.length > page.length,
           ...(list.length > page.length && page[0] ? { older_ref: msgRef(chatId, page[0]) } : {}),
         };
@@ -350,7 +385,7 @@ function createAccess({ chatStore, groupStore, messageStore, findUserById, conta
     for (const [chatId, list] of messageStore) {
       for (const m of list) {
         if (m.deleted || m.viewOnce) continue;
-        const text = searchableText(m);
+        const text = fullText(chatId, m);
         if (text.length >= 3) items.push({ key: `${chatId}|${m.id}`, text });
       }
     }

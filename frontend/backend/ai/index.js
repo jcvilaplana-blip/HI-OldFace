@@ -8,6 +8,7 @@
  *                   location = posición del móvil que la app manda SOLO si el usuario habla del taxi; se redondea a
  *                   ~100 m, se usa en esa petición y no se guarda ni se anota en ningún registro.
  *   POST /ai/speak  { text } → audio/wav con la voz de Willy (servicio local voice-server/; el texto no se guarda)
+ *   POST /ai/actions/:id/confirm | cancel → propuestas de Willy (enviar, reenviar, silenciar, recordar); ver ai/actions.js
  * La conversación con Willy la guarda la app (no el servidor). Aquí solo se cuentan peticiones y tokens por día
  * (data/ai_usage.json) y se anota qué herramientas se usaron (data/ai_audit.log, sin contenido y con el usuario
  * seudonimizado). Configuración en .env: ver providers/index.js y AI_DAILY_LIMIT (peticiones por usuario y día).
@@ -20,6 +21,8 @@ const { createVoice } = require('./providers/tts');
 const { createAccess } = require('./access');
 const { createSemantic } = require('./semantic');
 const { createTaxi } = require('./taxi');
+const { createActions } = require('./actions');
+const { createMedia } = require('./media');
 const { runAgent, SYSTEM_PROMPT } = require('./agent');
 const { toolSpecs } = require('./tools');
 const { validate } = require('./validate');
@@ -63,8 +66,13 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
   const voice = createVoice(env);
   const semantic = createSemantic(env);
   const taxi = createTaxi(env);
-  const access = createAccess({ ...deps, semantic, refSecret: env.RTC_SECRET });
+  // Fase 3: qué se ve en fotos/vídeos, qué se dice en audios y qué pone en documentos (ai/media.js)
+  const media = deps.uploadsDir
+    ? createMedia({ env, dataDir, uploadsDir: deps.uploadsDir, messageStore: deps.messageStore, allowed: deps.mediaAllowed || (() => true) })
+    : null;
+  const access = createAccess({ ...deps, semantic, mediaText: media ? media.textOf : undefined, refSecret: env.RTC_SECRET });
   const placesOf = new Map();   // uid → destinos de taxi encontrados por Willy (caducan a los 30 min)
+  const actions = createActions({ ttlMs: Number(env.AI_ACTION_TTL_MS) || undefined });   // propuestas pendientes de confirmar
   const dailyLimit = Math.max(parseInt(env.AI_DAILY_LIMIT || '40', 10) || 40, 1);
   const voiceLimit = Math.max(parseInt(env.AI_VOICE_DAILY_LIMIT || '400', 10) || 400, 1);   // frases leídas por usuario y día
   const voiceInFlight = new Map();   // uid → frases generándose ahora
@@ -98,7 +106,9 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
 
   console.log(`🤖 Willy (IA): ${provider ? `${provider.name} · ${provider.model}` : 'desactivado (sin ANTHROPIC_API_KEY)'}`
     + ` · voz: ${voice ? voice.name : 'la del móvil'} · búsqueda: ${semantic ? 'palabras y significado' : 'palabras'}`
-    + ` · taxi: ${taxi ? 'sí' : 'no'}`);
+    + ` · taxi: ${taxi ? 'sí' : 'no'}`
+    + ` · archivos: ${media ? Object.entries(media.services).filter(([, v]) => v).map(([k]) => k).join('+') || 'solo documentos' : 'no'}`);
+  if (media && provider) media.start();
   // Índice por significado SOLO en memoria: mensajes nuevos o editados se calculan en segundo plano y los
   // borrados se olvidan (prune). Al reiniciar se vuelve a calcular todo.
   if (semantic && provider) {
@@ -168,7 +178,7 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
     saveUsage();
     try {
       if (!placesOf.has(uid)) placesOf.set(uid, new Map());
-      const ctx = { taxi, location: roughLocation(req.body.location), places: placesOf.get(uid) };
+      const ctx = { taxi, location: roughLocation(req.body.location), places: placesOf.get(uid), actions, uid };
       const out = await runAgent({ provider, history: req.body.messages, my: access.forUser(uid), ctx });
       mine.input += out.usage.input;
       mine.output += out.usage.output;
@@ -185,8 +195,26 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
     }
   });
 
+  /**
+   * POST /ai/actions/:id/confirm — el usuario pulsó Confirmar en una propuesta de Willy. Solo el dueño, una vez y antes
+   * de que caduque. Devuelve lo que la app debe hacer con sus rutas normales (que vuelven a comprobar permisos).
+   * POST /ai/actions/:id/cancel — pulsó Cancelar.
+   */
+  for (const op of ['confirm', 'cancel']) {
+    router.post(`/ai/actions/:id/${op}`, (req, res) => {
+      const uid = authUser(req, res, req.body?.userId);
+      if (!uid) return;
+      const r = actions[op](uid, req.params.id);
+      audit(uid, { action: op, kind: r.payload?.kind || null, ok: r.ok, ...(r.ok ? {} : { status: r.status }) });
+      if (!r.ok) return res.status(r.status).json({ error: r.error });
+      res.json(op === 'confirm' ? { ok: true, action: r.payload } : { ok: true });
+    });
+  }
+
   return {
-    /** Al eliminar la cuenta: borrar su contador de uso (el registro ya no lleva su userId) */
-    forgetUser(uid) { placesOf.delete(uid); if (usage.users[uid]) { delete usage.users[uid]; saveUsage(); } },
+    /** Al eliminar la cuenta: borrar su contador de uso y sus propuestas (el registro ya no lleva su userId) */
+    forgetUser(uid) { placesOf.delete(uid); actions.forgetUser(uid); media?.prune(); if (usage.users[uid]) { delete usage.users[uid]; saveUsage(); } },
+    /** El usuario desactivó el análisis de sus archivos: se borra lo analizado de lo que envió */
+    forgetMedia(uid) { media?.forgetSender(uid); },
   };
 };

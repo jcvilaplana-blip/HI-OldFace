@@ -12,7 +12,7 @@
  */
 const crypto = require('crypto');
 const { validate } = require('./validate');
-const { PERIODS, rangeOf } = require('./dates');
+const { PERIODS, rangeOf, midnight, partsOf, stamp } = require('./dates');
 const { CONTAINS, KINDS, fold } = require('./access');
 const { TaxiUnavailable } = require('./taxi');
 
@@ -26,6 +26,7 @@ const SCREENS = {
   taxi:     { path: '/taxi',     label: 'Taxi' },
   polls:    { path: '/poll',     label: 'Encuestas' },
   help:     { path: '/help',     label: 'Ayuda' },
+  reminders: { path: '/reminders', label: 'Recordatorios' },
 };
 
 const REF = { chat: '^c_[0-9a-f]{12}$', person: '^p_[0-9a-f]{12}$', message: '^m_[0-9a-f]{12}$', place: '^l_[0-9a-f]{12}$' };
@@ -97,6 +98,55 @@ const shortAddress = (p) => {
   return [p.name || parts[0], rest[rest.length >= 3 ? rest.length - 3 : 0]].filter(Boolean).join(', ');
 };
 
+/**
+ * Destino de un envío (Fase 4): persona (su chat 1 a 1, o se creará al confirmar) o chat/grupo, SOLO del usuario.
+ * → { chatId?, toUserId?, label } o { stop } (no existe / hay varios: preguntar)
+ */
+function targetOf(my, { person, chat }) {
+  if (!person && !chat) return { stop: { error: 'Falta a quién: pon el nombre de la persona en person o del chat o grupo en chat' } };
+  const named = refsByName(my, { person, chat });
+  if (named.stop) return named;
+  if (named.chatRef) {
+    const chatId = my.resolveChat(named.chatRef);
+    return chatId ? { chatId, label: my.chatTitle(chatId) } : { stop: { error: 'Ese chat no existe o no es del usuario' } };
+  }
+  const p = my.personInfo(named.personRef);
+  if (!p) return { stop: { error: 'Esa persona no está entre los contactos del usuario' } };
+  return p.chatId ? { chatId: p.chatId, label: p.name } : { toUserId: p.id, label: p.name };
+}
+
+/** Crea la acción pendiente y la tarjeta Confirmar/Cancelar de la app; al modelo solo le dice que está propuesta */
+function propose({ actions, uid }, ui, payload, card) {
+  if (!actions || !uid) return { error: 'Las acciones no están disponibles ahora mismo' };
+  const { id, expiresAt } = actions.propose(uid, payload);
+  ui.push({ type: 'confirm', id, kind: payload.kind, expiresAt, ...card });
+  return { proposed: true, hint: 'Propuesta creada: la app muestra Confirmar y Cancelar. Dile al usuario qué se hará y que pulse '
+    + 'Confirmar si está bien. NO digas que ya está hecho: no se hace nada hasta que confirme.' };
+}
+
+const MUTES = { '1h': 'durante 1 hora', '8h': 'durante 8 horas', until_tomorrow: 'hasta mañana', '1w': 'durante 1 semana', always: 'siempre', off: 'volver a avisar' };
+/** Hasta cuándo se silencia (ms; 0 = siempre; null = quitar el silencio) */
+function muteUntil(d, now = Date.now()) {
+  if (d === '1h') return now + 3_600_000;
+  if (d === '8h') return now + 8 * 3_600_000;
+  if (d === '1w') return now + 7 * 86_400_000;
+  if (d === 'until_tomorrow') { const t = partsOf(now); return midnight(t.y, t.m, t.d + 1) + 8 * 3_600_000; }   // mañana a las 8:00
+  if (d === 'always') return 0;
+  return null;
+}
+
+/** Cuándo avisar: en X minutos, o día (hoy/mañana/AAAA-MM-DD) + hora HH:MM, en hora de España → ms o null */
+function reminderAt({ in_minutes, day = 'today', time }, now = Date.now()) {
+  if (in_minutes) return now + in_minutes * 60_000;
+  if (!time) return null;
+  const [h, mi] = time.split(':').map(Number);
+  const t = partsOf(now);
+  let y = t.y, m = t.m, d = t.d;
+  if (day === 'tomorrow') d += 1;
+  else if (day !== 'today') [y, m, d] = day.split('-').map(Number);
+  return midnight(y, m, d) + (h * 60 + mi) * 60_000;
+}
+
 /** Botón "Pedir taxi a …": abre la pantalla del taxi con el destino puesto; el viaje lo pide el usuario allí */
 const offerTaxi = (ui, place) => ui.push({ type: 'navigate', kind: 'taxi', path: '/taxi',
   state: { taxiDropoff: { lat: place.lat, lng: place.lng, address: place.address } }, label: place.name || place.address });
@@ -148,7 +198,8 @@ const TOOLS = [
     name: 'search_messages',
     kind: 'read',
     description: 'Busca mensajes del usuario (los suyos y los que recibió) por palabras o significado, persona, chat, '
-      + 'fechas y tipo (foto, vídeo, audio, documento, ubicación…). Con contains encuentra datos: enlaces, teléfonos, '
+      + 'fechas y tipo (foto, vídeo, audio, documento, ubicación…), también por lo que se ve en fotos y vídeos, lo que se '
+      + 'dice en los audios y lo que pone en los documentos (campo content). Con contains encuentra datos: enlaces, teléfonos, '
       + 'emails, números de cuenta, horas, fechas o direcciones. Devuelve fecha, chat, quién lo escribió, el texto y '
       + 'message_ref; la app muestra el botón "Ver mensaje" de los primeros. Para mensajes DE una persona pon su nombre '
       + 'en person; para un chat o grupo, su nombre en chat. Usa period para "hoy", "ayer", "la semana pasada"… y month para un mes.',
@@ -343,6 +394,115 @@ const TOOLS = [
       out.hint = clear ? 'Di el destino y el precio aproximado; el usuario pide el taxi con el botón "Pedir taxi a …".'
         : 'Hay varios lugares: ENUMÉRALOS al usuario (nombre y dirección) y pregúntale cuál; también puede pulsar su botón.';
       return out;
+    },
+  },
+  // ══ Fase 4: acciones con confirmación (solo PROPONEN; la app enseña Confirmar / Cancelar) ══
+  {
+    name: 'propose_message',
+    kind: 'action',
+    description: 'Propone ENVIAR un mensaje de texto a una persona (person) o a un chat o grupo (chat). No lo envía: la app '
+      + 'muestra la tarjeta con Confirmar y solo se envía si el usuario la pulsa. Escribe el texto tal como lo enviaría el '
+      + 'usuario (en primera persona, p. ej. "Llego en 10 minutos"). Si hay varias personas con ese nombre, pregunta cuál.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        person: { type: 'string', minLength: 1, maxLength: 60, description: 'Nombre de la persona' },
+        chat: { type: 'string', minLength: 1, maxLength: 60, description: 'Nombre del chat o grupo' },
+        text: { type: 'string', minLength: 1, maxLength: 2000, description: 'El mensaje que se enviará' },
+      },
+      required: ['text'],
+      additionalProperties: false,
+    },
+    run: (ctx, i, ui) => {
+      const t = targetOf(ctx.my, i);
+      if (t.stop) return t.stop;
+      const text = i.text.trim();
+      if (!text) return { error: 'El mensaje está vacío' };
+      return propose(ctx, ui, { kind: 'send', chatId: t.chatId || null, toUserId: t.toUserId || null, toName: t.label, text },
+                     { to: t.label, text });
+    },
+  },
+  {
+    name: 'propose_forward',
+    kind: 'action',
+    description: 'Propone REENVIAR un mensaje, foto, vídeo, audio o archivo (su message_ref de search_messages) a una persona '
+      + 'o a un chat o grupo. No lo reenvía: el usuario tiene que pulsar Confirmar. Las fotos y vídeos de "ver una vez" no se pueden reenviar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        message_ref: { type: 'string', pattern: REF.message, description: 'message_ref del mensaje (de search_messages)' },
+        person: { type: 'string', minLength: 1, maxLength: 60, description: 'A qué persona' },
+        chat: { type: 'string', minLength: 1, maxLength: 60, description: 'A qué chat o grupo' },
+      },
+      required: ['message_ref'],
+      additionalProperties: false,
+    },
+    run: (ctx, i, ui) => {
+      const src = ctx.my.forwardable(i.message_ref);
+      if (!src) return { error: 'Ese mensaje no existe, no es del usuario o no se puede reenviar' };
+      const t = targetOf(ctx.my, i);
+      if (t.stop) return t.stop;
+      const { shown, from, ...message } = src;
+      return propose(ctx, ui, { kind: 'forward', chatId: t.chatId || null, toUserId: t.toUserId || null, toName: t.label, message },
+                     { to: t.label, text: shown, from });
+    },
+  },
+  {
+    name: 'propose_mute',
+    kind: 'action',
+    description: 'Propone SILENCIAR los avisos de un chat o grupo (los mensajes siguen llegando, sin notificación) durante '
+      + '1 hora, 8 horas, hasta mañana, 1 semana o siempre; "off" vuelve a activar los avisos. El usuario confirma.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        chat: { type: 'string', minLength: 1, maxLength: 60, description: 'Nombre del chat o grupo' },
+        person: { type: 'string', minLength: 1, maxLength: 60, description: 'O el nombre de la persona (su chat)' },
+        duration: { type: 'string', enum: Object.keys(MUTES), description: '1h, 8h, until_tomorrow, 1w, always u off' },
+      },
+      required: ['duration'],
+      additionalProperties: false,
+    },
+    run: (ctx, i, ui) => {
+      const t = targetOf(ctx.my, i);
+      if (t.stop) return t.stop;
+      if (!t.chatId) return { error: `Todavía no hay un chat con ${t.label}: no hay nada que silenciar` };
+      const until = muteUntil(i.duration);
+      return propose(ctx, ui, { kind: 'mute', chatId: t.chatId, toName: t.label, until },
+                     { to: t.label, text: i.duration === 'off' ? 'Volver a recibir avisos' : `Silenciar ${MUTES[i.duration]}${until ? ` (hasta ${stamp(until)})` : ''}` });
+    },
+  },
+  {
+    name: 'propose_reminder',
+    kind: 'action',
+    description: 'Propone un RECORDATORIO para el usuario: le llegará un aviso a esa hora. Usa in_minutes ("dentro de 20 '
+      + 'minutos") o day + time ("esta tarde" = today 18:00, "mañana a las 9" = tomorrow 09:00). Puede ir ligado a una '
+      + 'persona o chat ("recuérdame contestar a Pedro"). El usuario confirma.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', minLength: 1, maxLength: 200, description: 'Qué recordar (p. ej. "Contestar a Pedro")' },
+        in_minutes: { type: 'integer', minimum: 1, maximum: 525600, description: 'Dentro de cuántos minutos' },
+        day: { type: 'string', pattern: '^(today|tomorrow|\\d{4}-\\d{2}-\\d{2})$', description: 'today, tomorrow o AAAA-MM-DD' },
+        time: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$', description: 'Hora HH:MM (hora de España)' },
+        person: { type: 'string', minLength: 1, maxLength: 60, description: 'Persona relacionada (opcional)' },
+        chat: { type: 'string', minLength: 1, maxLength: 60, description: 'Chat o grupo relacionado (opcional)' },
+      },
+      required: ['text'],
+      additionalProperties: false,
+    },
+    run: (ctx, i, ui) => {
+      const at = reminderAt(i);
+      if (!at) return { error: 'Falta cuándo: in_minutes, o day y time (HH:MM)' };
+      if (at <= Date.now() + 30_000) return { error: 'Esa hora ya ha pasado: pregunta al usuario para cuándo lo quiere' };
+      if (at - Date.now() > 366 * 86_400_000) return { error: 'Como mucho dentro de un año' };
+      let chatId = null, label = null;
+      if (i.person || i.chat) {
+        const t = targetOf(ctx.my, i);
+        if (t.stop) return t.stop;
+        chatId = t.chatId || null; label = t.label;
+      }
+      return propose(ctx, ui, { kind: 'reminder', text: i.text.trim(), at, chatId },
+                     { to: label, text: i.text.trim(), when: stamp(at) });
     },
   },
   {

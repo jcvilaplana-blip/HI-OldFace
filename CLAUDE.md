@@ -22,6 +22,8 @@ los datos del propio usuario y propone acciones que el usuario confirma.
 | `taxi-admin/` | Panel del taxi | React + Vite | — |
 | `llm-server/` | Cerebro libre de Willy (`oldface-llm`, solo 127.0.0.1:8089; la API lo usa con `AI_PROVIDER=local`) | llama.cpp b11327 + Qwen3 8B (6 núcleos, prioridad baja) | Sin datos; binario y modelo solo en el VPS |
 | `voice-server/` | Voz de Willy (`oldface-voice`, solo 127.0.0.1:5010; la API lo usa en `POST /ai/speak`) | Python 3.12, Piper (`es_ES-davefx-medium`) | Sin datos; modelo y venv solo en el VPS |
+| `vision-server/` | Qué se ve en fotos y vídeos (`oldface-vision`, 127.0.0.1:8091; `VISION_URL`) | llama.cpp de `llm-server/` + Qwen3-VL 2B (4 núcleos, Nice 15) | Sin datos; modelo solo en el VPS |
+| `whisper-server/` | Transcripción de audios (`oldface-whisper`, 127.0.0.1:8092; `WHISPER_URL`) | whisper.cpp v1.9.4 compilado en el VPS + ggml-small-q8_0 | Sin datos; binario y modelo solo en el VPS |
 | `embed-server/` | Búsqueda por significado de Willy (`oldface-embed`, solo 127.0.0.1:8090; la API lo usa con `EMBED_URL`) | llama.cpp de `llm-server/` + EmbeddingGemma 300M (2 núcleos) | Sin datos; modelo solo en el VPS |
 | `docs/` | Planes de WebRTC y taxi | — | — |
 
@@ -131,7 +133,9 @@ cd taxi-admin && npm install && npm run build
 1. Infraestructura del agente (proveedor, registro de herramientas, validación, permisos), sin envíos reales.
 2. Búsqueda y resúmenes (solo lectura).
 3. Búsqueda multimedia (descripciones de imágenes, OCR, búsqueda por contenido).
-4. Envíos y acciones con aprobación (mensajes, reenvíos; silenciar chats y recordatorios **no existen aún** en OldFace).
+4. Envíos y acciones con aprobación (decidido 2026-10-16): enviar mensajes, reenviar mensajes/fotos/archivos, silenciar
+   chats (`PUT /mutes/:chatId`) y recordatorios (`/reminders`), creados para esto. Acciones pendientes en `ai/actions.js`
+   (memoria, un uso, 5 min, solo su dueño); al confirmar, la app las hace con sus rutas normales.
 5. Voz y videollamadas, con la infraestructura real de `rtc-server`.
 
 Cada fase: plan → aprobación → implementación → pruebas → resumen. Solo la fase pedida.
@@ -140,7 +144,7 @@ Cada fase: plan → aprobación → implementación → pruebas → resumen. Sol
 
 - Modelos concretos de Claude (uno económico y uno avanzado) y presupuesto/cuotas por usuario.
 - Si Willy viene activado por defecto o el usuario lo activa, y si se pueden excluir chats.
-- Qué acciones exactas se permiten en las fases 4 y 5.
+- Qué acciones exactas se permiten en la fase 5 (llamadas y videollamadas).
 - Revisión legal (RGPD) del envío de contenido de chats al proveedor; los textos legales actuales son borrador.
 - Comprobar en el VPS que la versión de Node de la API principal incluye `node:sqlite` con FTS5.
 

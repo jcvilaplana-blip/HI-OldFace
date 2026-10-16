@@ -9,7 +9,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useThemeStore } from '../store/themeStore';
-import { willyStatus, askWilly, aboutTaxi, taxiLocation, loadChat, saveChat } from '../utils/willy';
+import { willyStatus, askWilly, aboutTaxi, taxiLocation, loadChat, saveChat, confirmAction, cancelAction } from '../utils/willy';
 import { speak, stopSpeaking, listen, canListen, voiceOn, setVoiceOn } from '../utils/voice';
 import { tr } from '../i18n';
 
@@ -21,6 +21,67 @@ const actionText = (a) => (a.kind === 'message' ? `${tr('Ver mensaje')}: ${a.lab
   : a.kind === 'taxi' ? `${tr('Pedir taxi a')} ${a.label}`
   : `${tr('Abrir')}${a.label ? `: ${a.translate ? tr(a.label) : a.label}` : ''}`);
 const GREETING = 'Hola, soy Willy, tu asistente personal en OldFace.\nDime qué necesitas que haga por ti.';
+
+const CARD_TITLE = { send: 'Enviar mensaje', forward: 'Reenviar', mute: 'Avisos del chat', reminder: 'Recordatorio' };
+const DONE_TEXT = { send: '✓ Enviado', forward: '✓ Reenviado', mute: '✓ Hecho', reminder: '✓ Recordatorio guardado' };
+
+/**
+ * Propuesta de Willy (Fase 4): enviar, reenviar, silenciar o recordar. No se hace nada hasta pulsar Confirmar; el
+ * servidor solo la acepta una vez, de este usuario y antes de que caduque (5 min).
+ */
+function ConfirmCard({ a, onChange, onOpenChat, T, isDark }) {
+  const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (a.state) return undefined;
+    const t = setInterval(() => setNow(Date.now()), 15000);
+    return () => clearInterval(t);
+  }, [a.state]);
+  const expired = !a.state && a.expiresAt && now > a.expiresAt;
+  const act = async (confirm) => {
+    setBusy(true);
+    try {
+      if (confirm) { const r = await confirmAction(a.id); onChange({ state: 'done', chatId: r.chatId || null, error: null }); }
+      else { await cancelAction(a.id); onChange({ state: 'cancelled', error: null }); }
+    } catch (e) { onChange({ state: 'error', error: e.message }); }
+    setBusy(false);
+  };
+  const line = (label, value) => value && (
+    <p style={{ margin: '4px 0 0', fontSize: 14, color: T.textPrimary, wordBreak: 'break-word' }}>
+      <span style={{ color: T.textMuted, fontWeight: 700 }}>{label}: </span>{value}
+    </p>
+  );
+  return (
+    <div style={{ marginTop: 8, maxWidth: 'min(82vw, 520px)', width: '100%', background: T.bgSurface, border: `1.5px solid ${BRAND}`, borderRadius: 16, padding: '10px 13px' }}>
+      <p style={{ margin: 0, fontSize: 12, fontWeight: 900, letterSpacing: 0.3, color: isDark ? '#9db4d4' : BRAND, textTransform: 'uppercase' }}>{tr(CARD_TITLE[a.kind] || 'Acción')}</p>
+      {line(a.kind === 'reminder' ? tr('Sobre') : tr('Para'), a.to)}
+      {line(a.kind === 'forward' ? tr('Qué') : a.kind === 'mute' ? tr('Acción') : tr('Texto'), a.text)}
+      {line(tr('De'), a.kind === 'forward' ? a.from : null)}
+      {line(tr('Cuándo'), a.when)}
+      {a.state === 'done' && (
+        <p style={{ margin: '8px 0 0', fontSize: 13, fontWeight: 800, color: '#16a34a' }}>
+          {tr(DONE_TEXT[a.kind] || '✓ Hecho')}
+          {a.chatId && <button onClick={() => onOpenChat(a.chatId)} style={{ marginLeft: 10, background: 'none', border: 'none', color: isDark ? '#9db4d4' : BRAND, fontWeight: 800, cursor: 'pointer', padding: 0 }}>{tr('Abrir chat')}</button>}
+        </p>
+      )}
+      {a.state === 'cancelled' && <p style={{ margin: '8px 0 0', fontSize: 13, fontWeight: 700, color: T.textMuted }}>{tr('Cancelado')}</p>}
+      {a.state === 'error' && <p style={{ margin: '8px 0 0', fontSize: 13, fontWeight: 700, color: '#dc2626' }}>{a.error}</p>}
+      {expired && <p style={{ margin: '8px 0 0', fontSize: 13, fontWeight: 700, color: T.textMuted }}>{tr('Ha caducado: pídeselo otra vez a Willy')}</p>}
+      {!a.state && !expired && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <button onClick={() => act(true)} disabled={busy}
+            style={{ flex: 1, background: BRAND, color: 'white', border: 'none', borderRadius: 12, padding: '9px 0', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>
+            {busy ? tr('Un momento…') : tr('Confirmar')}
+          </button>
+          <button onClick={() => act(false)} disabled={busy}
+            style={{ flex: 1, background: 'none', color: T.textSecondary, border: `1px solid ${T.border}`, borderRadius: 12, padding: '9px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+            {tr('Cancelar')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function WillyPage() {
   const navigate = useNavigate();
@@ -160,7 +221,12 @@ export default function WillyPage() {
               }}>
                 {m.content}
               </div>
-              {(m.actions || []).map((a, j) => a.type === 'navigate' && (
+              {(m.actions || []).map((a, j) => a.type === 'confirm' ? (
+                <ConfirmCard key={a.id} a={a} T={T} isDark={isDark}
+                  onOpenChat={(chatId) => navigate(`/chat/${encodeURIComponent(chatId)}`)}
+                  onChange={(patch) => setMessages(ms => ms.map((x, xi) => (xi !== i ? x
+                    : { ...x, actions: x.actions.map((y, yj) => (yj === j ? { ...y, ...patch } : y)) })))} />
+              ) : a.type === 'navigate' && (
                 <button key={j} onClick={() => navigate(a.path, a.state ? { state: a.state } : undefined)}
                   style={{ marginTop: 6, maxWidth: 'min(82vw, 520px)', textAlign: 'left', background: 'none', border: `1.5px solid ${BRAND}`, color: isDark ? '#9db4d4' : BRAND, borderRadius: 14, padding: '6px 12px', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>
                   {actionText(a)}

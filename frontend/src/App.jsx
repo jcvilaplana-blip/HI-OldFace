@@ -31,6 +31,7 @@ const lazyPages = {
   KaraokeSingPage:   () => import('./pages/KaraokeSingPage.jsx'),
   KaraokeRoomPage:   () => import('./pages/KaraokeRoomPage.jsx'),
   WillyPage:         () => import('./pages/WillyPage.jsx'),
+  RemindersPage:     () => import('./pages/RemindersPage.jsx'),
 };
 const DirectoPage       = React.lazy(lazyPages.DirectoPage);
 const DirectoLivePage   = React.lazy(lazyPages.DirectoLivePage);
@@ -43,6 +44,7 @@ const KaraokePage       = React.lazy(lazyPages.KaraokePage);
 const KaraokeSingPage   = React.lazy(lazyPages.KaraokeSingPage);
 const KaraokeRoomPage   = React.lazy(lazyPages.KaraokeRoomPage);
 const WillyPage         = React.lazy(lazyPages.WillyPage);
+const RemindersPage     = React.lazy(lazyPages.RemindersPage);
 function prefetchPages() {
   const run = () => Object.values(lazyPages).forEach(load => load().catch(() => {}));
   setTimeout(() => (window.requestIdleCallback ? window.requestIdleCallback(run) : run()), 4000);
@@ -781,6 +783,7 @@ function AppShell() {
         <Route path="/contacts"    element={<ProtectedRoute><ContactsPage /></ProtectedRoute>} />
         <Route path="/settings"    element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
         <Route path="/willy"       element={<ProtectedRoute><WillyPage /></ProtectedRoute>} />
+        <Route path="/reminders"   element={<ProtectedRoute><RemindersPage /></ProtectedRoute>} />
         <Route path="/directo"     element={<ProtectedRoute><DirectoPage /></ProtectedRoute>} />
         <Route path="/directo/:directoId/live" element={<ProtectedRoute><DirectoLivePage /></ProtectedRoute>} />
         <Route path="/poll"         element={<ProtectedRoute><PollPage /></ProtectedRoute>} />
