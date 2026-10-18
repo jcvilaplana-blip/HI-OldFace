@@ -516,7 +516,7 @@ function TripPanel({ booking: b, settings, driverPos, notify, reload, onCall, on
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '8px 0 4px' }}>
         <div style={{ position: 'relative', width: 70, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: `${BRAND}22`, animation: 'taxiPulse 1.6s ease-out infinite' }} />
-          <span style={{ fontSize: 34 }}>🚕</span>
+          <img src="/emblema-taxi.png" alt="" style={{ position: 'relative', width: 44, height: 44, objectFit: 'contain' }} />
         </div>
         <p style={{ fontWeight: 900, fontSize: 18, margin: 0 }}>{tx(tr('Buscando conductor…'))}</p>
         <p style={{ color: C.muted, margin: 0, fontSize: 14, textAlign: 'center' }}>{b.rideType?.name} · {money(b.estimated_fare, cur)} · {payLabel}</p>

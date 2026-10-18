@@ -43,7 +43,7 @@ export default function TaxiPage() {
     <Screen>
       <Header title={tr('Taxi')} onBack={exit} />
       <Center>
-        <span style={{ fontSize: 44 }}>🚕</span>
+        <img src="/emblema-taxi.png" alt="" style={{ width: 64, height: 64, objectFit: 'contain' }} />
         <p style={{ fontWeight: 700 }}>{error}</p>
         <div style={{ width: 220 }}><Btn onClick={load}>{tx(tr('Reintentar'))}</Btn></div>
       </Center>

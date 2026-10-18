@@ -412,7 +412,7 @@ export function About({ boot, onBack }) {
   return (
     <Page title={tx(tr('Acerca de'))} onBack={onBack}>
       <Card style={{ textAlign: 'center' }}>
-        <p style={{ fontSize: 48, margin: 0 }}>🚕</p>
+        <img src="/emblema-taxi.png" alt="" style={{ width: 72, height: 72, objectFit: 'contain', display: 'block', margin: '0 auto' }} />
         <p style={{ fontWeight: 900, fontSize: 20, margin: '6px 0' }}>{a.name || tr('OldFace Taxi')}</p>
         {a.supportEmail && <p style={{ margin: '4px 0', color: C.muted }}>✉️ {a.supportEmail}</p>}
         {a.supportPhone && <p style={{ margin: '4px 0', color: C.muted }}>📞 {a.supportPhone}</p>}

@@ -547,10 +547,8 @@ function FullMessage({ status, errMsg, isHost, directo, onRetry, onBack }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'linear-gradient(to bottom, #1e1035, #293241)', color: 'white', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32, textAlign: 'center' }}>
       <div style={{ position: 'relative', width: 80, height: 80 }}>
         {status === 'loading' && <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'rgba(239,68,68,0.3)', animation: 'liveRipple 1.5s ease-in-out infinite' }} />}
-        <div style={{ position: 'relative', width: 80, height: 80, borderRadius: '50%', background: status === 'error' ? '#7f1d1d' : RED, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="3"/><path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3.515 3.515a13 13 0 000 16.97M20.485 3.515a13 13 0 010 16.97"/>
-          </svg>
+        <div style={{ position: 'relative', width: 80, height: 80, borderRadius: '50%', background: 'white', opacity: status === 'error' ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <img src="/emblema-directos.png" alt="" style={{ width: 56, height: 56, objectFit: 'contain' }} />
         </div>
       </div>
       <p style={{ fontSize: 19, fontWeight: 900, margin: 0 }}>{texts.title}</p>

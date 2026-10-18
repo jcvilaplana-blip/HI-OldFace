@@ -143,13 +143,10 @@ export default function DirectoPage() {
             }}/>
             <div style={{
               position: 'relative', width: 36, height: 36, borderRadius: '50%',
-              background: 'rgba(255,255,255,0.2)',
+              background: 'white',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3.515 3.515a13 13 0 000 16.97M20.485 3.515a13 13 0 010 16.97"/>
-              </svg>
+              <img src="/emblema-directos.png" alt="" style={{ width: 26, height: 26, objectFit: 'contain' }} />
             </div>
           </div>
 
@@ -220,10 +217,7 @@ export default function DirectoPage() {
 
             {!loading && directos.length === 0 && (
               <div style={{ textAlign: 'center', padding: '60px 24px', color: '#94a3b8' }}>
-                <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 16px', display: 'block' }}>
-                  <circle cx="12" cy="12" r="3"/>
-                  <path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3.515 3.515a13 13 0 000 16.97M20.485 3.515a13 13 0 010 16.97"/>
-                </svg>
+                <img src="/emblema-directos.png" alt="" style={{ width: 64, height: 64, objectFit: 'contain', margin: '0 auto 16px', display: 'block', opacity: 0.45 }} />
                 <p style={{ fontWeight: 700, fontSize: 15, color: '#64748b', margin: '0 0 6px' }}>
                   {canCreate ? tr('Ningún directo creado') : tr('No hay directos disponibles')}
                 </p>
@@ -484,12 +478,7 @@ function DirectoForm({ initial, onClose, onSaved }) {
         {/* Title bar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 16px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: '50%', background: RED, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314"/>
-              </svg>
-            </div>
+            <img src="/emblema-directos.png" alt="" style={{ width: 32, height: 32, objectFit: 'contain' }} />
             <h2 style={{ fontSize: 16, fontWeight: 900, color: '#293241', margin: 0 }}>
               {initial ? tr('Editar directo') : tr('Nuevo directo')}
             </h2>

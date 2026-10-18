@@ -1,13 +1,11 @@
 /**
  * PopupMenu — Menú emergente OldFace
- * 3 filas con el orden definido por el cliente (sin Estado, Ubicación ni Cámara). Las acciones marcadas como
- * 'soon' (Social, Archivos) se desarrollarán más adelante.
+ * Buscador, 4 acciones destacadas en tarjetas de color (Directo, Social, Taxi, Poll) y la sección "Comunicación"
+ * en 2 columnas. Las acciones marcadas como 'soon' (Social, Archivos) se desarrollarán más adelante.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { tr } from '../i18n';
-
-const BRAND = '#3D5A80';
 
 // ─── Definición de items ────────────────────────────────────────────────────
 // route   → navega a esa ruta React Router
@@ -120,18 +118,50 @@ const ITEMS = {
   },
 };
 
-// Orden y filas del menú
-const MENU_ROWS = [
-  ['calls', 'videocalls', 'directo', 'social'],
-  ['chats', 'taxi', 'poll', 'groups'],
-  ['contacts', 'karaoke', 'settings', 'archived'],
-];
+// Emblemas propios (imagen en vez de icono SVG)
+ITEMS.directo.image = '/emblema-directos.png';
+ITEMS.taxi.image = '/emblema-taxi.png';
+// Social: destellos; Contactos: agenda; Videollamada se muestra como "Video"
+ITEMS.social.icon = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+  d="M9.8 4.5l1.3 3.9a2 2 0 001.3 1.3l3.9 1.3-3.9 1.3a2 2 0 00-1.3 1.3l-1.3 3.9-1.3-3.9a2 2 0 00-1.3-1.3L3.3 11l3.9-1.3
+     a2 2 0 001.3-1.3l1.3-3.9zM18 3v4M16 5h4M17.5 16v3M16 17.5h3"/>`;
+ITEMS.contacts.icon = `<rect x="4" y="3" width="15" height="18" rx="2" stroke-width="1.8"/>
+  <circle cx="11.5" cy="10" r="2.5" stroke-width="1.8"/>
+  <path stroke-linecap="round" stroke-width="1.8" d="M7.5 17a4 4 0 018 0M21 7v2M21 13v2"/>`;
+ITEMS.videocalls.label = tr('Video');
+
+// Subtítulo de cada acción
+const SUBTITLES = {
+  directo: 'Emite en vivo', social: 'Tu feed', taxi: 'Pide viaje', poll: 'Encuestas',
+  calls: 'Voz', videocalls: 'Con cámara', chats: 'Mensajes', groups: 'Tus grupos',
+  contacts: 'Agenda', karaoke: 'Canta', settings: 'Tu cuenta', archived: 'Fotos y docs',
+};
+
+// Destacadas (tarjetas de color, 2 × 2) y sección "Comunicación" (2 columnas)
+const FEATURED = ['directo', 'social', 'taxi', 'poll'];
+const COMMUNICATION = ['calls', 'videocalls', 'chats', 'groups', 'contacts', 'karaoke', 'settings', 'archived'];
+
+// Colores de cada tarjeta destacada: fondo suave, borde, cuadro del icono y flecha
+const FEATURED_LOOK = {
+  directo: { bg: '#fff1f2', border: '#fecdd3', tile: 'white', arrow: '#e11d48' },
+  social:  { bg: '#fff7ed', border: '#fed7aa', tile: 'linear-gradient(135deg,#fb923c,#ea580c)', arrow: '#ea580c' },
+  taxi:    { bg: '#fefce8', border: '#fde68a', tile: 'white', arrow: '#ca8a04' },
+  poll:    { bg: '#f0fdf4', border: '#bbf7d0', tile: 'linear-gradient(135deg,#4ade80,#16a34a)', arrow: '#16a34a' },
+};
 
 // ─── Componente principal ───────────────────────────────────────────────────
 export default function PopupMenu({ onClose, onGroups }) {
   const navigate = useNavigate();
   const [soonMsg, setSoonMsg] = useState('');
+  const [query, setQuery] = useState('');
   const soonTimer = useRef(null);
+
+  // Buscador: filtra por nombre o subtítulo (sin distinguir mayúsculas ni acentos)
+  const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const q = norm(query.trim());
+  const matches = (id) => !q || norm(ITEMS[id].label).includes(q) || norm(tr(SUBTITLES[id])).includes(q);
+  const featured = FEATURED.filter(matches);
+  const communication = COMMUNICATION.filter(matches);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -175,59 +205,96 @@ export default function PopupMenu({ onClose, onGroups }) {
       {/* Bottom sheet */}
       <div
         className="relative w-full rounded-t-3xl shadow-2xl animate-slide-up scroll-hide"
-        style={{ background: '#f8fafc', maxHeight: '88vh', overflowY: 'auto' }}
+        style={{ background: 'white', minHeight: '80vh', maxHeight: '94vh', overflowY: 'auto' }}
       >
         {/* Handle */}
-        <div className="flex justify-center pt-4 pb-2">
+        <div className="flex justify-center pt-3 pb-3">
           <div style={{ width: 40, height: 4, background: '#cbd5e1', borderRadius: 2 }} />
         </div>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 pb-3">
+        <div className="flex items-center justify-between px-5 pb-4">
           <div className="flex items-center gap-3">
             {/* Logo */}
             <div
               className="flex items-center justify-center overflow-hidden"
-              style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: 'white', border: '1px solid #e2e8f0' }}
+              style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: 'white', border: '1px solid #e2e8f0',
+                boxShadow: '0 2px 8px rgba(15,23,42,0.08)' }}
             >
               <img
                 src="/logo-oldface.png"
                 alt="OldFace"
-                style={{ width: 34, height: 34, objectFit: 'contain' }}
+                style={{ width: 40, height: 40, objectFit: 'contain' }}
                 onError={e => { e.target.style.display = 'none'; }}
               />
             </div>
             <div>
-              <p style={{ fontSize: 15, fontWeight: 900, color: '#293241', lineHeight: 1.2 }}>{tr('OldFace')}</p>
-              <p style={{ fontSize: 10, fontWeight: 700, color: BRAND }}>{tr('Elige una acción')}</p>
+              <p style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', lineHeight: 1.15 }}>{tr('OldFace')}</p>
+              <p style={{ fontSize: 13, fontWeight: 500, color: '#64748b' }}>{tr('Elige una acción')}</p>
             </div>
           </div>
           <button
             onClick={onClose}
+            aria-label={tr('Cerrar')}
             style={{
-              width: 32, height: 32, borderRadius: '50%',
-              background: '#e2e8f0', border: 'none', cursor: 'pointer',
+              width: 36, height: 36, borderRadius: '50%',
+              background: '#f1f5f9', border: 'none', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#64748b', fontSize: 16, fontWeight: 800,
+              color: '#0f172a', fontSize: 16, fontWeight: 700,
             }}
           >
             ✕
           </button>
         </div>
 
-        {/* Grid 4 columnas — una fila por entrada de MENU_ROWS */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: '14px 8px',
-            padding: '4px 12px calc(var(--sab) + 24px)',
-          }}
-        >
-          {MENU_ROWS.flatMap((row, r) => [
-            ...row.map(id => <MenuButton key={id} item={ITEMS[id]} onClick={() => handleItem(ITEMS[id])} />),
-            ...Array.from({ length: 4 - row.length }, (_, i) => <div key={`gap-${r}-${i}`} />),
-          ])}
+        <div style={{ padding: '0 20px calc(var(--sab) + 24px)' }}>
+          {/* Buscador */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f1f5f9', borderRadius: 14,
+            padding: '0 14px', height: 46, marginBottom: 16 }}>
+            <svg width="18" height="18" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
+            </svg>
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder={tr('Buscar acción…')}
+              style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent',
+                fontSize: 15, color: '#0f172a' }}
+            />
+            {query && (
+              <button onClick={() => setQuery('')} aria-label={tr('Borrar')}
+                style={{ border: 'none', background: 'transparent', color: '#94a3b8', fontSize: 15, cursor: 'pointer', padding: 4 }}>
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Destacadas: tarjetas de color 2 × 2 */}
+          {featured.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
+              {featured.map(id => (
+                <MenuCard key={id} id={id} item={ITEMS[id]} look={FEATURED_LOOK[id]} onClick={() => handleItem(ITEMS[id])} />
+              ))}
+            </div>
+          )}
+
+          {/* Comunicación: 2 columnas */}
+          {communication.length > 0 && (
+            <>
+              <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, color: '#64748b', margin: '0 0 10px 2px' }}>
+                {tr('Comunicación').toUpperCase()}
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {communication.map(id => (
+                  <MenuCard key={id} id={id} item={ITEMS[id]} onClick={() => handleItem(ITEMS[id])} />
+                ))}
+              </div>
+            </>
+          )}
+
+          {!featured.length && !communication.length && (
+            <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 14, padding: '24px 0' }}>{tr('Sin resultados')}</p>
+          )}
         </div>
 
         {/* Aviso "próximamente" */}
@@ -245,67 +312,65 @@ export default function PopupMenu({ onClose, onGroups }) {
   );
 }
 
-// ─── Botón individual del grid ──────────────────────────────────────────────
-function MenuButton({ item, onClick }) {
-  const isPoll      = item.primary    === true;
-  const isDirecto   = item.highlight  === true;
-  const isSoon      = item.action     === 'soon';
-  const isTaxi      = item.taxi       === true;
-
-  // POLL: fondo marca | DIRECTO: fondo rojo | TAXI: amarillo con icono negro | resto: blanco con borde
-  const look = isPoll    ? { bg: BRAND,     fg: 'white',   label: '#3D5A80', shadow: '0 4px 14px rgba(61,90,128,0.35)' }
-             : isDirecto ? { bg: '#ef4444', fg: 'white',   label: '#dc2626', shadow: '0 4px 14px rgba(239,68,68,0.40)' }
-             : isTaxi    ? { bg: '#FFC800', fg: '#111111', label: '#111111', shadow: '0 4px 14px rgba(255,200,0,0.45)' }
-             : null;
+// ─── Tarjeta de una acción (destacada con color o de la sección Comunicación) ─
+function MenuCard({ id, item, look, onClick }) {
+  const isSoon = item.action === 'soon';
+  const gradientTile = look && look.tile !== 'white';
 
   return (
     <button
       onClick={onClick}
       style={{
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', gap: 6,
-        background: 'transparent', border: 'none', cursor: 'pointer',
-        WebkitTapHighlightColor: 'transparent',
-        opacity: isSoon ? 0.6 : 1,
+        display: 'flex', alignItems: 'center', gap: 10, minWidth: 0,
+        padding: look ? '12px 10px 12px 12px' : '10px 10px 10px 10px', borderRadius: 16, textAlign: 'left',
+        background: look ? look.bg : '#f8fafc',
+        border: `1px solid ${look ? look.border : '#e2e8f0'}`,
+        cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
+        opacity: isSoon ? 0.75 : 1, transition: 'transform 0.15s',
       }}
+      onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
+      onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+      onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+      onTouchStart={e => e.currentTarget.style.transform = 'scale(0.96)'}
+      onTouchEnd={e => e.currentTarget.style.transform = 'scale(1)'}
     >
-      {/* Círculo */}
-      <div
-        style={{
-          width: 60, height: 60, borderRadius: '50%',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'transform 0.15s',
-          background: look ? look.bg : 'white',
-          border: look ? 'none' : '1px solid #e2e8f0',
-          boxShadow: look ? look.shadow : '0 1px 6px rgba(0,0,0,0.07)',
-          color: look ? look.fg : BRAND,
-        }}
-        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.88)'}
-        onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
-        onTouchStart={e => e.currentTarget.style.transform = 'scale(0.88)'}
-        onTouchEnd={e => e.currentTarget.style.transform = 'scale(1)'}
-      >
-        {/* SVG con stroke explícito — no depende de Tailwind */}
-        <svg
-          width="26" height="26"
-          fill="none"
-          stroke={look ? look.fg : BRAND}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          viewBox="0 0 24 24"
-          dangerouslySetInnerHTML={{ __html: item.icon }}
-        />
+      {/* Cuadro del icono */}
+      <div style={{
+        width: look ? 44 : 40, height: look ? 44 : 40, flexShrink: 0, borderRadius: 12,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: look ? look.tile : 'white',
+        border: gradientTile ? 'none' : '1px solid #e2e8f0',
+        boxShadow: gradientTile ? '0 3px 10px rgba(0,0,0,0.15)' : '0 1px 4px rgba(15,23,42,0.06)',
+      }}>
+        {item.image ? (
+          <img src={item.image} alt="" style={{ width: '82%', height: '82%', objectFit: 'contain' }} />
+        ) : (
+          /* SVG con stroke explícito — no depende de Tailwind */
+          <svg
+            width="22" height="22"
+            fill="none"
+            stroke={gradientTile ? 'white' : '#0f172a'}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            viewBox="0 0 24 24"
+            dangerouslySetInnerHTML={{ __html: item.icon }}
+          />
+        )}
       </div>
 
-      {/* Label */}
-      <span
-        style={{
-          fontSize: 10, fontWeight: 800, textAlign: 'center', lineHeight: 1.2,
-          color: look ? look.label : '#64748b',
-        }}
-      >
-        {item.label}
-      </span>
+      {/* Nombre y subtítulo */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', lineHeight: 1.2,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</p>
+        <p style={{ fontSize: 11.5, color: '#64748b', lineHeight: 1.3, marginTop: 2,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tr(SUBTITLES[id])}</p>
+      </div>
+
+      {/* Flecha */}
+      <svg width="16" height="16" fill="none" stroke={look ? look.arrow : '#94a3b8'} strokeWidth="2.2"
+        strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+        <path d="M9 6l6 6-6 6" />
+      </svg>
     </button>
   );
 }

@@ -552,4 +552,17 @@ export default {
   "No se pudo usar el micrófono": "Couldn't use the microphone",
   "Este dispositivo no permite hablarle a Willy": "This device doesn't support talking to Willy",
   "No te he entendido": "I didn't catch that",
+  // Menú emergente
+  "Buscar acción…": "Search action…",
+  "Emite en vivo": "Go live",
+  "Tu feed": "Your feed",
+  "Pide viaje": "Book a ride",
+  "Comunicación": "Communication",
+  "Voz": "Voice",
+  "Con cámara": "With camera",
+  "Tus grupos": "Your groups",
+  "Agenda": "Address book",
+  "Canta": "Sing",
+  "Tu cuenta": "Your account",
+  "Fotos y docs": "Photos & docs",
 };
