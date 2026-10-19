@@ -24,6 +24,8 @@ if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 // Supabase: deja data/ al día ANTES de cargar y guarda cada cambio fila a fila (sin DB_HOST no hace nada) — db/index.js
 const db = require('./db')({ dataDir: DATA_DIR });
+// Copia de los archivos subidos (y los del taxi) en Supabase Storage, en segundo plano (sin STORAGE_KEY no hace nada)
+require('./db/storage')({ dataDir: DATA_DIR, dirs: { backend: UPLOADS_DIR, taxi: process.env.STORAGE_TAXI_DIR } });
 
 function loadJSON(file, defaultValue = {}) {
   const filePath = path.join(DATA_DIR, file);
