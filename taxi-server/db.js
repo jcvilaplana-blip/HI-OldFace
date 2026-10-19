@@ -11,6 +11,10 @@ const { DatabaseSync } = require('node:sqlite');
 const DB_FILE = process.env.TAXI_DB || path.join(__dirname, 'data', 'taxi.db');
 fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
 
+// Supabase: deja taxi.db al día ANTES de abrirla (sin TAXI_SUPABASE_HOST no hace nada) — ver supabase.js
+const supabase = require('./supabase');
+supabase.bootSync(DB_FILE);
+
 const db = new DatabaseSync(DB_FILE);
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
 db.exec(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
@@ -156,5 +160,6 @@ function seed() {
   });
 }
 seed();
+const sync = supabase.start(db, DB_FILE);   // copia continua de los cambios en Supabase
 
-module.exports = { db, all, get, run, tx, now, getSetting, setSetting, hashPassword, checkPassword, MODULES, ACTIONS, DB_FILE };
+module.exports = { db, all, get, run, tx, now, getSetting, setSetting, hashPassword, checkPassword, MODULES, ACTIONS, DB_FILE, sync };

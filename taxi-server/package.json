@@ -9,12 +9,13 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node test/admin.test.mjs && node test/trip.test.mjs && node test/card.test.mjs"
+    "test": "node test/admin.test.mjs && node test/trip.test.mjs && node test/card.test.mjs && node test/supabase.test.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
+    "pg": "8.16.3",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {

@@ -32,7 +32,11 @@ los datos del propio usuario y propone acciones que el usuario confirma.
   API de datos de Supabase, RLS activado), TLS verificado con `db/supabase-ca-2021.crt`. Al arrancar `db/sync.js` deja
   `data/` y Supabase iguales (`DB_SOURCE=json`: manda `data/`; `supabase`: manda Supabase); en marcha `db.save()` sube las
   diferencias en segundo plano. Sin `DB_HOST` todo sigue como antes. Comprobar: `node db/sync.js check`.
-  Pendiente: archivos (`uploads/`) a Supabase Storage y taxi (`node:sqlite`) a Supabase.
+  Taxi: sigue con SQLite y `taxi-server/supabase.js` lo copia al esquema `taxi` (43 tablas relacionales generadas desde
+  SQLite, usuario `taxi_app`, triggers → `_sync_log` → subida cada segundo; secretos de ajustes y datos bancarios
+  CIFRADOS con `TAXI_SUPABASE_KEY`; `TAXI_SUPABASE_SOURCE=sqlite|supabase`; `node supabase.js check`).
+  RLS: activado SIN políticas en todo (la app nunca habla con Supabase; cada servidor entra con su propio usuario).
+  Pendiente: archivos (`uploads/`) a Supabase Storage.
 - `frontend/android/` y `frontend/ios/` **no están en git**: los cambios nativos solo viajan en el APK.
 - Sesión: código OTP por email → token `<userId>.<exp>.<hmac>` firmado con `RTC_SECRET` (30 días).
   Comprobación: `verifyRtcToken` / `requireSession` / `bearer` en `frontend/backend/server.js`.
