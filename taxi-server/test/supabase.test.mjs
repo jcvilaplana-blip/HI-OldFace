@@ -93,7 +93,7 @@ if (!envFile) {
 
     // Cambios en marcha (otro proceso escribe en taxi.db: los triggers lo apuntan y el taxi lo sube)
     const t = Date.now();
-    const city = d0.prepare("INSERT INTO cities (country_id, name, lat, lng, created_at) VALUES (1, 'Ciudad Prueba', 40.1, -3.2, ?)").run(t).lastInsertRowid;
+    const city = d0.prepare("INSERT INTO cities (country_id, name, lat, lng, created_at) VALUES (1, 'Ciudad Prueba', 40.41678912345678, -3.7037901234567891, ?)").run(t).lastInsertRowid;   // decimales completos
     d0.prepare("INSERT INTO zones (city_id, name, surge, created_at) VALUES (?, 'Centro', 1.25, ?)").run(city, t);
     ok('ciudad y zona nuevas llegan a Supabase', await waitFor(async () => (await sql(`select z.surge from ${S}.zones z join ${S}.cities c on c.id = z.city_id where c.name = 'Ciudad Prueba'`))[0]?.surge === 1.25));
     d0.prepare("UPDATE cities SET name = 'Ciudad Renombrada' WHERE id = ?").run(city);
@@ -113,6 +113,7 @@ if (!envFile) {
     d0.prepare("INSERT INTO withdrawal_requests (driver_id, amount, account_details, created_at) VALUES (?, 50, 'ES76 0000 1111 2222 3333 4444', ?)").run(drv, t);
     ok('datos bancarios CIFRADOS en Supabase', await waitFor(async () => { const r = (await sql(`select account_details a from ${S}.withdrawal_requests where driver_id = $1`, [drv]))[0]; return r && r.a.startsWith('enc:v1:') && !r.a.includes('ES76'); }));
     ok('… y sin cifrar en taxi.db (el taxi los usa)', d0.prepare('SELECT account_details a FROM withdrawal_requests WHERE driver_id = ?').get(drv).a.startsWith('ES76'));
+    ok('coordenadas con todos los decimales: check coincide', await waitFor(async () => checkCmd().status === 0));
     const before = { perms: d0.prepare('SELECT count(*) n FROM permissions').get().n, pay: d0.prepare("SELECT value FROM settings WHERE key = 'payments'").get().value };
     d0.close();
     await waitFor(async () => checkCmd().status === 0);

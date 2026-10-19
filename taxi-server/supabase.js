@@ -116,6 +116,12 @@ function newClient(cfg) {
   const num = (v) => (v === null ? null : Number(v));
   return new Client({ ...cfg.pg, types: { getTypeParser: (oid, fmt) => (oid === 20 || oid === 1700 ? num : types.getTypeParser(oid, fmt)) } });
 }
+/** Conecta y pide los decimales completos (el pooler de Supabase redondea a 15 cifras: coordenadas distintas) */
+async function connectPg(client) {
+  await client.connect();
+  await client.query('set extra_float_digits = 3');
+  return client;
+}
 
 async function ensurePgSchema(client, schema, meta) {
   const S = qi(schema);
@@ -259,7 +265,7 @@ async function boot(dbFile, cfg) {
   const meta = describe(db);
   installTriggers(db, meta);
   const client = newClient(cfg);
-  await client.connect();
+  await connectPg(client);
   try {
     await ensurePgSchema(client, cfg.schema, meta);
     const all = await diff(db, client, cfg, meta);
@@ -323,7 +329,7 @@ function start(db, dbFile, env = process.env, log = console) {
     if (client) return client;
     const c = newClient(cfg);
     c.on('error', () => { if (client === c) client = null; });
-    await c.connect();
+    await connectPg(c);
     client = c;
     return c;
   }
@@ -386,7 +392,7 @@ async function check(dbFile, cfg) {
   const db = new DatabaseSync(dbFile, { readOnly: true });
   const meta = describe(db);
   const client = newClient(cfg);
-  await client.connect();
+  await connectPg(client);
   try {
     const all = await diff(db, client, cfg, meta);
     let bad = 0;
