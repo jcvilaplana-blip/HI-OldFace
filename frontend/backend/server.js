@@ -22,6 +22,9 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(DATA_DIR))    fs.mkdirSync(DATA_DIR,    { recursive: true });
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
+// Supabase: deja data/ al día ANTES de cargar y guarda cada cambio fila a fila (sin DB_HOST no hace nada) — db/index.js
+const db = require('./db')({ dataDir: DATA_DIR });
+
 function loadJSON(file, defaultValue = {}) {
   const filePath = path.join(DATA_DIR, file);
   try {
@@ -40,6 +43,7 @@ function saveJSON(file, data) {
   } catch (e) {
     console.error(`[DB] Error guardando ${file}:`, e.message);
   }
+  db.save(file, data);
 }
 
 // Cargar datos persistentes al arrancar
@@ -3464,7 +3468,7 @@ setInterval(fireReminders, Number(process.env.REMINDER_TICK_MS) || 30_000).unref
 
 // ── OldFace AI (Willy): rutas /ai/* con la sesión del usuario — ver ai/index.js ──
 const ai = require('./ai')({
-  router, authUser, dataDir: DATA_DIR,
+  router, authUser, dataDir: DATA_DIR, db,
   deps: { chatStore: chatStore2, groupStore, messageStore, findUserById, contactsOf, isChatMember, callLogStore,
           uploadsDir: UPLOADS_DIR, mediaAllowed: (uid) => prefsStore.get(String(uid))?.mediaAnalysis !== false },
 });

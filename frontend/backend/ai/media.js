@@ -36,7 +36,7 @@ const PHOTO_PROMPT = 'Describe esta imagen en español en una o dos frases corta
   + 'si se nota (por ejemplo una fiesta o una comida). Di SOLO lo que se ve; nunca menciones lo que no aparece y no '
   + 'inventes nada. Si se lee algún texto en la imagen, añádelo al final tras "Texto:".';
 
-function createMedia({ env = process.env, dataDir, uploadsDir, messageStore, allowed = () => true }) {
+function createMedia({ env = process.env, dataDir, db = null, uploadsDir, messageStore, allowed = () => true }) {
   if (env.AI_MEDIA === 'off') return null;
   const visionUrl = String(env.VISION_URL || '').replace(/\/+$/, '');
   const whisperUrl = String(env.WHISPER_URL || '').replace(/\/+$/, '');
@@ -48,7 +48,11 @@ function createMedia({ env = process.env, dataDir, uploadsDir, messageStore, all
   let saveTimer = null, busy = false, pdfjs;
   const save = () => {
     if (saveTimer) return;
-    saveTimer = setTimeout(() => { saveTimer = null; fs.promises.writeFile(file, JSON.stringify(store)).catch(e => console.warn('[ai] media:', e.message)); }, 2000);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      fs.promises.writeFile(file, JSON.stringify(store)).catch(e => console.warn('[ai] media:', e.message));
+      db?.save('ai_media.json', store);
+    }, 2000);
     saveTimer.unref?.();
   };
 

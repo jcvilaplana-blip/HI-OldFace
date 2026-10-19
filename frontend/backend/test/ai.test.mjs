@@ -25,7 +25,8 @@ function makeServer(port, extraEnv, prepare) {
   fs.mkdirSync(path.join(dir, 'data')); fs.mkdirSync(path.join(dir, 'uploads'));
   for (const f of ['server.js', 'admin.html']) fs.copyFileSync(path.join(SRC, f), path.join(dir, f));
   fs.cpSync(path.join(SRC, 'ai'), path.join(dir, 'ai'), { recursive: true });
-  const w = (f, v) => fs.writeFileSync(path.join(dir, 'data', f), JSON.stringify(v));
+  fs.cpSync(path.join(SRC, 'db'), path.join(dir, 'db'), { recursive: true });
+  const w =(f, v) => fs.writeFileSync(path.join(dir, 'data', f), JSON.stringify(v));
   w('users.json', Object.fromEntries(Object.entries(NAMES).map(([n, name]) => [ph(n), { userId: id(n), name, phone: ph(n) }])));
   w('chats.json', {
     [CHAT_AB]: { id: CHAT_AB, participants: [A, B], name: 'x', createdAt: 1, lastMessage: '', lastTime: 3 },
@@ -63,7 +64,7 @@ function makeServer(port, extraEnv, prepare) {
   w('groups.json', { [GID]: { id: GID, name: 'Familia', adminId: A, members: [A, B], memberNames: {}, createdAt: 1, updatedAt: 1 } });
   w('user_contacts.json', { [A]: [B, L1, L2] });
   prepare?.(dir, w);
-  const env = { ...process.env, PORT: String(port), RTC_SECRET: SECRET, NODE_PATH: path.join(SRC, 'node_modules'), RTC_INTERNAL_URL: '', ANTHROPIC_API_KEY: '', ...extraEnv };
+  const env = { ...process.env, PORT: String(port), RTC_SECRET: SECRET, NODE_PATH: path.join(SRC, 'node_modules'), RTC_INTERNAL_URL: '', ANTHROPIC_API_KEY: '', DB_SOURCE: 'off', ...extraEnv };
   const proc = spawn(process.execPath, ['server.js'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = ''; proc.stdout.on('data', d => { log += d; }); proc.stderr.on('data', d => { log += d; });
   return { dir, proc, base: `http://127.0.0.1:${port}`, log: () => log };

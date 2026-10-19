@@ -63,14 +63,14 @@ function badHistory(messages) {
   return null;
 }
 
-module.exports = function mountAi({ router, authUser, dataDir, deps, env = process.env }) {
+module.exports = function mountAi({ router, authUser, dataDir, deps, env = process.env, db = null }) {
   const provider = createProvider(env);
   const voice = createVoice(env);
   const semantic = createSemantic(env);
   const taxi = createTaxi(env);
   // Fase 3: qué se ve en fotos/vídeos, qué se dice en audios y qué pone en documentos (ai/media.js)
   const media = deps.uploadsDir
-    ? createMedia({ env, dataDir, uploadsDir: deps.uploadsDir, messageStore: deps.messageStore, allowed: deps.mediaAllowed || (() => true) })
+    ? createMedia({ env, dataDir, db, uploadsDir: deps.uploadsDir, messageStore: deps.messageStore, allowed: deps.mediaAllowed || (() => true) })
     : null;
   const access = createAccess({ ...deps, semantic, mediaText: media ? media.textOf : undefined, refSecret: env.RTC_SECRET });
   const placesOf = new Map();   // uid → destinos de taxi encontrados por Willy (caducan a los 30 min)
@@ -92,6 +92,7 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
     saveTimer = setTimeout(() => {
       saveTimer = null;
       fs.promises.writeFile(usageFile, JSON.stringify(usage)).catch(e => console.warn('[ai] uso:', e.message));
+      db?.save('ai_usage.json', usage);
     }, 2000);
     saveTimer.unref?.();
   };
@@ -103,7 +104,9 @@ module.exports = function mountAi({ router, authUser, dataDir, deps, env = proce
   /** Registro sin contenido: quién (seudónimo), qué herramientas, cuántos tokens y si fue bien */
   const audit = (uid, entry) => {
     const user = crypto.createHmac('sha256', auditKey).update(uid).digest('hex').slice(0, 16);
-    fs.promises.appendFile(auditFile, `${JSON.stringify({ at: new Date().toISOString(), user, ...entry })}\n`).catch(() => {});
+    const line = { at: new Date().toISOString(), user, ...entry };
+    fs.promises.appendFile(auditFile, `${JSON.stringify(line)}\n`).catch(() => {});
+    db?.append('ai_audit', line);
   };
 
   console.log(`🤖 Willy (IA): ${provider ? `${provider.name} · ${provider.model}` : 'desactivado (sin ANTHROPIC_API_KEY)'}`

@@ -16,7 +16,7 @@ los datos del propio usuario y propone acciones que el usuario confirma.
 | Carpeta | Qué es | Tecnología | Datos |
 |---|---|---|---|
 | `frontend/` | App | React 18, Vite 5, Zustand, Tailwind, react-router 6, Capacitor 7 | Sesión en `localStorage` (`oldface-auth`) |
-| `frontend/backend/` | API principal + panel `/admin` (`admin.html`) | Node, Express 4, firebase-admin (push), nodemailer (OTP) | **JSON** en `data/` cargados en `Map` en memoria; `saveX()` reescribe el archivo entero. Archivos en `uploads/` |
+| `frontend/backend/` | API principal + panel `/admin` (`admin.html`) | Node, Express 4, firebase-admin (push), nodemailer (OTP) | **JSON** en `data/` cargados en `Map` en memoria; `saveX()` reescribe el archivo y `db/` sube a **Supabase** (Postgres, esquema `oldface`) solo las filas que cambian. Archivos en `uploads/` |
 | `rtc-server/` | Tiempo real: señalización, SFU, grabación de directos | Socket.IO, mediasoup, ffmpeg-static (+ coturn en el VPS) | En memoria |
 | `taxi-server/` | API del taxi | Express, Socket.IO, `node:sqlite` | `data/taxi.db` |
 | `taxi-admin/` | Panel del taxi | React + Vite | — |
@@ -27,7 +27,12 @@ los datos del propio usuario y propone acciones que el usuario confirma.
 | `embed-server/` | Búsqueda por significado de Willy (`oldface-embed`, solo 127.0.0.1:8090; la API lo usa con `EMBED_URL`) | llama.cpp de `llm-server/` + EmbeddingGemma 300M (2 núcleos) | Sin datos; modelo solo en el VPS |
 | `docs/` | Planes de WebRTC y taxi | — | — |
 
-- No hay base de datos en la API principal ni ningún proveedor de IA todavía.
+- Base de datos (decidido 2026-10-19): **Supabase en la nube** (proyecto OldFace, París). `frontend/backend/db/`: una tabla
+  por archivo de `data/` (`db/tables.js`), usuario propio `oldface_app` solo con el esquema `oldface` (no publicado en la
+  API de datos de Supabase, RLS activado), TLS verificado con `db/supabase-ca-2021.crt`. Al arrancar `db/sync.js` deja
+  `data/` y Supabase iguales (`DB_SOURCE=json`: manda `data/`; `supabase`: manda Supabase); en marcha `db.save()` sube las
+  diferencias en segundo plano. Sin `DB_HOST` todo sigue como antes. Comprobar: `node db/sync.js check`.
+  Pendiente: archivos (`uploads/`) a Supabase Storage y taxi (`node:sqlite`) a Supabase.
 - `frontend/android/` y `frontend/ios/` **no están en git**: los cambios nativos solo viajan en el APK.
 - Sesión: código OTP por email → token `<userId>.<exp>.<hmac>` firmado con `RTC_SECRET` (30 días).
   Comprobación: `verifyRtcToken` / `requireSession` / `bearer` en `frontend/backend/server.js`.

@@ -13,6 +13,7 @@ const DIR = fs.mkdtempSync(path.join(os.tmpdir(), `oldface-auth-${MODE}-`));
 fs.mkdirSync(path.join(DIR, 'data'));
 fs.mkdirSync(path.join(DIR, 'uploads'));
 fs.cpSync(path.join(SRC, 'ai'), path.join(DIR, 'ai'), { recursive: true });
+fs.cpSync(path.join(SRC, 'db'), path.join(DIR, 'db'), { recursive: true });
 fs.copyFileSync(path.join(SRC, 'server.js'), path.join(DIR, 'server.js'));
 fs.copyFileSync(path.join(SRC, 'admin.html'), path.join(DIR, 'admin.html'));
 
@@ -42,7 +43,7 @@ const SECRET = 'test-secret';
 const tokenAt = (uid, exp) => `${uid}.${exp}.${crypto.createHmac('sha256', SECRET).update(`${uid}.${exp}`).digest('base64url')}`;
 const token = (uid) => tokenAt(uid, Math.floor(Date.now() / 1000) + 3600);
 const PORT = MODE === 'exigir' ? 3996 : 3995, BASE = `http://127.0.0.1:${PORT}`;
-const env = { ...process.env, PORT, RTC_SECRET: SECRET, NODE_PATH: path.join(SRC, 'node_modules'), ADMIN_EMAIL: 'a@x.com', ADMIN_PASSWORD: 'pw', AUTH_MODE: MODE };
+const env = { ...process.env, PORT, RTC_SECRET: SECRET, NODE_PATH: path.join(SRC, 'node_modules'), ADMIN_EMAIL: 'a@x.com', ADMIN_PASSWORD: 'pw', AUTH_MODE: MODE, DB_SOURCE: 'off' };
 delete env.RTC_INTERNAL_URL;
 const srv = spawn(process.execPath, ['server.js'], { cwd: DIR, env, stdio: ['ignore', 'pipe', 'pipe'] });
 let log = ''; srv.stdout.on('data', d => log += d); srv.stderr.on('data', d => log += d);
