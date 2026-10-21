@@ -638,4 +638,5 @@ export default {
   "Pendiente": "Pending",
   "Pagada": "Paid",
   "Rechazada": "Rejected",
+  "Háblame": "Talk to me",
 };

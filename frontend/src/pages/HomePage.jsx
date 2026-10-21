@@ -108,22 +108,6 @@ export default function HomePage() {
           </div>
 
           <div style={{ display: 'flex', gap: 6 }}>
-            {/* Willy, el asistente con IA */}
-            <button
-              onClick={() => navigate('/willy')}
-              aria-label={tr('Willy, tu asistente con IA')}
-              style={{
-                height: 34, borderRadius: 17, padding: '0 11px',
-                background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)',
-                border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
-                color: T.textSecondary, fontSize: 12, fontWeight: 900,
-              }}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z" /><path d="M19 15l.8 1.9 1.9.8-1.9.8L19 20.5l-.8-2-1.9-.8 1.9-.8z" />
-              </svg>
-              Willy
-            </button>
             <button
               onClick={() => {
                 setShowSearch(v => !v);
@@ -217,7 +201,8 @@ export default function HomePage() {
       </div>
 
       {/* ══ CONTENIDO ════════════════════════════════════════════════════════ */}
-      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', background: T.bgMain }}>
+      {/* Abajo deja sitio para que Willy y el "+" no tapen el último chat */}
+      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', background: T.bgMain, paddingBottom: 150 }}>
         {activeTab === 'chats'     && <>
           <ChatList chats={searchQuery.trim()
             ? chats.filter(c => c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -228,6 +213,34 @@ export default function HomePage() {
         {activeTab === 'llamadas'  && <CallsTab T={T} user={user} isDark={isDark} />}
         {activeTab === 'contactos' && <ContactosTab T={T} isDark={isDark} />}
       </div>
+
+      {/* ══ Willy, el asistente con IA: encima del "+", mismo tamaño, con "Háblame" al lado ══ */}
+      <button
+        onClick={() => navigate('/willy')}
+        aria-label={tr('Willy, tu asistente con IA')}
+        style={{
+          position: 'fixed',
+          bottom: 'calc(var(--sab) + 146px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: 58, height: 58, padding: 0,
+          borderRadius: '50%',
+          background: 'white',
+          border: 'none',
+          cursor: 'pointer',
+          boxShadow: '0 6px 20px rgba(61,90,128,0.35)',
+          zIndex: 30,
+          WebkitTapHighlightColor: 'transparent',
+        }}
+      >
+        <img src="/willy.png" alt="" draggable={false} style={{ width: '100%', height: '100%', borderRadius: '50%', display: 'block' }} />
+        <span style={{
+          position: 'absolute', left: 'calc(100% + 10px)', top: '50%', transform: 'translateY(-50%)',
+          whiteSpace: 'nowrap', padding: '6px 12px', borderRadius: 16,
+          background: isDark ? '#222A38' : 'white', color: isDark ? '#E5ECF2' : '#293241',
+          fontSize: 13, fontWeight: 800, boxShadow: '0 2px 10px rgba(0,0,0,0.15)', pointerEvents: 'none',
+        }}>{tr('Háblame')}</span>
+      </button>
 
       {/* ══ FAB "+" centrado: abre el menú emergente hacia arriba ══════════════ */}
       <button
