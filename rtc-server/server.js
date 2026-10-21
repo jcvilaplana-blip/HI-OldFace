@@ -153,6 +153,18 @@ async function fetchDirecto(liveId, userId) {
   return res.json();
 }
 
+/** ¿Puede VER este directo? Solo el emisor, sus invitados y los contactos con permiso (si es de pago, con pase).
+ *  Lo decide el backend (canWatch); la respuesta buena se recuerda 1 minuto para no preguntar en cada paso. */
+async function canWatchLive(live, userId) {
+  if (live.hostId === userId || live.guests.has(userId) || live.invited.has(userId)) return true;
+  live.allowed = live.allowed || new Map();
+  if (Date.now() - (live.allowed.get(userId) || 0) < 60_000) return true;
+  const d = await fetchDirecto(live.id, userId);
+  if (!d || d.canWatch === false) return false;
+  live.allowed.set(userId, Date.now());
+  return true;
+}
+
 function liveState(live) {
   return {
     liveId: live.id, hostId: live.hostId, hostName: live.hostName, title: live.title,
@@ -611,6 +623,7 @@ io.on('connection', (socket) => {
     if (roomId.startsWith('live_')) {
       const live = lives.get(roomId.slice(5));
       if (!live) throw new Error('El directo no está en emisión');
+      if (!(await canWatchLive(live, userId))) throw new Error('No tienes acceso a este directo');
       const canSpeak = live.hostId === userId || live.guests.has(userId);
       effectiveRole = canSpeak && role !== 'viewer' ? 'speaker' : 'viewer';
     }
@@ -743,6 +756,15 @@ io.on('connection', (socket) => {
     if (!live) throw new Error('El directo no está en emisión');
     return live;
   };
+  /** Chat, likes y peticiones: solo quien puede ver el directo (tras reconectar se le vuelve a meter si sigue pudiendo) */
+  const getJoinedLive = async (liveId) => {
+    const live = getLive(liveId);
+    if (!myLives.has(live.id)) {
+      if (!(await canWatchLive(live, userId))) throw new Error('No tienes acceso a este directo');
+      enterLiveRoom(live);
+    }
+    return live;
+  };
   const requireHost = (live) => { if (live.hostId !== userId) throw new Error('Solo el anfitrión puede hacer esto'); };
   const enterLiveRoom = (live) => {
     socket.join(`live:${live.id}`);
@@ -777,8 +799,9 @@ io.on('connection', (socket) => {
   });
 
   /** Un espectador entra al directo */
-  handle(socket, 'live:join', ({ liveId }) => {
+  handle(socket, 'live:join', async ({ liveId }) => {
     const live = getLive(liveId);
+    if (!(await canWatchLive(live, userId))) throw new Error('No tienes acceso a este directo');
     enterLiveRoom(live);
     return { live: liveState(live) };
   });
@@ -790,8 +813,8 @@ io.on('connection', (socket) => {
     if (live) broadcastViewers(live);
   });
 
-  handle(socket, 'live:chat', ({ liveId, text }) => {
-    const live = getLive(liveId);
+  handle(socket, 'live:chat', async ({ liveId, text }) => {
+    const live = await getJoinedLive(liveId);
     const clean = String(text || '').trim().slice(0, 200);
     if (!clean) throw new Error('Mensaje vacío');
     const msg = { id: `lc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, userId, name: socket.data.name, text: clean, ts: Date.now() };
@@ -801,8 +824,8 @@ io.on('connection', (socket) => {
   });
 
   /** Likes: hasta 15 por segundo por persona (toques rápidos de corazón) */
-  handle(socket, 'live:like', ({ liveId, count = 1 }) => {
-    const live = getLive(liveId);
+  handle(socket, 'live:like', async ({ liveId, count = 1 }) => {
+    const live = await getJoinedLive(liveId);
     const now = Date.now();
     if (now - likeWindow.start > 1000) likeWindow = { start: now, count: 0 };
     const n = Math.max(1, Math.min(5, parseInt(count, 10) || 1));
@@ -814,8 +837,8 @@ io.on('connection', (socket) => {
   });
 
   /** Espectador pide subir al directo */
-  handle(socket, 'live:requestJoin', ({ liveId }) => {
-    const live = getLive(liveId);
+  handle(socket, 'live:requestJoin', async ({ liveId }) => {
+    const live = await getJoinedLive(liveId);
     if (live.hostId === userId) throw new Error('Ya eres el anfitrión');
     live.requests.set(userId, socket.data.name);
     io.to(`user:${live.hostId}`).emit('live:joinRequest', { liveId, userId, name: socket.data.name });

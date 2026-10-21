@@ -200,7 +200,8 @@ app.use(cors({
   credentials: true,
 }));
 app.options('*', cors());
-app.use(express.json({ limit: '20mb' }));
+// El aviso de Stripe necesita el cuerpo tal cual llega para comprobar su firma (payments/live.js)
+app.use(express.json({ limit: '20mb', verify: (req, _res, buf) => { if (req.url.includes('/payments/stripe/webhook')) req.rawBody = buf; } }));
 
 // ── Rate limiting básico por IP ───────────────────────────────────
 // Detrás de nginx/Apache/Passenger: la IP real viene en X-Forwarded-For (sin esto todos compartían el mismo cupo)
@@ -1051,9 +1052,27 @@ router.post('/chat/upload', express.raw({ type: () => true, limit: '150mb' }), (
   }
 });
 
-/** GET /files/:filename — sirve archivos subidos por los usuarios */
+// Grabaciones de directos (live_*): solo con enlace FIRMADO que caduca, y solo se le da a quien puede verlas
+// (contacto del emisor y, si es de pago, con pase). Así no se pueden pasar ni descargar sin permiso.
+const FILE_LINK_TTL = 6 * 3600;
+const fileSig = (name, exp) => crypto.createHmac('sha256', `files:${process.env.RTC_SECRET || ''}`).update(`${name}:${exp}`).digest('base64url').slice(0, 32);
+/** `/files/x?e=…&s=…` (válido FILE_LINK_TTL; redondeado a la hora para que el navegador lo guarde en caché) */
+function signedFileUrl(name) {
+  const exp = (Math.floor(Date.now() / 3_600_000) + 1) * 3600 + FILE_LINK_TTL;
+  return absFileUrl(`/files/${name}?e=${exp}&s=${fileSig(name, exp)}`);
+}
+function validFileSig(name, e, s) {
+  const exp = Number(e);
+  if (!exp || exp < Date.now() / 1000 || typeof s !== 'string') return false;
+  const want = fileSig(name, exp);
+  return s.length === want.length && crypto.timingSafeEqual(Buffer.from(s), Buffer.from(want));
+}
+
+/** GET /files/:filename — sirve archivos subidos por los usuarios (los de directos, solo con enlace firmado) */
 router.get('/files/:filename', (req, res) => {
   const safeName = path.basename(req.params.filename); // evita path traversal
+  if (safeName.startsWith('live_') && !validFileSig(safeName, req.query.e, req.query.s))
+    return res.status(403).json({ error: 'Enlace caducado o sin permiso' });
   const filePath = path.join(UPLOADS_DIR, safeName);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Archivo no encontrado' });
   res.sendFile(filePath);
@@ -1828,6 +1847,7 @@ function deleteAccount(userId) {
   callLogStore.delete(userId);
   for (const [id, d] of [...directoStore]) if (d.creatorId === userId) directoStore.delete(id);
   for (const r of [...liveRecStore.values()]) if (r.ownerId === userId) deleteLiveRecording(r);
+  livePay.forgetUser(userId);
   for (const [id, r] of [...karaokeRecStore]) {
     if (r.userId !== userId) continue;
     unlinkUpload(r.audioUrl);
@@ -2257,16 +2277,26 @@ router.delete('/call-log/:callId', (req, res) => {
 // ════════════════════════════════════════════════════════════════
 
 // Quién emite: de momento solo las cuentas autorizadas en el Administrador (por email o userId); con el interruptor
-// "Todos los usuarios" puede emitir cualquiera. Cada directo es público (todo OldFace) o para contactos: los
-// elegidos al crearlo o, si no eligió, todos sus contactos. Las grabaciones (las hace el servidor RTC) siguen la
-// misma regla y quedan en el canal del anfitrión; solo él las edita, publica/oculta o borra (y el Administrador).
+// "Todos los usuarios" puede emitir cualquiera. Cada directo es SOLO para el emisor y sus contactos (los elegidos al
+// crearlo o, si no eligió, todos); desde 2026-10-21 ya no hay directos públicos. Si tiene precio, el contacto necesita
+// un PASE (pagado con tarjeta o con un código del emisor: payments/live.js). Las grabaciones (las hace el servidor RTC)
+// siguen la misma regla y quedan en el canal del anfitrión; solo él las edita, publica/oculta o borra (y el Administrador).
 
 const DEFAULT_BROADCASTERS = ['williamduarte0412@gmail.com'];
 let liveSettings = loadJSON('live_settings.json', { mode: 'admin', broadcasters: DEFAULT_BROADCASTERS });
 const saveLiveSettings = () => saveJSON('live_settings.json', liveSettings);
 const liveRecStore = new Map(Object.entries(loadJSON('live_recordings.json', {})));   // id → grabación
 const saveLiveRecs = () => saveJSON('live_recordings.json', Object.fromEntries(liveRecStore));
-const LIVE_VISIBILITY = ['public', 'contacts'];
+const LIVE_VISIBILITY = ['contacts'];
+// Los directos y grabaciones que eran públicos pasan a ser solo para contactos (una vez)
+(function contactsOnly() {
+  let d = 0, r = 0;
+  for (const x of directoStore.values()) if (x.visibility !== 'contacts') { x.visibility = 'contacts'; d++; }
+  for (const x of liveRecStore.values()) if (x.visibility !== 'contacts') { x.visibility = 'contacts'; r++; }
+  if (d) saveDirectos();
+  if (r) saveLiveRecs();
+  if (d || r) console.log(`[directos] ${d} directos y ${r} grabaciones pasan a "solo contactos"`);
+})();
 
 /** ¿Puede emitir directos? (modo "todos" o cuenta autorizada por email o userId) */
 function canBroadcast(userId) {
@@ -2288,9 +2318,8 @@ function requireSession(req, res) {
 const pickedUserIds = (list) => (Array.isArray(list) ? list : [])
   .map(c => findUserById(c)?.userId || userStore.get(normalizePhone(String(c)))?.userId).filter(Boolean);
 
-/** Quién puede ver algo de `ownerId` compartido con `contacts` (null = todo OldFace) */
-function audienceOf(ownerId, visibility, contacts) {
-  if (visibility === 'public') return null;
+/** Quién puede ver algo de `ownerId` compartido con `contacts`: los elegidos o, si no eligió, todos sus contactos */
+function audienceOf(ownerId, _visibility, contacts) {
   const set = contacts?.length ? new Set(pickedUserIds(contacts)) : contactsOf(ownerId);
   set.delete(ownerId);
   return set;
@@ -2299,18 +2328,52 @@ const directoAudience = (d) => audienceOf(d.creatorId, d.visibility, d.contacts)
 function canSeeShared(ownerId, visibility, contacts, viewerId) {
   if (!viewerId || !findUserById(viewerId)) return false;
   if (ownerId === viewerId) return true;
-  const aud = audienceOf(ownerId, visibility, contacts);
-  return aud === null || aud.has(viewerId);
+  return audienceOf(ownerId, visibility, contacts).has(viewerId);
 }
 const canSeeDirecto = (d, viewerId) => canSeeShared(d.creatorId, d.visibility, d.contacts, viewerId);
+
+// ── Precio y pase ──
+const livePrice = (d) => Math.max(0, Number(d?.price) || 0);
+/** Precio que pide el emisor: 0 (gratis) o entre MIN y MAX euros */
+function cleanPrice(v) {
+  const p = Math.round((Number(v) || 0) * 100) / 100;
+  if (p < 0) return null;
+  if (p === 0) return 0;
+  if (p < livePay.MIN_PRICE || p > livePay.MAX_PRICE) return null;
+  return p;
+}
+/** ¿Puede VER el contenido? (contacto y, si es de pago, con pase; el emisor siempre) */
+const canWatchDirecto = (d, viewerId) => canSeeDirecto(d, viewerId)
+  && (d.creatorId === viewerId || livePrice(d) === 0 || livePay.hasPass(d.id, viewerId));
+
 /** A los demás no se les enseña con quién lo compartió el anfitrión */
 const directoFor = (d, viewerId) => {
   const creator = findUserById(d.creatorId);
-  const base = { ...d, visibility: d.visibility || 'contacts', creatorName: creator?.name || null };
+  const base = { ...d, visibility: 'contacts', creatorName: creator?.name || null, price: livePrice(d),
+                 locked: !canWatchDirecto(d, viewerId) };
   return d.creatorId === viewerId ? base : { ...base, contacts: [] };
 };
 const cleanVisibility = (v) => (LIVE_VISIBILITY.includes(v) ? v : 'contacts');
 const cleanText = (s, max) => String(s ?? '').replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim().slice(0, max);
+
+// Pases, cobros con tarjeta, códigos de promoción, ganancias y retiradas (payments/live.js). Va aquí, antes de
+// GET /directos/:id, para que /directos/pay/config, /directos/earnings… no se confundan con un id de directo.
+const livePay = require('./payments/live')({
+  router, authUser, requireSession: (req, res) => requireSession(req, res), adminAuth: (req, res, next) => adminAuth(req, res, next),
+  loadJSON, saveJSON, secret: process.env.RTC_SECRET, findUserById: (id) => findUserById(id),
+  notify: (userId, title, body) => pushToUser(userId, title, body, { type: 'live_pay' }),
+  // Destino de un pago o código: solo si el usuario puede verlo (contacto); si no, null
+  getTarget: (kind, id, viewerId) => {
+    if (kind === 'recording') {
+      const r = liveRecStore.get(id);
+      if (!r || !canSeeRecording(r, viewerId)) return null;
+      return { directoId: r.directoId, ownerId: r.ownerId, price: recordingPrice(r), title: r.title };
+    }
+    const d = directoStore.get(id);
+    if (!d || !canSeeDirecto(d, viewerId)) return null;
+    return { directoId: d.id, ownerId: d.creatorId, price: livePrice(d), title: d.title };
+  },
+});
 
 /** GET /directos/permissions?userId= — ¿puede emitir este usuario? */
 router.get('/directos/permissions', (req, res) => {
@@ -2335,13 +2398,15 @@ router.post('/directos', (req, res) => {
   if (!canBroadcast(userId)) return res.status(403).json({ error: 'Tu cuenta no tiene permiso para hacer directos' });
   const title = cleanText(req.body.title, 120);
   if (!title) return res.status(400).json({ error: 'El nombre del directo es obligatorio' });
-  const { scheduledAt, contacts, price } = req.body;
+  const { scheduledAt, contacts } = req.body;
+  const price = cleanPrice(req.body.price);
+  if (price === null) return res.status(400).json({ error: `El precio debe ser 0 (gratis) o de ${livePay.MIN_PRICE} a ${livePay.MAX_PRICE} €` });
   const directo = {
     id:          `directo_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     creatorId:   userId, title, description: cleanText(req.body.description, 1000),
     scheduledAt: scheduledAt || null, visibility: cleanVisibility(req.body.visibility),
     contacts:    Array.isArray(contacts) ? contacts.slice(0, 3000) : [],
-    price:       Math.max(0, Number(price) || 0), status: 'scheduled',
+    price,       status: 'scheduled',
     createdAt:   Date.now(), viewerCount: 0,
   };
   directoStore.set(directo.id, directo);
@@ -2358,8 +2423,9 @@ router.get('/directos/:id', (req, res, next) => {
   const d = directoStore.get(req.params.id);
   if (!d || !canSeeDirecto(d, viewerId)) return res.status(404).json({ error: 'Directo no encontrado' });
   const creator = findUserById(d.creatorId);
+  // canWatch: el servidor RTC solo deja entrar a ver (live:join / rtc:join) si es true
   return res.json({ ...directoFor(d, viewerId), creatorAvatar: avatarFor(creator, viewerId),
-                    hostCanBroadcast: canBroadcast(d.creatorId) });
+                    hostCanBroadcast: canBroadcast(d.creatorId), canWatch: canWatchDirecto(d, viewerId) });
 });
 
 /** Avisa a su público de que un directo ha empezado (si es público, a todo OldFace) */
@@ -2384,6 +2450,8 @@ router.put('/directos/:id', (req, res) => {
   if (status !== undefined && !['scheduled', 'live', 'ended'].includes(status)) return res.status(400).json({ error: 'Estado no válido' });
   const goingLive = status === 'live' && d.status !== 'live';
   if (goingLive && !canBroadcast(userId)) return res.status(403).json({ error: 'Tu cuenta no tiene permiso para hacer directos' });
+  if (price !== undefined && cleanPrice(price) === null)
+    return res.status(400).json({ error: `El precio debe ser 0 (gratis) o de ${livePay.MIN_PRICE} a ${livePay.MAX_PRICE} €` });
   if (goingLive) d.startedAt = Date.now();
   if (status === 'ended' && d.status !== 'ended') d.endedAt = Date.now();
   if (title       !== undefined && cleanText(title, 120)) d.title = cleanText(title, 120);
@@ -2391,7 +2459,7 @@ router.put('/directos/:id', (req, res) => {
   if (scheduledAt !== undefined) d.scheduledAt = scheduledAt || null;
   if (visibility  !== undefined) d.visibility  = cleanVisibility(visibility);
   if (contacts    !== undefined) d.contacts    = Array.isArray(contacts) ? contacts.slice(0, 3000) : [];
-  if (price       !== undefined) d.price       = Math.max(0, Number(price) || 0);
+  if (price       !== undefined) d.price       = cleanPrice(price);
   if (status      !== undefined) d.status      = status;
   directoStore.set(d.id, d);
   saveDirectos();
@@ -2413,13 +2481,49 @@ router.delete('/directos/:id', (req, res) => {
 // ── Grabaciones (canal de cada usuario) ─────────────────────────────
 const canSeeRecording = (r, viewerId) => r.ownerId === viewerId
   || (r.published && !r.hiddenByAdmin && canSeeShared(r.ownerId, r.visibility, r.contacts, viewerId));
+/** Precio de una grabación: el de su directo (si ya se borró, el que tenía al grabarse) */
+const recordingPrice = (r) => livePrice(directoStore.get(r.directoId) || r);
+const canWatchRecording = (r, viewerId) => canSeeRecording(r, viewerId)
+  && (r.ownerId === viewerId || recordingPrice(r) === 0 || livePay.hasPass(r.directoId, viewerId));
+/** Lo que ve cada uno: el vídeo (enlace firmado) solo si puede verlo; si no, la portada y el precio para pagarlo */
 function recordingFor(r, viewerId) {
   const owner = findUserById(r.ownerId);
-  const out = { ...r, url: absFileUrl(`/files/${r.file}`), ownerName: owner?.name || 'OldFace', ownerAvatar: avatarFor(owner, viewerId) };
+  const watch = canWatchRecording(r, viewerId);
+  const out = { ...r, url: watch ? signedFileUrl(r.file) : null, poster: r.poster ? signedFileUrl(r.poster) : null,
+                price: recordingPrice(r), locked: !watch, ownerName: owner?.name || 'OldFace', ownerAvatar: avatarFor(owner, viewerId) };
   delete out.file;
   if (r.ownerId !== viewerId) out.contacts = [];
   return out;
 }
+
+// ── Portadas: un fotograma del vídeo en JPG (sin ella Android enseña su imagen gris de "play") ──
+const FFMPEG = process.env.FFMPEG_PATH === 'none' ? null : [process.env.FFMPEG_PATH,
+  path.join(__dirname, '..', '..', 'rtc-server', 'node_modules', 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')]
+  .find(p => p && fs.existsSync(p)) || null;
+function ffmpegFrame(input, output, at) {
+  return new Promise((resolve) => {
+    const p = require('child_process').spawn(FFMPEG, ['-y', '-ss', String(at), '-i', input, '-frames:v', '1', '-vf', 'scale=540:-2', '-q:v', '4', output],
+      { stdio: 'ignore' });
+    const t = setTimeout(() => p.kill('SIGKILL'), 60_000);
+    p.on('close', () => { clearTimeout(t); resolve(fs.existsSync(output) && fs.statSync(output).size > 0); });
+    p.on('error', () => { clearTimeout(t); resolve(false); });
+  });
+}
+async function makePoster(r) {
+  if (!FFMPEG || r.poster) return;
+  const input = path.join(UPLOADS_DIR, path.basename(r.file));
+  if (!fs.existsSync(input)) return;
+  const name = path.basename(r.file).replace(/\.(webm|mp4)$/, '.jpg');
+  const output = path.join(UPLOADS_DIR, name);
+  const ok = await ffmpegFrame(input, output, Math.min(1, Math.max(0, (r.duration || 2) / 2))) || await ffmpegFrame(input, output, 0);
+  if (!ok || !liveRecStore.has(r.id)) return;
+  r.poster = name;
+  saveLiveRecs();
+}
+// Al arrancar: portadas de las grabaciones que aún no tienen (de una en una, sin prisa)
+setTimeout(async () => {
+  for (const r of [...liveRecStore.values()]) if (!r.poster) await makePoster(r).catch(() => {});
+}, 15_000).unref?.();
 
 /** Servidor RTC → backend: grabación terminada de un directo (secreto interno) */
 router.post('/internal/live-recordings', (req, res) => {
@@ -2436,7 +2540,7 @@ router.post('/internal/live-recordings', (req, res) => {
     id: `lrec_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
     directoId: liveId, ownerId, file,
     title: d?.title || 'Directo', description: d?.description || '',
-    visibility: d?.visibility || 'contacts', contacts: d?.contacts || [],
+    visibility: 'contacts', contacts: d?.contacts || [], price: livePrice(d),
     size: Number(size) || 0, duration: Number(duration) || 0,
     startedAt: Number(startedAt) || null, endedAt: Number(endedAt) || Date.now(), createdAt: Date.now(),
     published: true, hiddenByAdmin: false, views: 0,
@@ -2445,6 +2549,7 @@ router.post('/internal/live-recordings', (req, res) => {
   saveLiveRecs();
   console.log(`[directos] grabación ${rec.id} de ${ownerId}: ${file} (${Math.round(rec.size / 1048576)} MB, ${rec.duration} s)`);
   res.status(201).json({ id: rec.id });
+  makePoster(rec).catch(() => {});
 });
 
 /** GET /directos/recordings?userId=&ownerId= — grabaciones que puede ver el usuario (de un canal o de todos) */
@@ -2464,7 +2569,7 @@ router.post('/directos/recordings/:id/view', (req, res) => {
   const viewerId = authUser(req, res, req.body?.userId);
   if (!viewerId) return;
   const r = liveRecStore.get(req.params.id);
-  if (!r || !canSeeRecording(r, viewerId)) return res.status(404).json({ error: 'Grabación no encontrada' });
+  if (!r || !canWatchRecording(r, viewerId)) return res.status(404).json({ error: 'Grabación no encontrada' });
   if (viewerId !== r.ownerId) { r.views = (r.views || 0) + 1; saveLiveRecs(); }
   res.json({ views: r.views || 0 });
 });
@@ -2489,6 +2594,7 @@ function deleteLiveRecording(r) {
   liveRecStore.delete(r.id);
   saveLiveRecs();
   try { fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(r.file))); } catch { /* ya no estaba */ }
+  if (r.poster) try { fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(r.poster))); } catch { /* ya no estaba */ }
 }
 
 /** DELETE /directos/recordings/:id?userId= — solo el dueño (Bearer); borra también el vídeo */
@@ -2644,7 +2750,8 @@ router.put('/admin/live/settings', adminAuth, (req, res) => {
 router.get('/admin/live/recordings', adminAuth, (_req, res) => {
   const list = [...liveRecStore.values()].sort((a, b) => b.createdAt - a.createdAt).map(r => {
     const owner = findUserById(r.ownerId);
-    return { ...r, url: absFileUrl(`/files/${r.file}`), ownerName: owner?.name || r.ownerId, ownerPhone: owner?.phone || null };
+    return { ...r, url: signedFileUrl(r.file), poster: r.poster ? signedFileUrl(r.poster) : null, price: recordingPrice(r),
+             ownerName: owner?.name || r.ownerId, ownerPhone: owner?.phone || null };
   });
   res.json({ recordings: list, totalSize: list.reduce((n, r) => n + (r.size || 0), 0) });
 });

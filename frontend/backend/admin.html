@@ -558,8 +558,41 @@
             </div>
             <div style="overflow-x:auto">
               <table>
-                <thead><tr><th>Canal</th><th>Título</th><th>Fecha</th><th>Duración</th><th>Tamaño</th><th>Visibilidad</th><th>Estado</th><th>Vistas</th><th></th></tr></thead>
+                <thead><tr><th>Canal</th><th>Título</th><th>Fecha</th><th>Duración</th><th>Tamaño</th><th>Precio</th><th>Estado</th><th>Vistas</th><th></th></tr></thead>
                 <tbody id="dl-tbody"><tr><td colspan="9" class="empty"><div class="spinner"></div></td></tr></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-hdr">
+              <h3>Pagos de directos <span class="stat-sub" id="dp-summary"></span></h3>
+              <button class="btn-sec" onclick="loadLivePay()">↻ Actualizar</button>
+            </div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>Fecha</th><th>Directo</th><th>Emisor</th><th>Espectador</th><th>Importe</th><th>Comisión</th><th>Para el emisor</th><th>Estado</th><th></th></tr></thead>
+                <tbody id="dp-tbody"><tr><td colspan="9" class="empty"><div class="spinner"></div></td></tr></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-hdr"><h3>Saldos de los emisores</h3></div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>Emisor</th><th>Ganado</th><th>Retirado</th><th>Saldo</th></tr></thead>
+                <tbody id="dp-owners"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-hdr"><h3>Retiradas a cuenta bancaria</h3></div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>Fecha</th><th>Emisor</th><th>Importe</th><th>Titular</th><th>IBAN</th><th>Estado</th><th></th></tr></thead>
+                <tbody id="dw-tbody"></tbody>
               </table>
             </div>
           </div>
@@ -761,7 +794,7 @@ function showSection(id) {
   if (id === 'plans')  { renderPlanCards(); renderPlansTable(); }
   if (id === 'polls')  loadPollSection();
   if (id === 'karaoke') loadKaraokeSection();
-  if (id === 'directos') { loadLiveSettings(); loadLiveRecs(); }
+  if (id === 'directos') { loadLiveSettings(); loadLiveRecs(); loadLivePay(); }
 }
 
 // ── Directos: quién emite y grabaciones ──────────────────────
@@ -806,7 +839,7 @@ async function loadLiveRecs() {
       <td style="font-size:11px;color:var(--text3)">${fmtD(r.createdAt)}</td>
       <td>${r.duration ? fmtDur(r.duration) : '—'}</td>
       <td>${fmtMB(r.size || 0)}</td>
-      <td>${r.visibility === 'public' ? 'Pública' : 'Contactos'}</td>
+      <td>${r.price > 0 ? eur(r.price) : 'Gratis'}</td>
       <td>${r.hiddenByAdmin ? '<span style="color:var(--err)">Retirada</span>' : r.published ? '<span style="color:var(--ok)">Publicada</span>' : 'Oculta por el dueño'}</td>
       <td>${r.views || 0}</td>
       <td style="white-space:nowrap">
@@ -825,6 +858,56 @@ async function hideLiveRec(id, hidden) {
 async function deleteLiveRec(id) {
   if (!confirm('¿Eliminar esta grabación para siempre? Se borrará también el vídeo.')) return;
   try { await apiP(`/api/admin/live/recordings/${id}`, { method: 'DELETE' }); toast('Grabación eliminada', 'ok'); loadLiveRecs(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+
+// ── Directos de pago: cobros, saldos de los emisores y retiradas ─────
+const eur = (n) => (Number(n) || 0).toFixed(2).replace('.', ',') + ' €';
+const PAY_ST = { succeeded: ['Cobrado', 'var(--ok)'], refunded: ['Devuelto', 'var(--warn, #f59e0b)'], failed: ['Fallido', 'var(--err)'], canceled: ['Cancelado', 'var(--text3)'] };
+const WD_ST = { pending: ['Pendiente', 'var(--warn, #f59e0b)'], paid: ['Pagada', 'var(--ok)'], rejected: ['Rechazada', 'var(--err)'] };
+async function loadLivePay() {
+  try {
+    const [p, w] = await Promise.all([apiP('/api/admin/live/payments'), apiP('/api/admin/live/withdrawals')]);
+    set('dp-summary', `(${p.stripe.ready ? (p.stripe.testMode ? 'tarjeta en MODO PRUEBAS' : 'tarjeta activa') : 'tarjeta sin configurar'} · comisión ${p.feePercent} % · cobrado ${eur(p.totals.amount)} · para OldFace ${eur(p.totals.fee)})`);
+    document.getElementById('dp-tbody').innerHTML = p.payments.length ? p.payments.map(x => {
+      const [label, color] = PAY_ST[x.status] || [x.status, 'var(--text3)'];
+      return `<tr>
+        <td style="font-size:11px;color:var(--text3)">${fmtD(x.paidAt || x.createdAt)}</td>
+        <td>${esc(x.title || x.directoId)}</td><td>${esc(x.ownerName)}</td><td>${esc(x.buyerName)}</td>
+        <td>${eur(x.amount)}</td><td>${eur(x.fee)}</td><td>${eur(x.net)}</td>
+        <td style="color:${color};font-weight:700">${label}</td>
+        <td>${x.status === 'succeeded' ? `<button class="btn-ic del" title="Devolver el dinero" onclick="refundLivePay('${x.id}', '${eur(x.amount)}')">↩️</button>` : ''}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="9" class="empty"><div class="eico">💶</div>Todavía no hay pagos de directos</td></tr>';
+    document.getElementById('dp-owners').innerHTML = p.owners.length ? p.owners.map(o => `<tr>
+      <td>${esc(o.name)}</td><td>${eur(o.earned)}</td><td>${eur(o.withdrawn)}</td><td style="font-weight:800">${eur(o.balance)}</td></tr>`).join('')
+      : '<tr><td colspan="4" class="empty">Ningún emisor tiene saldo todavía</td></tr>';
+    document.getElementById('dw-tbody').innerHTML = w.withdrawals.length ? w.withdrawals.map(x => {
+      const [label, color] = WD_ST[x.status] || [x.status, 'var(--text3)'];
+      return `<tr>
+        <td style="font-size:11px;color:var(--text3)">${fmtD(x.createdAt)}</td><td>${esc(x.ownerName)}</td>
+        <td style="font-weight:800">${eur(x.amount)}</td><td>${esc(x.holder)}</td>
+        <td style="font-family:monospace">${esc(x.account || '¿?')}</td>
+        <td style="color:${color};font-weight:700">${label}${x.note ? `<div class="up">${esc(x.note)}</div>` : ''}</td>
+        <td style="white-space:nowrap">${x.status === 'pending' ? `
+          <button class="btn-ic" title="Ya he hecho la transferencia" onclick="decideWithdrawal('${x.id}', 'paid')">✅</button>
+          <button class="btn-ic del" title="Rechazar (el dinero vuelve a su saldo)" onclick="decideWithdrawal('${x.id}', 'rejected')">✖️</button>` : ''}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="7" class="empty">No hay retiradas</td></tr>';
+  } catch (e) { toast(e.message, 'er'); }
+}
+async function refundLivePay(id, amount) {
+  if (!confirm(`¿Devolver ${amount} al espectador? Se le quita el acceso y se descuenta al emisor lo que ganó.`)) return;
+  try { await apiP(`/api/admin/live/payments/${id}/refund`, { method: 'POST' }); toast('Pago devuelto', 'ok'); loadLivePay(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+async function decideWithdrawal(id, status) {
+  const note = status === 'paid'
+    ? (confirm('¿Confirmas que YA has hecho la transferencia a esa cuenta?') ? '' : null)
+    : prompt('Motivo del rechazo (lo verá el emisor):', '');
+  if (note === null) return;
+  try { await apiP(`/api/admin/live/withdrawals/${id}`, { method: 'PUT', body: JSON.stringify({ status, note }) });
+        toast(status === 'paid' ? 'Retirada marcada como pagada' : 'Retirada rechazada', 'ok'); loadLivePay(); }
   catch (e) { toast(e.message, 'er'); }
 }
 

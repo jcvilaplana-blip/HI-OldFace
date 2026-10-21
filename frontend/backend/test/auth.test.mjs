@@ -14,6 +14,7 @@ fs.mkdirSync(path.join(DIR, 'data'));
 fs.mkdirSync(path.join(DIR, 'uploads'));
 fs.cpSync(path.join(SRC, 'ai'), path.join(DIR, 'ai'), { recursive: true });
 fs.cpSync(path.join(SRC, 'db'), path.join(DIR, 'db'), { recursive: true });
+fs.cpSync(path.join(SRC, 'payments'), path.join(DIR, 'payments'), { recursive: true });
 fs.copyFileSync(path.join(SRC, 'server.js'), path.join(DIR, 'server.js'));
 fs.copyFileSync(path.join(SRC, 'admin.html'), path.join(DIR, 'admin.html'));
 

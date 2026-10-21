@@ -12,7 +12,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { RtcCall } from '../utils/rtcCall';
 import { ensureRtcConnected, rtcRequest, onRtc } from '../utils/rtcClient';
-import { saveDirecto } from '../utils/directos';
+import { saveDirecto, formatMoney } from '../utils/directos';
+import { PaySheet } from '../components/LivePay';
 import { tr, LOCALE } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
@@ -38,7 +39,8 @@ export default function DirectoLivePage() {
   const unsubsRef   = useRef([]);
 
   const [directo,   setDirecto]   = useState(null);
-  const [status,    setStatus]    = useState('loading'); // loading | live | notStarted | ended | error
+  const [status,    setStatus]    = useState('loading'); // loading | live | notStarted | ended | locked | error
+  const [paying,    setPaying]    = useState(false);     // directo de pago: hoja para pagar o canjear un código
   const [errMsg,    setErrMsg]    = useState('');
   const [hostAway,  setHostAway]  = useState(false);
   const [startedAt, setStartedAt] = useState(null);
@@ -109,6 +111,8 @@ export default function DirectoLivePage() {
       const d = await res.json();
       setDirecto(d);
       const amHost = d.creatorId === user?.id;
+      // De pago y sin pase: primero pagar o canjear un código (el servidor RTC tampoco dejaría entrar)
+      if (!amHost && d.locked) { setStatus('locked'); setPaying(true); return; }
 
       await ensureRtcConnected(user);
       subscribe(amHost);
@@ -289,10 +293,17 @@ export default function DirectoLivePage() {
   // ── Render ────────────────────────────────────────────────────────────────
   if (status !== 'live') {
     return (
-      <FullMessage
-        status={status} errMsg={errMsg} isHost={isHost} directo={directo}
-        onRetry={() => { cleanedRef.current = false; start(); }} onBack={close}
-      />
+      <>
+        <FullMessage
+          status={status} errMsg={errMsg} isHost={isHost} directo={directo}
+          onRetry={() => { cleanedRef.current = false; start(); }} onBack={close} onPay={() => setPaying(true)}
+        />
+        {status === 'locked' && paying && directo && (
+          <PaySheet kind="directo" id={directo.id} price={directo.price} title={directo.title} ownerName={directo.creatorName}
+            onClose={() => setPaying(false)}
+            onUnlocked={() => { setPaying(false); cleanedRef.current = false; start(); }} />
+        )}
+      </>
     );
   }
 
@@ -536,8 +547,9 @@ function SideBtn({ children, label, onPress, badge, active, big }) {
   );
 }
 
-function FullMessage({ status, errMsg, isHost, directo, onRetry, onBack }) {
+function FullMessage({ status, errMsg, isHost, directo, onRetry, onBack, onPay }) {
   const texts = {
+    locked:     { title: tr('Directo de pago'), sub: directo ? tr('Para verlo: {p0} (o un código del emisor)', { p0: formatMoney(directo.price) }) : '' },
     loading:    { title: isHost ? tr('Iniciando tu directo…') : tr('Entrando al directo…'), sub: '' },
     notStarted: { title: tr('El directo aún no ha empezado'), sub: directo?.scheduledAt ? tr('Programado: {p0}', { p0: new Date(directo.scheduledAt).toLocaleString(LOCALE, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) }) : tr('Vuelve en un rato') },
     ended:      { title: tr('El directo ha terminado'), sub: tr('Gracias por acompañar') },
@@ -554,6 +566,7 @@ function FullMessage({ status, errMsg, isHost, directo, onRetry, onBack }) {
       <p style={{ fontSize: 19, fontWeight: 900, margin: 0 }}>{texts.title}</p>
       {texts.sub && <p style={{ fontSize: 13, opacity: 0.65, margin: 0 }}>{texts.sub}</p>}
       {status === 'error' && <button onClick={onRetry} style={{ ...pill(RED), padding: '12px 26px', fontSize: 14 }}>{tr('Reintentar')}</button>}
+      {status === 'locked' && <button onClick={onPay} style={{ ...pill(RED), padding: '12px 26px', fontSize: 14 }}>🔒 {tr('Ver por {p0}', { p0: formatMoney(directo?.price) })}</button>}
       <button onClick={onBack} style={{ ...pill('rgba(255,255,255,0.12)'), padding: '10px 24px', fontSize: 13 }}>{tr('Volver')}</button>
       <style>{'@keyframes liveRipple { 0%,100% { transform:scale(1); opacity:0.5 } 50% { transform:scale(1.6); opacity:0 } }'}</style>
     </div>

@@ -76,7 +76,7 @@ if (!envFile) {
   const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'oldface-db-'));
   fs.mkdirSync(path.join(DIR, 'data')); fs.mkdirSync(path.join(DIR, 'uploads'));
   for (const f of ['server.js', 'admin.html']) fs.copyFileSync(path.join(SRC, f), path.join(DIR, f));
-  for (const d of ['ai', 'db']) fs.cpSync(path.join(SRC, d), path.join(DIR, d), { recursive: true });
+  for (const d of ['ai', 'db', 'payments']) fs.cpSync(path.join(SRC, d), path.join(DIR, d), { recursive: true });
   const dataFile = (f) => path.join(DIR, 'data', f);
   const write = (f, v) => fs.writeFileSync(dataFile(f), JSON.stringify(v));
   write('users.json', SAMPLE['users.json']);

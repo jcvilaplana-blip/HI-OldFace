@@ -39,6 +39,12 @@ los datos del propio usuario y propone acciones que el usuario confirma.
   Archivos: `db/storage.js` copia `uploads/` y los del taxi (`STORAGE_TAXI_DIR`) al bucket PRIVADO `oldface-files` cada
   30 s (clave secreta propia `oldface_files`); lo borrado se borra (nunca se resucita); sin registro
   `data/storage-manifest.json` restaura lo que falte. Se siguen sirviendo desde el servidor.
+- Directos (decidido 2026-10-21): solo para el emisor y sus contactos; con precio, el contacto necesita un pase (tarjeta
+  con Stripe en la app o código de un uso del emisor) que vale para el directo y su grabación. `frontend/backend/payments/`
+  (`stripe.js` con claves `STRIPE_*` en el `.env`, `live.js`: pases, cobros, códigos, saldo del emisor −20 %
+  `LIVE_FEE_PERCENT`, retiradas con IBAN cifrado; webhook `/api/payments/stripe/webhook`). Vídeos y portadas `live_*` solo
+  con enlace firmado (`signedFileUrl`, 6 h); `rtc-server` comprueba `canWatch` en `live:join`/`rtc:join`. Portadas JPG con
+  ffmpeg (`FFMPEG_PATH`). App: cuadrícula 9:16 + reproductor vertical (`components/LiveRecordings.jsx`, `LivePay.jsx`).
 - `frontend/android/` y `frontend/ios/` **no están en git**: los cambios nativos solo viajan en el APK.
 - Sesión: código OTP por email → token `<userId>.<exp>.<hmac>` firmado con `RTC_SECRET` (30 días).
   Comprobación: `verifyRtcToken` / `requireSession` / `bearer` en `frontend/backend/server.js`.

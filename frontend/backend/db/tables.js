@@ -41,6 +41,11 @@ const TABLES = [
   { file: 'muted_chats.json',        table: 'muted_chats',        kind: 'map' },
   { file: 'reminders.json',          table: 'reminders',          kind: 'map' },
   { file: 'ai_media.json',           table: 'ai_media',           kind: 'map',  cols: { kind: 'kind' } },
+  { file: 'live_passes.json',        table: 'live_passes',        kind: 'map',  cols: { directo_id: 'directoId', user_id: 'userId', via: 'via' } },
+  { file: 'live_payments.json',      table: 'live_payments',      kind: 'map',  cols: { owner_id: 'ownerId', buyer_id: 'buyerId', status: 'status' } },
+  { file: 'live_codes.json',         table: 'live_codes',         kind: 'map',  cols: { directo_id: 'directoId', owner_id: 'ownerId' } },
+  { file: 'live_earnings.json',      table: 'live_earnings',      kind: 'map' },
+  { file: 'live_withdrawals.json',   table: 'live_withdrawals',   kind: 'map',  cols: { owner_id: 'ownerId', status: 'status' } },
   { file: 'live_settings.json',      table: 'app_docs',           kind: 'doc' },
   { file: 'ai_usage.json',           table: 'app_docs',           kind: 'doc' },
 ];

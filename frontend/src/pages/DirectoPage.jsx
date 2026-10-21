@@ -4,7 +4,8 @@
  *   · Grabaciones: los directos terminados de todos los canales que puedo ver (se graban solos en el servidor).
  *   · Mi canal: mis grabaciones (editar, publicar/ocultar, borrar). Solo si puedo emitir.
  * Emitir: de momento solo las cuentas autorizadas en el Administrador (GET /directos/permissions).
- * Cada directo es público (todo OldFace) o para mis contactos (todos o los que elija).
+ * Cada directo es SOLO para mis contactos (todos o los que elija). Si tiene precio, cada contacto lo paga (o canjea
+ * un código que le mando) para verlo en vivo y su grabación.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -12,8 +13,9 @@ import { useAuthStore } from '../store/authStore';
 import { useContacts } from '../hooks/useContacts';
 import { onRtc } from '../utils/rtcClient';
 import { useBackClose } from '../utils/backHandler';
-import { getPermissions, listDirectos, saveDirecto, deleteDirecto, listRecordings } from '../utils/directos';
-import { RecordingsList, RecordingPlayer, ChannelView } from '../components/LiveRecordings';
+import { getPermissions, listDirectos, saveDirecto, deleteDirecto, listRecordings, formatMoney } from '../utils/directos';
+import { RecordingsGrid, RecordingFeed, ChannelView } from '../components/LiveRecordings';
+import { PaySheet, CodesSheet } from '../components/LivePay';
 import { tr, LOCALE } from '../i18n';
 
 const BRAND = '#3D5A80';
@@ -32,8 +34,7 @@ function statusLabel(status) {
   return                             { text: tr('Programado'),   color: BRAND,    bg: '#E3EDF2' };
 }
 
-const visibilityLabel = (d) => (d.visibility === 'public' ? tr('Público')
-  : d.contacts?.length ? tr('{n} contactos', { n: d.contacts.length }) : tr('Mis contactos'));
+const visibilityLabel = (d) => (d.contacts?.length ? tr('{n} contactos', { n: d.contacts.length }) : tr('Mis contactos'));
 
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function DirectoPage() {
@@ -50,8 +51,10 @@ export default function DirectoPage() {
 
   const [recs, setRecs]               = useState([]);
   const [recsLoading, setRecsLoading] = useState(false);
-  const [playing, setPlaying]         = useState(null);
+  const [feed, setFeed]               = useState(null);    // { list, index } reproductor a pantalla completa
   const [channel, setChannel]         = useState(null);    // userId del canal abierto
+  const [paying, setPaying]           = useState(null);    // directo de pago que quiero ver
+  const [codesFor, setCodesFor]       = useState(null);    // directo mío del que gestiono los códigos
 
   useEffect(() => { getPermissions().then(p => setCanCreate(!!p.canBroadcast)).catch(() => setCanCreate(false)); }, []);
 
@@ -77,23 +80,27 @@ export default function DirectoPage() {
   }, []);
   useEffect(() => { if (tab === 'recordings') loadRecs(); }, [tab]);
 
-  // "En directo ahora": primero se elige quién puede verlo y se empieza a emitir al instante
+  // "En directo ahora": primero se elige si es gratis o de pago (para mis contactos) y se empieza a emitir al instante
   const [quickLive, setQuickLive] = useState(false);
   const [goingLive, setGoingLive] = useState(false);
-  const goLiveNow = async (visibility) => {
+  const goLiveNow = async (price) => {
     if (goingLive) return;
     setGoingLive(true);
     setError('');
     try {
-      const d = await saveDirecto(null, { title: tr('Directo de {p0}', { p0: user.name || 'OldFace' }), visibility, price: 0 });
+      const d = await saveDirecto(null, { title: tr('Directo de {p0}', { p0: user.name || 'OldFace' }), visibility: 'contacts', price });
       setQuickLive(false);
       navigate(`/directo/${d.id}/live`);
     } catch (e) {
       setError(e.message || tr('No se pudo crear el directo. Inténtalo de nuevo.'));
+      setQuickLive(false);
     } finally {
       setGoingLive(false);
     }
   };
+
+  /** Ver un directo: si es de pago y no lo tengo, primero pagar o canjear un código */
+  const watch = (d) => (d.locked ? setPaying(d) : navigate(`/directo/${d.id}/live`));
 
   const handleDelete = async (id) => {
     if (!window.confirm(tr('¿Eliminar este directo?'))) return;
@@ -236,18 +243,20 @@ export default function DirectoPage() {
                 onDelete={() => handleDelete(d.id)}
                 onGoLive={() => handleGoLive(d)}
                 onEnd={() => handleEnd(d)}
-                onWatch={() => navigate(`/directo/${d.id}/live`)}
+                onWatch={() => watch(d)}
+                onPay={() => setPaying(d)}
+                onCodes={() => setCodesFor(d)}
                 onOpenChannel={() => setChannel(d.creatorId)}
               />
             ))}
           </>
         )}
 
-        {/* ── Grabaciones de todos los canales que puedo ver ── */}
+        {/* ── Grabaciones de todos los canales que puedo ver (2 columnas, 9:16) ── */}
         {tab === 'recordings' && (
-          <RecordingsList recordings={recs} loading={recsLoading}
+          <RecordingsGrid recordings={recs} loading={recsLoading}
             emptyText={tr('Todavía no hay grabaciones de directos')}
-            onOpen={setPlaying} onOpenChannel={setChannel} />
+            onOpen={(list, index) => setFeed({ list, index })} />
         )}
 
         {/* ── Mi canal ── */}
@@ -271,43 +280,62 @@ export default function DirectoPage() {
       )}
 
       {quickLive && <QuickLiveSheet busy={goingLive} onClose={() => setQuickLive(false)} onChoose={goLiveNow} />}
-      {playing && <RecordingPlayer rec={playing} onClose={() => setPlaying(null)} onOpenChannel={(id) => { setPlaying(null); setChannel(id); }} />}
+      {feed && <RecordingFeed recordings={feed.list} startIndex={feed.index} onClose={() => setFeed(null)}
+        onOpenChannel={(id) => { setFeed(null); setChannel(id); }}
+        onChanged={(r) => setRecs(l => l.map(x => (x.id === r.id ? r : x)))} />}
       {channel && <ChannelView ownerId={channel} onClose={() => setChannel(null)} />}
+      {paying && <PaySheet kind="directo" id={paying.id} price={paying.price} title={paying.title} ownerName={paying.creatorName}
+        onClose={() => setPaying(null)}
+        onUnlocked={() => { const d = paying; setPaying(null); loadDirectos(); if (d.status === 'live') navigate(`/directo/${d.id}/live`); }} />}
+      {codesFor && <CodesSheet directo={codesFor} onClose={() => setCodesFor(null)} />}
     </div>
   );
 }
 
-// ── "En directo ahora": ¿quién puede verlo? ──────────────────────────────────
+// ── "En directo ahora": ¿gratis o de pago? (siempre solo para mis contactos) ──
 function QuickLiveSheet({ busy, onClose, onChoose }) {
   useBackClose(true, onClose);
-  const option = (vis, title, sub) => (
-    <button onClick={() => onChoose(vis)} disabled={busy} style={{
+  const [paid, setPaid]   = useState(false);
+  const [price, setPrice] = useState('3');
+  const option = (isPaid, title, sub) => (
+    <button onClick={() => setPaid(isPaid)} disabled={busy} style={{
       display: 'block', width: '100%', textAlign: 'left', padding: '14px 16px', marginBottom: 10,
-      background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 14, cursor: 'pointer', opacity: busy ? 0.6 : 1,
+      background: paid === isPaid ? '#fee2e2' : '#f8fafc', border: `1.5px solid ${paid === isPaid ? RED : '#e2e8f0'}`, borderRadius: 14, cursor: 'pointer',
     }}>
       <span style={{ display: 'block', fontSize: 15, fontWeight: 900, color: '#293241' }}>{title}</span>
       <span style={{ fontSize: 12, color: '#64748b' }}>{sub}</span>
     </button>
   );
+  const value = Number(String(price).replace(',', '.')) || 0;
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end' }}>
       <div onClick={e => e.stopPropagation()} style={{ width: '100%', background: 'white', borderRadius: '24px 24px 0 0', padding: '18px 16px calc(18px + env(safe-area-inset-bottom, 0px))', boxSizing: 'border-box' }}>
-        <h2 style={{ fontSize: 16, fontWeight: 900, color: '#293241', margin: '0 0 4px' }}>{tr('¿Quién puede ver tu directo?')}</h2>
-        <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 14px' }}>{tr('Se graba solo y al terminar queda en tu canal con la misma privacidad.')}</p>
-        {option('public', tr('Todo OldFace'), tr('Cualquier usuario puede verlo y recibe el aviso'))}
-        {option('contacts', tr('Mis contactos'), tr('Solo tus contactos lo verán y recibirán el aviso'))}
+        <h2 style={{ fontSize: 16, fontWeight: 900, color: '#293241', margin: '0 0 4px' }}>{tr('Tu directo para tus contactos')}</h2>
+        <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 14px' }}>{tr('Solo lo ven tus contactos. Se graba solo y al terminar queda en tu canal con las mismas condiciones.')}</p>
+        {option(false, tr('Gratis'), tr('Todos tus contactos pueden verlo y reciben el aviso'))}
+        {option(true, tr('De pago'), tr('Tus contactos pagan para verlo (o usan un código que les envíes)'))}
+        {paid && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0 12px' }}>
+            <input value={price} onChange={e => setPrice(e.target.value)} inputMode="decimal" style={{ ...inputStyle, width: 100 }} />
+            <span style={{ fontSize: 12, color: '#64748b' }}>{tr('€ por persona (de 1 a 200 €)')}</span>
+          </div>
+        )}
+        <button onClick={() => onChoose(paid ? value : 0)} disabled={busy || (paid && !(value >= 1 && value <= 200))} style={{
+          width: '100%', padding: 15, border: 'none', borderRadius: 14, background: RED, color: 'white', fontSize: 15, fontWeight: 900, cursor: 'pointer',
+          opacity: busy || (paid && !(value >= 1 && value <= 200)) ? 0.6 : 1,
+        }}>{busy ? tr('Preparando…') : paid ? tr('Empezar directo · {p0}', { p0: formatMoney(value) }) : tr('Empezar directo gratis')}</button>
       </div>
     </div>
   );
 }
 
 // ── Tarjeta de directo ────────────────────────────────────────────────────────
-function DirectoCard({ directo: d, canManage, onEdit, onDelete, onGoLive, onEnd, onWatch, onOpenChannel }) {
+function DirectoCard({ directo: d, canManage, onEdit, onDelete, onGoLive, onEnd, onWatch, onPay, onCodes, onOpenChannel }) {
   const st = statusLabel(d.status);
 
   const handleShare = async () => {
     const when = d.scheduledAt ? tr('\nCuándo: {p0}', { p0: formatScheduled(d.scheduledAt) }) : '';
-    const price = d.price > 0 ? tr('\nPrecio: {price}€', { price: d.price }) : '\nGratis';
+    const price = d.price > 0 ? tr('\nPrecio: {price}€', { price: d.price }) : `\n${tr('Gratis')}`;
     const link = `https://oldface.app/directo/${d.id}/live`;
     const text = `${d.title}${d.description ? ' — ' + d.description : ''}${when}${price}\n${link}`;
     try {
@@ -330,7 +358,7 @@ function DirectoCard({ directo: d, canManage, onEdit, onDelete, onGoLive, onEnd,
         <span style={{ fontSize: 10, fontWeight: 700, color: d.status === 'live' ? 'white' : '#64748b', opacity: 0.9 }}>· {visibilityLabel(d)}</span>
         {d.price > 0 && (
           <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, color: '#293241', background: '#fef9c3', borderRadius: 20, padding: '2px 8px' }}>
-            {d.price}{' '}{tr('€ / acceso')}</span>
+            {d.locked ? '🔒 ' : ''}{formatMoney(d.price)}{' '}{tr('/ acceso')}</span>
         )}
       </div>
 
@@ -365,13 +393,24 @@ function DirectoCard({ directo: d, canManage, onEdit, onDelete, onGoLive, onEnd,
           {canManage && d.status !== 'live' && (
             <button onClick={onEdit} style={btnStyle('#e2e8f0', '#293241')}>{tr('Editar')}</button>
           )}
+          {canManage && d.price > 0 && (
+            <button onClick={onCodes} style={btnStyle('#fef9c3', '#293241')}>🎟️ {tr('Códigos')}</button>
+          )}
           {canManage && (
             <button onClick={onDelete} style={btnStyle('#fee2e2', RED)}>{tr('Eliminar')}</button>
           )}
 
           {/* Botones para la audiencia */}
           {!canManage && d.status === 'live' && (
-            <button onClick={onWatch} style={btnStyle(RED, 'white')}>{tr('● Ver directo')}</button>
+            <button onClick={onWatch} style={btnStyle(RED, 'white')}>
+              {d.locked ? `🔒 ${tr('Ver por {p0}', { p0: formatMoney(d.price) })}` : tr('● Ver directo')}
+            </button>
+          )}
+          {!canManage && d.status === 'scheduled' && d.locked && (
+            <button onClick={onPay} style={btnStyle(RED, 'white')}>{tr('Comprar entrada · {p0}', { p0: formatMoney(d.price) })}</button>
+          )}
+          {!canManage && d.price > 0 && !d.locked && d.status !== 'ended' && (
+            <span style={{ fontSize: 11, color: '#15803d', padding: '6px 0', fontWeight: 800 }}>✓ {tr('Tienes acceso')}</span>
           )}
           {!canManage && d.status === 'scheduled' && (
             <button onClick={handleShare} style={btnStyle(BRAND, 'white')}>
@@ -408,8 +447,8 @@ function DirectoForm({ initial, onClose, onSaved }) {
     initial?.scheduledAt ? new Date(initial.scheduledAt).toISOString().slice(0, 16) : ''
   );
   const [price,       setPrice]       = useState(initial?.price       ?? 0);
-  // Nuevo: público por defecto; al editar, lo que tenía (los antiguos sin visibilidad eran para contactos)
-  const [visibility,  setVisibility]  = useState(!initial || initial.visibility === 'public' ? 'public' : 'contacts');
+  // Siempre solo para mis contactos (todos o los que elija)
+  const visibility = 'contacts';
   const [selected,    setSelected]    = useState(new Set(initial?.contacts || []));
   // Sin contactos elegidos = lo ven todos mis contactos (nunca nadie más)
   const [shareAll,    setShareAll]    = useState(!initial?.contacts?.length);
@@ -428,7 +467,9 @@ function DirectoForm({ initial, onClose, onSaved }) {
 
   const handleSave = async () => {
     if (!title.trim()) { setError(tr('El nombre del directo es obligatorio')); return; }
-    if (visibility === 'contacts' && !shareAll && selected.size === 0) { setError(tr('Elige al menos un contacto')); return; }
+    if (!shareAll && selected.size === 0) { setError(tr('Elige al menos un contacto')); return; }
+    const p = Number(String(price).replace(',', '.')) || 0;
+    if (p < 0 || (p > 0 && (p < 1 || p > 200))) { setError(tr('El precio debe ser 0 (gratis) o de 1 a 200 €')); return; }
     setSaving(true);
     setError('');
     try {
@@ -437,8 +478,8 @@ function DirectoForm({ initial, onClose, onSaved }) {
         description: description.trim(),
         scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
         visibility,
-        contacts:    visibility === 'contacts' && !shareAll ? [...selected] : [],
-        price:       Number(price) || 0,
+        contacts:    !shareAll ? [...selected] : [],
+        price:       Number(String(price).replace(',', '.')) || 0,
       }));
     } catch (e) {
       setError(e.message || tr('Error guardando el directo'));
@@ -448,16 +489,6 @@ function DirectoForm({ initial, onClose, onSaved }) {
   };
 
   const oldFaceContacts = contacts.filter(c => c.usesOldFace);
-
-  const visOption = (key, label, sub) => (
-    <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 12px', background: visibility === key ? '#fee2e2' : '#f8fafc', borderRadius: 12, marginBottom: 8 }}>
-      <input type="radio" name="directo-vis" checked={visibility === key} onChange={() => setVisibility(key)} style={{ width: 18, height: 18, accentColor: RED }} />
-      <div>
-        <p style={{ fontSize: 13, fontWeight: 700, color: '#293241', margin: 0 }}>{label}</p>
-        <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{sub}</p>
-      </div>
-    </label>
-  );
 
   return (
     <div style={{
@@ -535,15 +566,20 @@ function DirectoForm({ initial, onClose, onSaved }) {
                 style={{ ...inputStyle, width: 100 }}
               />
               <span style={{ fontSize: 12, color: '#64748b' }}>
-                {Number(price) === 0 ? tr('Gratis') : `${Number(price).toFixed(2)} € por espectador`}
+                {!(Number(String(price).replace(',', '.')) > 0) ? tr('Gratis para tus contactos')
+                  : tr('{p0} por persona · mínimo 1 €', { p0: formatMoney(Number(String(price).replace(',', '.'))) })}
               </span>
             </div>
+            {Number(String(price).replace(',', '.')) > 0 && (
+              <p style={{ fontSize: 11, color: '#94a3b8', margin: '6px 0 0', lineHeight: 1.4 }}>
+                {tr('Tus contactos pagan con tarjeta o usan un código que les envíes. Pagar da acceso al directo y a su grabación.')}
+              </p>
+            )}
           </Field>
 
-          {/* Quién puede verlo */}
+          {/* Quién puede verlo: solo contactos */}
           <Field label={tr('Quién puede verlo')}>
-            {visOption('public', tr('Todo OldFace'), tr('Cualquier usuario puede verlo y recibe el aviso'))}
-            {visOption('contacts', tr('Mis contactos'), tr('Solo tus contactos lo verán y recibirán el aviso'))}
+            <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 4px' }}>{tr('Solo tus contactos lo verán y recibirán el aviso.')}</p>
 
             {visibility === 'contacts' && (
               <>
