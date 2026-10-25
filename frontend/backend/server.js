@@ -168,7 +168,10 @@ const pushText = (userId) => PUSH_TEXT[userLang(userId)];
 function pushToUser(userId, title, body, data = {}, { message = false } = {}) {
   const tokens = fcmTokensOf(userId);
   const ch = message ? messageChannelOf(userId) : { channelId: 'oldface_messages', sound: 'message_sound' };
-  return Promise.all(tokens.map(t => sendFCMPush(t, title, body, data, ch.channelId, ch.sound).catch(() => {})))
+  // Mensajes: el total sin leer va en el aviso para la insignia del icono de la app (y la app lo recibe en data.badge)
+  const badge = message ? unreadTotalOf(userId) : null;
+  if (badge !== null) data = { ...data, badge };
+  return Promise.all(tokens.map(t => sendFCMPush(t, title, body, data, ch.channelId, ch.sound, badge).catch(() => {})))
     .then(() => tokens.length);
 }
 
@@ -275,7 +278,7 @@ function getFirebaseAdmin() {
  * Para obtenerlo: Firebase Console → Configuración → Cuentas de servicio
  *                 → Generar nueva clave privada → guardar como firebase-service-account.json
  */
-async function sendFCMPush(fcmToken, title, body, data = {}, channelId = 'oldface_messages', sound = 'message_sound') {
+async function sendFCMPush(fcmToken, title, body, data = {}, channelId = 'oldface_messages', sound = 'message_sound', badge = null) {
   if (!fcmToken) return;
   const admin = getFirebaseAdmin();
   if (!admin) return;
@@ -294,8 +297,11 @@ async function sendFCMPush(fcmToken, title, body, data = {}, channelId = 'oldfac
           ...(sound ? { sound } : {}),
           channelId: channelId,
           priority:  'max',
+          // Número que el lanzador de Android pone en el icono de la app (los que lo admiten)
+          ...(badge !== null ? { notificationCount: badge } : {}),
         },
       },
+      ...(badge !== null ? { apns: { payload: { aps: { badge } } } } : {}),
       data: dataStr,
     });
   } catch (e) {
@@ -891,12 +897,46 @@ router.post('/chats', (req, res) => {
   return res.json({ ...chat, name: resolvedName, avatar: avatarFor(otherUser2, requesterId) });
 });
 
-/** GET /chats?userId= */
+/** Mensajes de un chat que ve el usuario (sin eliminados ni ocultos para él), en orden de llegada */
+function visibleMsgsOf(chatId, uid) {
+  return (messageStore.get(chatId) || [])
+    .filter(m => !m.deleted && m.type !== 'deleted' && !(m.hiddenFor || []).includes(uid));
+}
+
+/** Mensajes de otros sin leer en un chat (solo se cuentan, no se mira su contenido) */
+function unreadCountOf(chatId, uid) {
+  return visibleMsgsOf(chatId, uid).filter(m => m.senderId !== uid && !(m.readBy || []).includes(uid)).length;
+}
+
+/** Total de mensajes sin leer del usuario en todos sus chats (insignia del icono de la app) */
+function unreadTotalOf(uid) {
+  let n = 0;
+  for (const c of chatStore2.values()) if ((c.participants || []).includes(uid)) n += unreadCountOf(c.id, uid);
+  return n;
+}
+
+/** Datos del último mensaje para la lista: de quién es, su tipo y si los demás lo han leído (✓✓) */
+function lastInfoOf(c, uid) {
+  const msgs = visibleMsgsOf(c.id, uid);
+  const last = msgs[msgs.length - 1];
+  if (!last) return {};
+  const mine = last.senderId === uid;
+  const others = (c.participants || []).filter(p => p !== uid);
+  const readBy = last.readBy || [];
+  return {
+    lastFromMe: mine,
+    lastType:   last.type || 'text',
+    ...(mine ? { lastRead: others.length > 0 && others.every(p => readBy.includes(p)) } : {}),
+  };
+}
+
+/** GET /chats?userId= — chats del usuario con sus mensajes sin leer (unread) y datos del último mensaje */
 router.get('/chats', (req, res) => {
   const userId = authUser(req, res, req.query.userId);
   if (!userId) return;
   const userChats = [...chatStore2.values()]
     .filter(c => c.participants.includes(userId))
+    .map(c => ({ ...c, unread: unreadCountOf(c.id, userId), ...lastInfoOf(c, userId) }))
     .map(c => {
       if (c.isGroup) {
         // Enriquecer con memberNames actualizados desde groupStore

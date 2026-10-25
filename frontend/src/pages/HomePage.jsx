@@ -11,7 +11,7 @@ import { useCallStore } from '../store/callStore';
 import PopupMenu from '../components/PopupMenu.jsx';
 import ChatList from '../components/ChatList.jsx';
 import BottomNav from '../components/BottomNav.jsx';
-import Avatar from '../components/Avatar.jsx';
+import NeonAvatar, { cardStyle, ringColorOf, RoundBtn, SectionLabel } from '../components/NeonAvatar.jsx';
 import GroupsSheet from '../components/GroupsSheet.jsx';
 import StatusList from '../components/StatusList.jsx';
 import { GroupCreateSheet } from '../components/GroupSheets.jsx';
@@ -78,12 +78,24 @@ export default function HomePage() {
   const isGroupChat  = (c) => c.isGroup || String(c.id).startsWith('group_');
   const groupsUnread = chats.reduce((n, c) => n + (isGroupChat(c) ? (c.unread || 0) : 0), 0);
 
+  const totalUnread = chats.reduce((n, c) => n + (c.unread || 0), 0);
+
   const tabs = [
-    { key: 'chats',     label: tr('CHATS') },
-    { key: 'estados',   label: tr('ESTADOS') },
-    { key: 'llamadas',  label: tr('LLAMADAS') },
-    { key: 'contactos', label: tr('CONTACTOS') },
+    { key: 'chats',     label: tr('Chats'), badge: totalUnread },
+    { key: 'estados',   label: tr('Estados') },
+    { key: 'llamadas',  label: tr('Llamadas') },
+    { key: 'contactos', label: tr('Contactos') },
   ];
+
+  // Botones redondos de la cabecera: azul de marca con brillo
+  const headBtn = (on) => ({
+    width: 44, height: 44, borderRadius: '50%',
+    background: on || !isDark ? BRAND : '#1B2230',
+    border: isDark ? '1px solid rgba(127,163,209,0.35)' : 'none',
+    cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    boxShadow: isDark ? '0 0 14px rgba(61,90,128,0.55)' : '0 6px 16px rgba(61,90,128,0.35)',
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: T.bgMain, overflow: 'hidden' }}>
@@ -91,51 +103,47 @@ export default function HomePage() {
       {/* ══ HEADER ══════════════════════════════════════════════════════════ */}
       <div
         style={{
-          backgroundColor: T.bgSurface,
+          backgroundColor: T.bgMain,
           flexShrink: 0,
-          borderBottom: `1px solid ${T.border}`,
           paddingTop: 'var(--sat)',
         }}
       >
-        {/* Fila superior */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px 8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Avatar name={user?.name} src={user?.avatar || null} size="sm" />
-            <div>
-              <h1 style={{ fontSize: 17, fontWeight: 900, color: T.textPrimary, lineHeight: 1.1, margin: 0 }}>{tr('OldFace')}</h1>
-              <p style={{ fontSize: 11, color: T.textSecondary, fontWeight: 600, margin: 0 }}>{user?.name}</p>
+        {/* Fila superior: mi foto con aro, logo, nombre · En línea, buscar y ajustes */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px 10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            <NeonAvatar name={user?.name} src={user?.avatar || null} size={50} color="#4F7CC4" online T={{ bgSurface: T.bgMain }} />
+            {/* Dentro de la app no se repiten el logo ni el nombre de OldFace: solo quién soy y que estoy en línea */}
+            <div style={{ minWidth: 0 }}>
+              <p style={{ fontSize: 19, fontWeight: 700, color: T.textPrimary, lineHeight: 1.1, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user?.name}
+              </p>
+              <p style={{ fontSize: 13, color: T.textSecondary, fontWeight: 600, margin: '3px 0 0', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#22C55E' }} />{tr('En línea')}
+              </p>
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
             <button
               onClick={() => {
                 setShowSearch(v => !v);
                 setSearchQuery('');
                 if (!showSearch) setTimeout(() => searchInputRef.current?.focus(), 80);
               }}
-              style={{
-                width: 34, height: 34, borderRadius: '50%',
-                background: showSearch ? BRAND : (isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'),
-                border: 'none', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
+              aria-label={tr('Buscar')}
+              style={headBtn(showSearch)}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={showSearch ? 'white' : T.textSecondary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </button>
 
             <button
               onClick={() => navigate('/settings')}
-              style={{
-                width: 34, height: 34, borderRadius: '50%',
-                background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)',
-                border: 'none', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
+              aria-label={tr('Ajustes')}
+              style={headBtn(false)}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                 <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
@@ -145,8 +153,8 @@ export default function HomePage() {
 
         {/* Barra de búsqueda */}
         {showSearch && (
-          <div style={{ padding: '8px 12px 10px', borderTop: `1px solid ${T.border}`, background: T.bgSurface }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.bgInput, borderRadius: 20, padding: '8px 14px', border: `1px solid ${T.border}` }}>
+          <div style={{ padding: '2px 12px 10px', background: T.bgMain }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.bgSurface, borderRadius: 22, padding: '10px 16px', border: `1px solid ${T.borderStrong}` }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                 <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
@@ -169,8 +177,10 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', borderTop: `1px solid ${T.border}` }}>
+        {/* Tabs en píldora: la activa en azul; Chats lleva el total de mensajes sin leer */}
+        <div style={{ margin: '0 12px 10px', padding: 4, display: 'flex', gap: 2, borderRadius: 18,
+                      background: isDark ? '#1B2230' : '#D5E1EA',
+                      border: isDark ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
           {tabs.map(tab => {
             const active = activeTab === tab.key;
             return (
@@ -179,21 +189,29 @@ export default function HomePage() {
                 onClick={() => setActiveTab(tab.key)}
                 style={{
                   flex: 1,
-                  padding: '9px 0',
-                  fontSize: '9.5px',
-                  fontWeight: 800,
-                  letterSpacing: '0.5px',
-                  color: active ? BRAND : T.textMuted,
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: active ? `2.5px solid ${BRAND}` : '2.5px solid transparent',
+                  padding: '9px 2px',
+                  fontSize: 14,
+                  fontWeight: active ? 800 : 600,
+                  color: active ? 'white' : (isDark ? '#9FB4C8' : '#4A5A6E'),
+                  background: active ? BRAND : 'transparent',
+                  border: active && isDark ? '1px solid rgba(127,163,209,0.5)' : '1px solid transparent',
+                  borderRadius: 14,
+                  boxShadow: active ? (isDark ? '0 0 16px rgba(61,90,128,0.75)' : '0 4px 12px rgba(61,90,128,0.35)') : 'none',
                   cursor: 'pointer',
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
-                  transition: 'color 0.15s',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  transition: 'background 0.15s, color 0.15s',
                 }}
               >
                 {tab.label}
+                {tab.badge > 0 && (
+                  <span style={{ minWidth: 20, height: 20, padding: '0 5px', boxSizing: 'border-box', borderRadius: 10,
+                                 background: active ? 'white' : BRAND, color: active ? BRAND : 'white',
+                                 fontSize: 11, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {tab.badge > 99 ? '99+' : tab.badge}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -201,8 +219,8 @@ export default function HomePage() {
       </div>
 
       {/* ══ CONTENIDO ════════════════════════════════════════════════════════ */}
-      {/* Abajo deja sitio para que Willy y el "+" no tapen el último chat */}
-      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', background: T.bgMain, paddingBottom: 150 }}>
+      {/* Abajo deja sitio para que Willy no tape el último chat */}
+      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', background: T.bgMain, paddingBottom: 90 }}>
         {activeTab === 'chats'     && <>
           <ChatList chats={searchQuery.trim()
             ? chats.filter(c => c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -220,15 +238,15 @@ export default function HomePage() {
         aria-label={tr('Willy, tu asistente con IA')}
         style={{
           position: 'fixed',
-          bottom: 'calc(var(--sab) + 146px)',
+          bottom: 'calc(var(--sab) + 106px)',
           left: '50%',
           transform: 'translateX(-50%)',
           width: 58, height: 58, padding: 0,
           borderRadius: '50%',
           background: 'white',
-          border: 'none',
+          border: `2px solid ${isDark ? 'rgba(127,163,209,0.6)' : 'white'}`,
           cursor: 'pointer',
-          boxShadow: '0 6px 20px rgba(61,90,128,0.35)',
+          boxShadow: isDark ? '0 0 18px rgba(61,90,128,0.8)' : '0 6px 20px rgba(61,90,128,0.35)',
           zIndex: 30,
           WebkitTapHighlightColor: 'transparent',
         }}
@@ -242,31 +260,8 @@ export default function HomePage() {
         }}>{tr('Háblame')}</span>
       </button>
 
-      {/* ══ FAB "+" centrado: abre el menú emergente hacia arriba ══════════════ */}
-      <button
-        onClick={() => setShowMenu(true)}
-        aria-label={tr('Abrir menú')}
-        style={{
-          position: 'fixed',
-          bottom: 'calc(var(--sab) + 76px)',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: 58, height: 58,
-          borderRadius: '50%',
-          background: 'linear-gradient(135deg, #4E7D96 0%, #3D5A80 100%)',
-          border: '3px solid white',
-          cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 6px 20px rgba(61,90,128,0.45)',
-          zIndex: 30,
-        }}
-      >
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      </button>
-
-      <BottomNav onGroups={() => setShowGroups(true)} groupsUnread={groupsUnread} />
+      {/* Barra inferior flotante con el "+" en el centro (abre el menú emergente hacia arriba) */}
+      <BottomNav onGroups={() => setShowGroups(true)} onPlus={() => setShowMenu(true)} groupsUnread={groupsUnread} />
       {showGroups && (
         <GroupsSheet user={user} T={T} isDark={isDark} onClose={() => setShowGroups(false)} />
       )}
@@ -368,8 +363,8 @@ function ContactosTab({ T, isDark }) {
 
   // JSX inline — NO definir como componente dentro del render (causa remount en cada render → cierra el teclado)
   const phoneSearchBlock = (
-    <div style={{ background: T.bgSurface, padding: '14px 16px', borderBottom: `1px solid ${T.border}` }}>
-      <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, letterSpacing: '0.5px', margin: '0 0 8px' }}>{tr('BUSCAR POR TELÉFONO')}</p>
+    <div style={{ ...cardStyle(T, isDark), padding: '14px 16px', margin: '4px 12px 10px' }}>
+      <p style={{ fontSize: 11, fontWeight: 800, color: isDark ? '#7FA3D1' : BRAND, letterSpacing: '0.5px', margin: '0 0 8px' }}>{tr('BUSCAR POR TELÉFONO')}</p>
       <div style={{ display: 'flex', gap: 8 }}>
         <input
           value={searchPhone}
@@ -452,25 +447,25 @@ function ContactosTab({ T, isDark }) {
 
       <button
         onClick={() => navigate('/contacts')}
-        style={{ width: '100%', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, background: T.bgSurface, border: 'none', borderBottom: `1px solid ${T.border}`, cursor: 'pointer' }}
+        style={{ ...cardStyle(T, isDark), width: 'calc(100% - 24px)', margin: '0 12px', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}
       >
-        <div style={{ width: 44, height: 44, borderRadius: '50%', background: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 46, height: 46, borderRadius: '50%', background: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      boxShadow: isDark ? '0 0 14px rgba(61,90,128,0.8)' : '0 4px 12px rgba(61,90,128,0.35)' }}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 4v16M4 12h16" />
           </svg>
         </div>
-        <p style={{ fontSize: 14, fontWeight: 800, color: BRAND, margin: 0 }}>{tr('Ver todos los contactos')}</p>
+        <p style={{ flex: 1, textAlign: 'left', fontSize: 16, fontWeight: 800, color: T.textPrimary, margin: 0 }}>{tr('Ver todos los contactos')}</p>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6"/></svg>
       </button>
 
       {oldFaceContacts.length > 0 && (
         <>
-          <div style={{ padding: '10px 16px 6px', background: T.bgSection }}>
-            <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, letterSpacing: '0.5px', margin: 0 }}>{tr('EN OLDFACE')}</p>
-          </div>
+          <SectionLabel T={T}>{tr('EN OLDFACE')}</SectionLabel>
           {oldFaceContacts.map(c => {
             const participantId = toUserId(c.phone);
             return (
-              <ContactRow key={c.id} contact={c} T={T}
+              <ContactRow key={c.id} contact={c} T={T} isDark={isDark}
                 onChat={() => navigate(`/chat/${participantId}`, { state: { chat: { id: participantId, name: c.name, participantId, online: true } } })}
                 onCall={() => sendVoiceCall(participantId, c.name)}
                 onVideo={() => sendVideoCall(participantId, c.name)}
@@ -482,11 +477,9 @@ function ContactosTab({ T, isDark }) {
 
       {others.length > 0 && (
         <>
-          <div style={{ padding: '10px 16px 6px', background: T.bgSection }}>
-            <p style={{ fontSize: 11, fontWeight: 800, color: T.textMuted, letterSpacing: '0.5px', margin: 0 }}>{tr('INVITAR A OLDFACE')}</p>
-          </div>
+          <SectionLabel T={T}>{tr('INVITAR A OLDFACE')}</SectionLabel>
           {others.slice(0, 6).map(c => (
-            <ContactRow key={c.id} contact={c} T={T} isInvite />
+            <ContactRow key={c.id} contact={c} T={T} isDark={isDark} isInvite />
           ))}
         </>
       )}
@@ -501,42 +494,49 @@ function ContactosTab({ T, isDark }) {
   );
 }
 
-function ContactRow({ contact, onChat, onCall, onVideo, isInvite, T }) {
+function ContactRow({ contact, onChat, onCall, onVideo, isInvite, T, isDark }) {
+  const [lit, setLit] = React.useState(false);
+  const icon = isDark ? '#9FC0E6' : BRAND;
+  const open = () => { if (!onChat) return; setLit(true); setTimeout(() => { setLit(false); onChat(); }, 180); };
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: T.bgSurface, borderBottom: `1px solid ${T.border}` }}>
-      <button onClick={onChat} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, position: 'relative', flexShrink: 0 }}>
-        <Avatar name={contact.name} size="md" />
-        <span style={{ position: 'absolute', bottom: 1, right: 1, width: 10, height: 10, borderRadius: '50%', background: isInvite ? T.textMuted : '#4ade80', border: `2px solid ${T.bgSurface}` }} />
+    <div style={{ ...cardStyle(T, isDark), display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', margin: '0 12px 8px' }}>
+      <button onClick={open} onTouchStart={() => onChat && setLit(true)} onTouchMove={() => setLit(false)}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, position: 'relative', flexShrink: 0 }}>
+        <NeonAvatar name={contact.name} src={contact.avatar || null} size={50} color={ringColorOf(contact.phone || contact.name)}
+          active={lit} T={T} />
+        <span style={{ position: 'absolute', bottom: 0, right: 0, width: 12, height: 12, borderRadius: '50%', background: isInvite ? T.textMuted : '#22C55E', border: `2px solid ${T.bgSurface}` }} />
       </button>
 
-      <button onClick={onChat} style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', minWidth: 0, padding: 0 }}>
-        <p style={{ fontSize: 14, fontWeight: 800, color: T.textPrimary, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.name}</p>
-        <p style={{ fontSize: 11, color: isInvite ? T.textMuted : BRAND, margin: 0, fontWeight: isInvite ? 400 : 600 }}>
-          {isInvite ? contact.phone : '● En OldFace'}
+      <button onClick={open} style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', minWidth: 0, padding: 0 }}>
+        <p style={{ fontSize: 15, fontWeight: 600, color: T.textPrimary, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.name}</p>
+        <p style={{ fontSize: 12, color: isInvite ? T.textMuted : T.textSecondary, margin: '2px 0 0', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5 }}>
+          {!isInvite && <span style={{ width: 7, height: 7, borderRadius: '50%', background: isDark ? '#4F7CC4' : BRAND }} />}
+          {isInvite ? contact.phone : tr('En OldFace')}
         </p>
       </button>
 
-      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+      <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
         {isInvite ? (
           <button
             onClick={() => inviteContact(contact)}
-            style={{ background: T.accentDim, color: BRAND, border: `1px solid ${BRAND}30`, borderRadius: 20, padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+            style={{ background: isDark ? 'rgba(61,90,128,0.15)' : '#EDF3F8', color: icon, border: `1.5px solid ${isDark ? '#4F7CC4' : BRAND}`, borderRadius: 20, padding: '8px 16px', fontSize: 13, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                     boxShadow: isDark ? '0 0 10px rgba(61,90,128,0.5)' : 'none' }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={icon} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/>
             </svg>{tr('Invitar')}</button>
         ) : (
           <>
-            <ActionBtn onClick={onVideo} T={T}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <RoundBtn onClick={onVideo} isDark={isDark} label={tr('Videollamada')}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={icon} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
-            </ActionBtn>
-            <ActionBtn onClick={onCall} T={T}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            </RoundBtn>
+            <RoundBtn onClick={onCall} isDark={isDark} label={tr('Llamar')}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={icon} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z" />
               </svg>
-            </ActionBtn>
+            </RoundBtn>
           </>
         )}
       </div>
@@ -632,10 +632,11 @@ function CallsTab({ T, user, isDark }) {
   return (
     <div onClick={() => setPressedId(null)}>
       {/* Botón borrar historial */}
-      <div style={{ padding: '10px 16px', display: 'flex', justifyContent: 'flex-end', background: T.bgSection }}>
+      <div style={{ padding: '4px 12px 10px', display: 'flex', justifyContent: 'flex-end' }}>
         <button onClick={clearAll}
-          style={{ background: 'none', border: `1px solid #ef4444`, borderRadius: 20, padding: '5px 14px', fontSize: 12, fontWeight: 700, color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          style={{ background: isDark ? 'rgba(239,68,68,0.08)' : '#FFF5F5', border: `1.5px solid #ef4444`, borderRadius: 22, padding: '8px 18px', fontSize: 14, fontWeight: 800, color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
+                   boxShadow: isDark ? '0 0 12px rgba(239,68,68,0.35)' : 'none' }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>
           </svg>{tr('Borrar historial')}</button>
       </div>
@@ -644,15 +645,17 @@ function CallsTab({ T, user, isDark }) {
         const isIncoming  = call.direction === 'incoming';
         const isVideo     = call.type === 'video';
         const missed      = !call.duration || call.duration < 1;
-        const arrowColor  = missed ? '#ef4444' : isIncoming ? '#22c55e' : BRAND;
+        const arrowColor  = missed ? '#ef4444' : isIncoming ? '#22c55e' : (isDark ? '#7FA3D1' : BRAND);
         const isPressed   = pressedId === call.id;
+        const icon        = isDark ? '#9FC0E6' : BRAND;
 
         return (
           <div key={call.id}
             style={{
+              ...cardStyle(T, isDark),
               display: 'flex', alignItems: 'center', gap: 14,
-              padding: '13px 16px', background: isPressed ? (isDark ? 'rgba(239,68,68,0.1)' : '#fff5f5') : T.bgSurface,
-              borderBottom: `1px solid ${T.border}`,
+              padding: '11px 14px', margin: '0 12px 8px',
+              ...(isPressed ? { background: isDark ? 'rgba(239,68,68,0.1)' : '#fff5f5' } : {}),
               position: 'relative', transition: 'background 0.15s',
             }}
             onTouchStart={() => { pressTimerRef.current = setTimeout(() => setPressedId(call.id), 500); }}
@@ -667,9 +670,12 @@ function CallsTab({ T, user, isDark }) {
               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0 }}
             >
               <div style={{
-                width: 48, height: 48, borderRadius: '50%', background: BRAND,
+                width: 52, height: 52, borderRadius: '50%',
+                background: `radial-gradient(circle at 35% 30%, #4E6F99 0%, ${BRAND} 55%, #233A5A 100%)`,
+                border: `2px solid ${isDark ? '#4F7CC4' : '#5B7FB0'}`, boxSizing: 'border-box',
+                boxShadow: isDark ? '0 0 12px rgba(79,124,196,0.7)' : '0 4px 12px rgba(61,90,128,0.35)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'white', fontWeight: 900, fontSize: 19,
+                color: 'white', fontWeight: 900, fontSize: 20,
               }}>
                 {call.contactName?.[0]?.toUpperCase() || '?'}
               </div>
@@ -677,7 +683,7 @@ function CallsTab({ T, user, isDark }) {
 
             {/* Info */}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 15, fontWeight: 700, color: T.textPrimary, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <p style={{ fontSize: 15, fontWeight: 600, color: T.textPrimary, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {call.contactName}
               </p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
@@ -711,19 +717,17 @@ function CallsTab({ T, user, isDark }) {
                   </button>
                 )}
                 {isVideo ? (
-                  <button onClick={() => sendVideoCall(call.contactId, call.contactName)}
-                    style={{ width: 32, height: 32, borderRadius: '50%', background: isDark ? 'rgba(61,90,128,0.25)' : '#E3EDF2', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <RoundBtn onClick={() => sendVideoCall(call.contactId, call.contactName)} isDark={isDark} size={36} label={tr('Videollamada')}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={icon} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                     </svg>
-                  </button>
+                  </RoundBtn>
                 ) : (
-                  <button onClick={() => sendVoiceCall(call.contactId, call.contactName)}
-                    style={{ width: 32, height: 32, borderRadius: '50%', background: isDark ? 'rgba(61,90,128,0.25)' : '#E3EDF2', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <RoundBtn onClick={() => sendVoiceCall(call.contactId, call.contactName)} isDark={isDark} size={36} label={tr('Llamar')}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={icon} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z"/>
                     </svg>
-                  </button>
+                  </RoundBtn>
                 )}
               </div>
             </div>

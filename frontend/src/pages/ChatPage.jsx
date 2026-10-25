@@ -2399,31 +2399,74 @@ function MessageActions({ T, msg, canEdit, onClose, onReply, onCopy, onEdit, onP
   const local = msg.status === 'sending' || msg.status === 'error';
   const sticker = msg.type === 'sticker' && !deleted && !local && /^https?:/.test(msg.url || '');
   const media = ['image', 'video', 'sticker'].includes(msg.type) && !deleted && !local && !!msg.url && !msg.viewOnce;
+  // [texto, acción, icono, color] — cada opción con su icono de color en una tarjeta (Eliminar en rojo)
   const items = [
-    !deleted && !local && ['Responder', onReply],
-    sticker && !msg.isMine && [tr('Añadir a mis stickers'), onAddSticker],
-    media && [msg.type === 'video' ? tr('Descargar vídeo') : msg.type === 'sticker' ? tr('Guardar en el móvil') : tr('Descargar foto'), onSaveMedia],
-    !deleted && (msg.type || 'text') === 'text' && ['Copiar', onCopy],
-    canEdit && ['Editar', onEdit],
-    !deleted && !local && [msg.pinned ? tr('Dejar de fijar') : 'Fijar', onPin],
-    !deleted && !local && [msg.starred ? tr('Quitar destacado') : 'Destacar', onStar],
-    !deleted && !local && !msg.viewOnce && ['Reenviar', onForward],
-    [tr('Seleccionar varios'), onSelect],
-    ['Eliminar', onDelete, true],
+    !deleted && !local && [tr('Responder'), onReply, 'reply', '#3D5A80'],
+    sticker && !msg.isMine && [tr('Añadir a mis stickers'), onAddSticker, 'sticker', '#D97706'],
+    media && [msg.type === 'video' ? tr('Descargar vídeo') : msg.type === 'sticker' ? tr('Guardar en el móvil') : tr('Descargar foto'), onSaveMedia, 'download', '#16A34A'],
+    !deleted && (msg.type || 'text') === 'text' && [tr('Copiar'), onCopy, 'copy', '#0284C7'],
+    canEdit && [tr('Editar'), onEdit, 'edit', '#4F46E5'],
+    !deleted && !local && [msg.pinned ? tr('Dejar de fijar') : tr('Fijar'), onPin, 'pin', '#EA580C'],
+    !deleted && !local && [msg.starred ? tr('Quitar destacado') : tr('Destacar'), onStar, 'star', '#EAB308'],
+    !deleted && !local && !msg.viewOnce && [tr('Reenviar'), onForward, 'forward', '#7C3AED'],
+    [tr('Seleccionar varios'), onSelect, 'select', '#3D5A80'],
+    [tr('Eliminar'), onDelete, 'trash', '#DC2626', true],
   ].filter(Boolean);
+  const kind = deleted ? 'text' : msg.type || 'text';
+  const title = kind === 'image' ? tr('Opciones de foto') : kind === 'video' ? tr('Opciones de vídeo') : tr('Opciones del mensaje');
+  const titleIcon = kind === 'image' ? 'camera' : kind === 'video' ? 'video' : 'reply';
+  const dark = T.bgSurface !== '#ffffff';
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 940, background: 'rgba(10,13,37,0.45)', display: 'flex', alignItems: 'flex-end' }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.bgSurface, width: '100%', borderRadius: '22px 22px 0 0', padding: '10px 10px', paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))' }}>
-        <p style={{ margin: '4px 12px 8px', fontSize: 13, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msgPreview(msg)}</p>
-        {items.map(([label, fn, danger]) => (
+      <div onClick={e => e.stopPropagation()} style={{ background: T.bgMain, width: '100%', maxHeight: '88dvh', overflowY: 'auto', borderRadius: '26px 26px 0 0', padding: '10px 14px', paddingBottom: 'max(14px, env(safe-area-inset-bottom, 14px))' }}>
+        <div style={{ width: 44, height: 5, borderRadius: 3, background: T.textMuted, opacity: 0.5, margin: '2px auto 12px' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '0 4px 12px' }}>
+          <span style={{ width: 46, height: 46, borderRadius: 14, background: dark ? 'rgba(61,90,128,0.3)' : '#DCE8F2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <ActionIcon name={titleIcon} color={dark ? '#E0FBFC' : '#141A2A'} size={24} />
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <p style={{ margin: 0, fontSize: 20, fontWeight: 900, color: T.textPrimary }}>{title}</p>
+            {kind === 'text' && !deleted && (
+              <p style={{ margin: '2px 0 0', fontSize: 13, color: T.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{msgPreview(msg)}</p>
+            )}
+          </div>
+        </div>
+        {items.map(([label, fn, icon, color, danger]) => (
           <button key={label} onClick={() => { onClose(); fn(); }}
-            style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '13px 16px', borderRadius: 12, cursor: 'pointer',
-                     color: danger ? '#dc2626' : T.textPrimary, fontSize: 15, fontWeight: 700, textAlign: 'left' }}>
-            {label}
+            style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', padding: '9px 14px 9px 10px', marginBottom: 8, borderRadius: 16, cursor: 'pointer', textAlign: 'left',
+                     background: danger ? (dark ? 'rgba(220,38,38,0.12)' : '#FFF1F1') : T.bgSurface,
+                     border: danger ? '1px solid rgba(220,38,38,0.35)' : `1px solid ${dark ? 'rgba(255,255,255,0.06)' : 'rgba(41,50,65,0.04)'}`,
+                     boxShadow: dark ? 'none' : '0 2px 8px rgba(41,50,65,0.06)' }}>
+            <span style={{ width: 40, height: 40, borderRadius: 12, background: `${color}${dark ? '33' : '1F'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <ActionIcon name={icon} color={dark && color === '#3D5A80' ? '#7FA3D1' : color} />
+            </span>
+            <span style={{ flex: 1, color: danger ? '#DC2626' : T.textPrimary, fontSize: 16, fontWeight: danger ? 800 : 600 }}>{label}</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={danger ? '#DC2626' : T.textMuted} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6"/></svg>
           </button>
         ))}
       </div>
     </div>
+  );
+}
+
+/** Iconos del menú de un mensaje */
+function ActionIcon({ name, color, size = 21 }) {
+  const p = {
+    reply:    <path d="M21 11.5a8.4 8.4 0 01-12.3 7.5L3 21l2-5.4A8.5 8.5 0 1121 11.5z" />,
+    camera:   <><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></>,
+    video:    <><rect x="1" y="6" width="15" height="12" rx="2"/><path d="M16 10l6-3v10l-6-3"/></>,
+    download: <path d="M12 3v12M7 10l5 5 5-5M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />,
+    copy:     <><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 01-1-1V4a1 1 0 011-1h10a1 1 0 011 1v1"/></>,
+    edit:     <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />,
+    pin:      <path d="M12 17v5M9 10.8a2 2 0 01-1.1 1.8l-1.8.9A2 2 0 005 15.2V16a1 1 0 001 1h12a1 1 0 001-1v-.8a2 2 0 00-1.1-1.8l-1.8-.9a2 2 0 01-1.1-1.8V7a1 1 0 011-1 2 2 0 000-4H8a2 2 0 000 4 1 1 0 011 1z" />,
+    star:     <path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.3l-5.9 3.2 1.2-6.5-4.8-4.6 6.6-.9z" />,
+    forward:  <path d="M14 5l7 7-7 7M21 12H9a6 6 0 00-6 6v1" />,
+    select:   <><rect x="8" y="8" width="13" height="13" rx="2.5"/><path d="M16 8V5.5A2.5 2.5 0 0013.5 3h-8A2.5 2.5 0 003 5.5v8A2.5 2.5 0 005.5 16H8"/></>,
+    sticker:  <><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></>,
+    trash:    <><path d="M3 6h18M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></>,
+  }[name];
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{p}</svg>
   );
 }
 

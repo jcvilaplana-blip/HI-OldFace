@@ -4,6 +4,34 @@
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Aro neón de los avatares de la pantalla principal (components/NeonAvatar.jsx).
+   Quieto: borde de color con un brillo suave. Al pulsar: luz que gira alrededor y late (efecto neón dinámico). */
+.of-ring {
+  position: relative;
+  isolation: isolate;
+  border-radius: 50%;
+  border: 2px solid var(--ring);
+  box-shadow: 0 0 8px -1px var(--ring);
+  transition: box-shadow 0.2s;
+}
+.of-ring::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  z-index: -1;
+  background: conic-gradient(from 0deg, var(--ring), transparent 28%, var(--ring) 50%, transparent 78%, var(--ring));
+  filter: blur(2px);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.of-ring.on { animation: ofNeonPulse 0.7s ease-in-out infinite alternate; }
+.of-ring.on::before { opacity: 1; animation: spin 0.9s linear infinite; }
+@keyframes ofNeonPulse {
+  from { box-shadow: 0 0 6px 0 var(--ring), 0 0 12px 1px var(--ring); }
+  to   { box-shadow: 0 0 12px 2px var(--ring), 0 0 26px 6px var(--ring); }
+}
+
 /* Mensajes del chat: la pulsación larga sobre el texto, la foto o el vídeo abre el menú del mensaje.
    Sin esto Android empezaba a seleccionar el texto o a "arrastrar" la imagen y cancelaba la pulsación
    (solo funcionaba en el borde de la burbuja). Copiar sigue disponible en el propio menú. */

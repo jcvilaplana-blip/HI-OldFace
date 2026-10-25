@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
 import Avatar from './Avatar.jsx';
+import { cardStyle } from './NeonAvatar.jsx';
 import { useCandidates, PeoplePicker, Sheet, PrimaryBtn } from './GroupSheets.jsx';
 import { tr, LOCALE } from '../i18n';
 
@@ -134,16 +135,16 @@ export default function StatusList({ user, T, isDark, compact = false, onSeeAll 
 
   return (
     <>
-      <div style={{ background: T.bgSurface, borderBottom: `1px solid ${T.border}`, paddingBottom: 4 }}>
-        <div style={{ display: 'flex', alignItems: 'center', padding: '10px 16px 4px' }}>
-          <p style={{ flex: 1, margin: 0, fontSize: 11, fontWeight: 800, letterSpacing: '0.6px', color: BRAND }}>{tr('ESTADOS')}</p>
+      <div style={{ paddingBottom: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '4px 18px 8px' }}>
+          <p style={{ flex: 1, margin: 0, fontSize: 12, fontWeight: 800, letterSpacing: '0.6px', color: T.textSecondary }}>{tr('MI ESTADO')}</p>
           {compact && people.length > 0 && (
             <button onClick={onSeeAll} style={{ background: 'none', border: 'none', color: BRAND, fontSize: 12, fontWeight: 800, cursor: 'pointer', padding: 0 }}>{tr('Ver todos ›')}</button>
           )}
         </div>
 
         {/* Mi estado */}
-        <Row T={T}
+        <Row T={T} isDark={isDark}
           onClick={() => (mine.length ? open(user.id, [{ userId: user.id }]) : setCreating(true))}
           left={<Ring T={T} count={mine.length} seen={false} empty={!mine.length}>
             <Avatar name={user?.name} src={user?.avatar || null} size="lg" />
@@ -154,24 +155,26 @@ export default function StatusList({ user, T, isDark, compact = false, onSeeAll 
             : tr('Toca para añadir un estado')}
           right={
             <button onClick={(e) => { e.stopPropagation(); if (!full) setCreating(true); }} disabled={full} aria-label={tr('Nuevo estado')}
-              style={{ width: 38, height: 38, borderRadius: '50%', border: 'none', cursor: full ? 'default' : 'pointer', opacity: full ? 0.4 : 1,
-                       background: isDark ? 'rgba(255,255,255,0.08)' : '#E3EDF2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              style={{ width: 46, height: 46, borderRadius: '50%', cursor: full ? 'default' : 'pointer', opacity: full ? 0.4 : 1,
+                       border: isDark ? '1px solid rgba(127,163,209,0.35)' : 'none',
+                       background: isDark ? 'rgba(61,90,128,0.3)' : '#E3EDF2', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                       boxShadow: isDark ? '0 0 12px rgba(61,90,128,0.55)' : '0 2px 8px rgba(41,50,65,0.08)' }}>
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke={isDark ? '#E0FBFC' : BRAND} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>
               </svg>
             </button>
           } />
 
-        {!compact && recent.length > 0 && <SectionTitle T={T}>{tr('RECIENTES')}</SectionTitle>}
+        {!compact && recent.length > 0 && <SectionTitle T={T}>{tr('ESTADOS RECIENTES')}</SectionTitle>}
         {shownRecent.map(p => (
-          <Row key={p.userId} T={T} onClick={() => open(p.userId, shownRecent)}
+          <Row key={p.userId} T={T} isDark={isDark} onClick={() => open(p.userId, shownRecent)}
             left={<Ring T={T} count={p.stories.length} seen={p.allSeen}><Thumb story={p.latest} name={p.name} avatar={p.avatar} /></Ring>}
             title={p.name} sub={timeAgo(p.latest.createdAt)} />
         ))}
 
-        {!compact && seen.length > 0 && <SectionTitle T={T}>{tr('VISTOS')}</SectionTitle>}
+        {!compact && seen.length > 0 && <SectionTitle T={T}>{tr('ESTADOS VISTOS')}</SectionTitle>}
         {!compact && seen.map(p => (
-          <Row key={p.userId} T={T} onClick={() => open(p.userId, seen)}
+          <Row key={p.userId} T={T} isDark={isDark} onClick={() => open(p.userId, seen)}
             left={<Ring T={T} count={p.stories.length} seen><Thumb story={p.latest} name={p.name} avatar={p.avatar} /></Ring>}
             title={p.name} sub={timeAgo(p.latest.createdAt)} />
         ))}
@@ -200,34 +203,46 @@ export default function StatusList({ user, T, isDark, compact = false, onSeeAll 
 }
 
 function SectionTitle({ T, children }) {
-  return <p style={{ margin: '10px 16px 2px', fontSize: 11, fontWeight: 800, letterSpacing: '0.5px', color: T.textMuted }}>{children}</p>;
+  return <p style={{ margin: '14px 18px 8px', fontSize: 12, fontWeight: 800, letterSpacing: '0.6px', color: T.textSecondary }}>{children}</p>;
 }
 
-function Row({ T, left, title, sub, right, onClick }) {
+function Row({ T, isDark, left, title, sub, right, onClick }) {
   return (
     <div onClick={onClick} role="button"
-      style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '8px 16px', cursor: 'pointer' }}>
+      style={{ ...cardStyle(T, isDark), display: 'flex', alignItems: 'center', gap: 14, padding: '10px 14px', margin: '0 12px 8px', cursor: 'pointer' }}>
       {left}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</p>
-        <p style={{ margin: '2px 0 0', fontSize: 12, color: T.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</p>
+        <p style={{ margin: 0, fontSize: 16, fontWeight: 600, color: T.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</p>
+        <p style={{ margin: '3px 0 0', fontSize: 13, color: T.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</p>
       </div>
       {right}
     </div>
   );
 }
 
-/** Aro alrededor de la foto: un trozo por estado (azul sin ver, gris visto) */
+/** Aro alrededor de la foto: un trozo por estado (degradado de colores sin ver, gris visto, discontinuo vacío) */
+let ringSeq = 0;
 function Ring({ T, count, seen, empty, children }) {
-  const size = 58, r = 27, c = 2 * Math.PI * r;
+  const size = 60, r = 28, c = 2 * Math.PI * r;
   const n = Math.max(1, Math.min(count || 1, 20));
   const gap = n > 1 ? 4 : 0;
   const seg = c / n - gap;
+  const [gid] = React.useState(() => `of-st-${++ringSeq}`);
+  const lit = !(empty || seen);
   return (
-    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0,
+                  borderRadius: '50%', boxShadow: lit ? '0 0 12px rgba(236,72,153,0.35)' : 'none' }}>
       <svg width={size} height={size} style={{ position: 'absolute', inset: 0, transform: 'rotate(-90deg)' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth="2.5"
-          stroke={empty || seen ? T.textMuted : BRAND}
+        <defs>
+          <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#F59E0B" />
+            <stop offset="35%" stopColor="#EF4444" />
+            <stop offset="65%" stopColor="#EC4899" />
+            <stop offset="100%" stopColor="#4F7CC4" />
+          </linearGradient>
+        </defs>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={lit ? 3 : 2.5}
+          stroke={empty ? BRAND : seen ? T.textMuted : `url(#${gid})`}
           strokeDasharray={empty ? '4 4' : `${seg} ${gap}`} strokeLinecap={n > 1 ? 'round' : 'butt'} />
       </svg>
       <div style={{ position: 'absolute', inset: 5, borderRadius: '50%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

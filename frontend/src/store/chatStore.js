@@ -3,6 +3,7 @@
  */
 import { create } from 'zustand';
 import { playMessageSound } from '../utils/sounds.js';
+import { setAppBadge } from '../utils/appBadge.js';
 import { tr, LOCALE } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
@@ -115,6 +116,7 @@ export const useChatStore = create((set, get) => ({
         }));
         set({ chats: mapped });
         writeJSON(CHATS_CACHE + userId, mapped);
+        setAppBadge(mapped.reduce((n, c) => n + (c.unread || 0), 0));
       }
     } catch (err) {
       console.warn('[chatStore] fetchChats error:', err.message);
