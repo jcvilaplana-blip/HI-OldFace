@@ -18,6 +18,7 @@ import { useCallStore }  from '../store/callStore';
 import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 import { useGeolocation } from '../hooks/useGeolocation';
 import Avatar from '../components/Avatar.jsx';
+import NeonAvatar, { ringColorOf } from '../components/NeonAvatar.jsx';
 import { GroupInfoSheet } from '../components/GroupSheets.jsx';
 import { groupIdFromChatId, fetchGroupCall } from '../utils/groupsApi';
 import { renderMapSnapshot, createChatMap, messageLatLng } from '../utils/chatMap';
@@ -742,6 +743,15 @@ export default function ChatPage() {
 
   const BRAND = '#3D5A80';
 
+  // Botón redondo de la cabecera con aro de color y brillo (vídeo azul, llamada verde)
+  const headCallBtn = (ring) => ({
+    width: 42, height: 42, borderRadius: '50%', cursor: 'pointer', flexShrink: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: isDark ? 'rgba(255,255,255,0.04)' : (ring === '#22C55E' ? '#ECFDF3' : '#E3EDF2'),
+    border: `2px solid ${ring}`,
+    boxShadow: `0 0 10px ${ring}55`,
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: T.bgMain, overflow: 'hidden' }}
       onClick={() => { if (showAttachMenu) setShowAttachMenu(false); if (showCameraMenu) setShowCameraMenu(false); if (showChatMenu) setShowChatMenu(false); }}>
@@ -766,30 +776,28 @@ export default function ChatPage() {
 
       {/* Header */}
       {!selectedIds && <div style={{
-        backgroundColor: T.bgSurface,
-        borderBottom: `1px solid ${T.border}`,
-        padding: '0 14px 10px',
-        paddingTop: 'var(--sat)',
+        backgroundColor: T.bgMain,
+        borderBottom: `1px solid ${T.borderStrong}`,
+        padding: '0 12px 10px',
+        paddingTop: 'calc(var(--sat) + 6px)',
         display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
       }}>
-        <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, marginLeft: -4 }}>
+        <button onClick={() => navigate(-1)} aria-label={tr('Atrás')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, marginLeft: -4 }}>
           <svg width="24" height="24" fill="none" stroke={T.textPrimary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
             <path d="M15 19l-7-7 7-7" />
           </svg>
         </button>
 
-        {/* Avatar con click para ver foto */}
+        {/* Avatar con su aro de color (el mismo que en la lista) — click para ver foto */}
         <div style={{ position: 'relative', cursor: 'pointer' }}
           onClick={() => (isGroup ? setShowGroupInfo(true) : chat.avatar && setExpandedPhoto(chat.avatar))}>
-          <Avatar name={headerName} src={headerAvatar || null} size="md" />
-          {chat.online && (
-            <span style={{ position: 'absolute', bottom: 0, right: 0, width: 12, height: 12, background: '#4ade80', borderRadius: '50%', border: `2px solid ${T.bgSurface}` }} />
-          )}
+          <NeonAvatar name={headerName} src={headerAvatar || null} size={48} color={ringColorOf(chat.id || msgChatId)}
+            online={chat.online} T={{ bgSurface: T.bgMain }} />
         </div>
 
         <div style={{ flex: 1, minWidth: 0, cursor: isGroup ? 'pointer' : 'default' }} onClick={() => isGroup && setShowGroupInfo(true)}>
-          <p style={{ fontWeight: 700, fontSize: 15, color: T.textPrimary, margin: 0, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{headerName}</p>
-          <p style={{ fontSize: 11, color: isGroup ? T.textMuted : (presenceInfo.online ? BRAND : T.textMuted), margin: 0 }}>
+          <p style={{ fontWeight: 700, fontSize: 18, color: T.textPrimary, margin: 0, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{headerName}</p>
+          <p style={{ fontSize: 12, color: isGroup ? T.textMuted : (presenceInfo.online ? (isDark ? '#7FA3D1' : BRAND) : T.textMuted), margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {isGroup
               ? (Object.keys(memberNames).length ? tr('Grupo · {length} miembros', { length: Object.keys(memberNames).length }) : tr('Grupo'))
               : presenceInfo.online
@@ -800,38 +808,26 @@ export default function ChatPage() {
           </p>
         </div>
 
-        {isGroup && groupId && <>
-          <button onClick={() => startGroupCall(groupId, headerName, 'video')} aria-label={tr('Videollamada de grupo')}
-            style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="18" height="18" fill="none" stroke={T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-              <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-          </button>
-          <button onClick={() => startGroupCall(groupId, headerName, 'voice')} aria-label={tr('Llamada de grupo')}
-            style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="18" height="18" fill="none" stroke={T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-              <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z" />
-            </svg>
-          </button>
-        </>}
-        {!isGroup && <>
-          <button onClick={() => sendVideoCall(participantId, chat.name)}
-            style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="18" height="18" fill="none" stroke={T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-              <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-          </button>
-          <button onClick={() => sendVoiceCall(participantId, chat.name)}
-            style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="18" height="18" fill="none" stroke={T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-              <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z" />
-            </svg>
-          </button>
-        </>}
+        {/* Vídeo (aro azul) · llamada (aro verde) · más opciones (azul de marca) */}
+        <button onClick={() => (isGroup ? groupId && startGroupCall(groupId, headerName, 'video') : sendVideoCall(participantId, chat.name))}
+          aria-label={isGroup ? tr('Videollamada de grupo') : tr('Videollamada')}
+          style={headCallBtn('#5B8DEF')}>
+          <svg width="19" height="19" fill="none" stroke={isDark ? '#E0FBFC' : BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+            <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+        </button>
+        <button onClick={() => (isGroup ? groupId && startGroupCall(groupId, headerName, 'voice') : sendVoiceCall(participantId, chat.name))}
+          aria-label={isGroup ? tr('Llamada de grupo') : tr('Llamar')}
+          style={headCallBtn('#22C55E')}>
+          <svg width="19" height="19" fill="none" stroke={isDark ? '#BBF7D0' : '#15803D'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+            <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z" />
+          </svg>
+        </button>
         <div style={{ position: 'relative' }}>
           <button onClick={(e) => { e.stopPropagation(); setShowChatMenu(v => !v); }} aria-label={tr('Más opciones')}
-            style={{ width: 36, height: 36, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill={T.textSecondary}><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+            style={{ width: 42, height: 42, borderRadius: '50%', background: isDark ? '#2F3A4D' : BRAND, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                     boxShadow: isDark ? '0 0 10px rgba(0,0,0,0.4)' : '0 4px 12px rgba(61,90,128,0.4)' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
           </button>
           {showChatMenu && (
             <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 0, top: 42, zIndex: 60, background: T.bgSurface, border: `1px solid ${T.border}`,
@@ -907,9 +903,11 @@ export default function ChatPage() {
                  ...(chatBg ? { background: chatBg.css } : {}) }}
         onClick={() => { setShowEmojiPicker(false); setShowAttachMenu(false); }}
       >
-        {chatMessages.map((msg) => (
+        {chatMessages.map((msg, i) => (
+          <React.Fragment key={msg.id}>
+          {/* Separador de día (HOY, AYER, fecha) cuando cambia el día */}
+          {dayKey(chatMessages[i - 1]) !== dayKey(msg) && <DayChip ts={msg.createdAt || Date.now()} isDark={isDark} T={T} />}
           <MessageBubble
-            key={msg.id}
             msg={msg}
             isDark={isDark}
             T={T}
@@ -953,6 +951,7 @@ export default function ChatPage() {
               setViewingDoc({ blobUrl, dataUrl: rawUrl, fileName: docName });
             }}
           />
+          </React.Fragment>
         ))}
         <div ref={messagesEndRef} />
       </div>
@@ -1062,18 +1061,17 @@ export default function ChatPage() {
 
       {/* Input bar */}
       <div style={{
-        background: T.bgSurface,
-        borderTop: `1px solid ${T.border}`,
-        padding: '10px 12px',
+        background: T.bgMain,
+        padding: '8px 12px',
         paddingBottom: 'max(10px, env(safe-area-inset-bottom, 10px))',
-        display: 'flex', alignItems: 'flex-end', gap: 6, flexShrink: 0,
+        display: 'flex', alignItems: 'flex-end', gap: 10, flexShrink: 0,
         position: 'relative',
       }}>
 
         {/* Menú adjuntos */}
         {showAttachMenu && (
           <div style={{
-            position: 'absolute', bottom: '100%', left: 12, marginBottom: 8,
+            position: 'absolute', bottom: '100%', right: 70, marginBottom: 8,
             background: T.bgSurface,
             border: `1px solid ${T.border}`,
             borderRadius: 16, padding: '8px 4px',
@@ -1207,20 +1205,10 @@ export default function ChatPage() {
             e.target.value = '';
           }} />
 
-        {/* Botón adjuntos (izquierda, solo cuando no graba) */}
-        {!isRecording && (
-          <button onClick={(e) => { e.stopPropagation(); setShowAttachMenu(v => !v); setShowEmojiPicker(false); }}
-            style={{ width: 40, height: 40, borderRadius: '50%', background: showAttachMenu ? BRAND : T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={showAttachMenu ? 'white' : T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
-            </svg>
-          </button>
-        )}
-
         {/* Botón cámara — elegir hacer una foto o grabar un vídeo */}
         {showCameraMenu && (
           <div style={{
-            position: 'absolute', bottom: '100%', left: 58, marginBottom: 8, zIndex: 50,
+            position: 'absolute', bottom: '100%', right: 70, marginBottom: 8, zIndex: 50,
             background: T.bgSurface, border: `1px solid ${T.border}`, borderRadius: 16, padding: 6,
             boxShadow: '0 4px 20px rgba(0,0,0,0.18)', display: 'flex', gap: 6,
           }} onClick={e => e.stopPropagation()}>
@@ -1237,22 +1225,11 @@ export default function ChatPage() {
             ))}
           </div>
         )}
-        {!isRecording && (
-          <button onClick={(e) => { e.stopPropagation(); setShowCameraMenu(v => !v); setShowAttachMenu(false); setShowEmojiPicker(false); }}
-            aria-label={tr('Cámara: foto o vídeo')}
-            style={{ width: 40, height: 40, borderRadius: '50%', background: T.bgHover, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
-              <circle cx="12" cy="13" r="4"/>
-            </svg>
-          </button>
-        )}
-
         {/* Centro: input texto o grabando */}
         {isRecording ? (
           <div style={{
-            flex: 1, background: T.bgInput, borderRadius: 22, padding: '10px 16px',
-            height: 42, display: 'flex', alignItems: 'center', gap: 10,
+            flex: 1, background: T.bgSurface, borderRadius: 28, padding: '10px 16px',
+            height: 54, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 10,
             border: `1.5px solid #ef4444`,
           }}>
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', animation: 'recBlink 1s ease infinite', flexShrink: 0 }} />
@@ -1262,11 +1239,16 @@ export default function ChatPage() {
             <style>{`@keyframes recBlink { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
           </div>
         ) : (
-          <div style={{ flex: 1, background: T.bgInput, borderRadius: 22, padding: '6px 12px 6px 14px', minHeight: 42, display: 'flex', alignItems: 'flex-end', gap: 6, border: `1px solid ${T.border}` }}>
+          <div style={{ flex: 1, background: T.bgSurface, borderRadius: 28, padding: '8px 10px 8px 14px', minHeight: 54, boxSizing: 'border-box', display: 'flex', alignItems: 'flex-end', gap: 8,
+                        border: isDark ? '1px solid rgba(255,255,255,0.07)' : '1px solid rgba(41,50,65,0.05)',
+                        boxShadow: isDark ? '0 2px 10px rgba(0,0,0,0.35)' : '0 4px 14px rgba(41,50,65,0.08)' }}>
             {/* Icono emoji — toggle picker / teclado */}
-            <button onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(v => !v); setShowAttachMenu(false); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 20, lineHeight: 1, flexShrink: 0, opacity: 0.7, marginBottom: 2 }}>
-              {showEmojiPicker ? '⌨️' : '😊'}
+            <button onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(v => !v); setShowAttachMenu(false); setShowCameraMenu(false); }}
+              aria-label={showEmojiPicker ? tr('Teclado') : tr('Emojis')}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 30, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {showEmojiPicker
+                ? <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
+                : <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg>}
             </button>
             <textarea
               ref={inputRef}
@@ -1282,8 +1264,24 @@ export default function ChatPage() {
               placeholder={tr('Mensaje...')}
               enterKeyHint={IS_TOUCH ? 'enter' : 'send'}
               rows={1}
-              style={{ width: '100%', resize: 'none', outline: 'none', fontSize: 14, fontWeight: 500, color: T.textPrimary, background: 'transparent', lineHeight: 1.5, overflowY: 'auto', overflowX: 'hidden', padding: '3px 0' }}
+              style={{ width: '100%', resize: 'none', outline: 'none', fontSize: 16, fontWeight: 500, color: T.textPrimary, background: 'transparent', lineHeight: 1.5, overflowY: 'auto', overflowX: 'hidden', padding: '6px 0' }}
             />
+            {/* Adjuntar y cámara, dentro de la píldora a la derecha */}
+            <button onClick={(e) => { e.stopPropagation(); setShowAttachMenu(v => !v); setShowCameraMenu(false); setShowEmojiPicker(false); }}
+              aria-label={tr('Adjuntar')}
+              style={{ background: showAttachMenu ? BRAND : 'none', borderRadius: '50%', border: 'none', cursor: 'pointer', padding: 0, width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={showAttachMenu ? 'white' : T.textSecondary} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+              </svg>
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); setShowCameraMenu(v => !v); setShowAttachMenu(false); setShowEmojiPicker(false); }}
+              aria-label={tr('Cámara: foto o vídeo')}
+              style={{ background: showCameraMenu ? BRAND : 'none', borderRadius: '50%', border: 'none', cursor: 'pointer', padding: 0, width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={showCameraMenu ? 'white' : T.textSecondary} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+            </button>
           </div>
         )}
 
@@ -1291,15 +1289,15 @@ export default function ChatPage() {
         {isRecording ? (
           <>
             {/* Cancelar grabación (papelera) */}
-            <button onClick={cancelRecording}
-              style={{ width: 40, height: 40, borderRadius: '50%', background: isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <button onClick={cancelRecording} aria-label={tr('Cancelar')}
+              style={{ width: 54, height: 54, borderRadius: '50%', background: isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
               </svg>
             </button>
             {/* Enviar nota de voz */}
-            <button onClick={stopRecording}
-              style={{ width: 40, height: 40, borderRadius: '50%', background: '#ef4444', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <button onClick={stopRecording} aria-label={tr('Enviar')}
+              style={{ width: 54, height: 54, borderRadius: '50%', background: '#ef4444', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <svg width="16" height="16" fill="white" viewBox="0 0 24 24">
                 <rect x="5" y="5" width="14" height="14" rx="2" />
               </svg>
@@ -1307,15 +1305,17 @@ export default function ChatPage() {
           </>
         ) : text.trim() ? (
           <button onMouseDown={keepKeyboard} onTouchEnd={sendKeepingKeyboard} onClick={sendKeepingKeyboard} disabled={sending} aria-label={tr('Enviar')}
-            style={{ width: 40, height: 40, borderRadius: '50%', background: BRAND, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: sending ? 0.7 : 1 }}>
-            <svg width="18" height="18" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ transform: 'translateX(1px)' }}>
+            style={{ width: 54, height: 54, borderRadius: '50%', background: `radial-gradient(circle at 35% 30%, #5B7FB0 0%, ${BRAND} 60%, #2C4466 100%)`, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: sending ? 0.7 : 1,
+                     boxShadow: isDark ? '0 0 0 1px rgba(127,163,209,0.5), 0 0 18px rgba(79,124,196,0.65)' : '0 6px 18px rgba(61,90,128,0.45)' }}>
+            <svg width="22" height="22" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ transform: 'translateX(1px)' }}>
               <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
             </svg>
           </button>
         ) : (
-          <button onClick={startRecording}
-            style={{ width: 40, height: 40, borderRadius: '50%', background: BRAND, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="18" height="18" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+          <button onClick={startRecording} aria-label={tr('Grabar nota de voz')}
+            style={{ width: 54, height: 54, borderRadius: '50%', background: `radial-gradient(circle at 35% 30%, #5B7FB0 0%, ${BRAND} 60%, #2C4466 100%)`, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                     boxShadow: isDark ? '0 0 0 1px rgba(127,163,209,0.5), 0 0 18px rgba(79,124,196,0.65)' : '0 6px 18px rgba(61,90,128,0.45)' }}>
+            <svg width="23" height="23" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
               <path d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
           </button>
@@ -1617,12 +1617,33 @@ export default function ChatPage() {
   );
 }
 
+// ── Separador de día entre mensajes (HOY · AYER · lunes · 12/10/2026) ────────
+const dayKey = (m) => (m ? new Date(m.createdAt || Date.now()).toDateString() : '');
+
+function DayChip({ ts, isDark, T }) {
+  const d = new Date(ts);
+  const today = new Date();
+  const days = Math.round((new Date(today.toDateString()) - new Date(d.toDateString())) / 86400000);
+  const label = days === 0 ? tr('Hoy') : days === 1 ? tr('Ayer')
+              : days < 7 ? d.toLocaleDateString(LOCALE, { weekday: 'long' })
+              : d.toLocaleDateString(LOCALE, { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', margin: '6px 0 4px' }}>
+      <span style={{ padding: '5px 14px', borderRadius: 14, fontSize: 12, fontWeight: 800, letterSpacing: '0.6px', textTransform: 'uppercase',
+                     background: isDark ? '#222A38' : '#D5E1EA', color: isDark ? '#9FB4C8' : '#4A5A6E',
+                     border: isDark ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
 // ── Burbuja de una foto/vídeo "ver una vez" ─────────────────────────────────
 function ViewOnceChip({ msg, isDark, onOpen }) {
   const video = msg.type === 'video';
   const what = video ? tr('Vídeo') : tr('Foto');
   const canOpen = !msg.isMine && !msg.opened && msg.status !== 'sending';
-  const fg = isDark ? '#E0FBFC' : '#293241';
+  const fg = isDark || msg.isMine ? '#E0FBFC' : '#293241';   // los enviados van sobre el azul de marca
   const label = msg.status === 'sending' ? tr('Enviando…')
               : msg.isMine ? (msg.opened ? tr('{what} · Abierta', { what }) : what)
               : msg.opened ? 'Abierta' : what;
@@ -1631,8 +1652,8 @@ function ViewOnceChip({ msg, isDark, onOpen }) {
       style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', padding: '2px 0', cursor: canOpen ? 'pointer' : 'default',
                color: fg, opacity: canOpen || msg.isMine ? 1 : 0.6, minWidth: 130 }}>
       <span style={{ width: 30, height: 30, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 900,
-                     background: msg.opened ? 'transparent' : '#3D5A80', color: msg.opened ? fg : 'white',
-                     border: msg.opened ? `2px dashed ${isDark ? 'rgba(224,251,252,0.6)' : 'rgba(41,50,65,0.45)'}` : 'none' }}>1</span>
+                     background: msg.opened ? 'transparent' : (msg.isMine ? 'rgba(255,255,255,0.22)' : '#3D5A80'), color: msg.opened ? fg : 'white',
+                     border: msg.opened ? `2px dashed ${isDark || msg.isMine ? 'rgba(224,251,252,0.6)' : 'rgba(41,50,65,0.45)'}` : 'none' }}>1</span>
       <span style={{ textAlign: 'left' }}>
         <span style={{ display: 'block', fontSize: 15, fontWeight: 700 }}>{label}</span>
         {canOpen && <span style={{ display: 'block', fontSize: 11, opacity: 0.7 }}>{tr('Toca para verla · solo una vez')}</span>}
@@ -1712,7 +1733,7 @@ function FullVideo({ src, viewOnce }) {
 // Solo suena una nota de voz a la vez: al dar a otra, la anterior se para.
 let playingAudio = null;
 
-function AudioPlayer({ src, isMine, isDark, knownDuration }) {
+function AudioPlayer({ src, isMine, isDark, knownDuration, meta }) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(Number(knownDuration) || 0);
@@ -1755,19 +1776,24 @@ function AudioPlayer({ src, isMine, isDark, knownDuration }) {
     audio.play().then(() => setPlaying(true)).catch(() => {});
   };
 
-  // Dark mode + enviado  → fondo azul oscuro → iconos blancos
-  // Light mode + enviado → fondo azul claro (#D5E6F0) → iconos azul oscuro
-  // Recibido (ambos modos) → iconos azul oscuro
-  const sentDark = isMine && isDark;
-  const playBg    = sentDark ? 'rgba(255,255,255,0.22)' : '#3D5A80';
-  const iconColor = sentDark ? 'white' : 'white';
-  const trackBg   = sentDark ? 'rgba(255,255,255,0.3)' : (isMine ? 'rgba(61,90,128,0.2)' : 'rgba(61,90,128,0.15)');
-  const trackFill = sentDark ? 'rgba(255,255,255,0.9)' : '#3D5A80';
-  const timeColor = sentDark ? 'rgba(255,255,255,0.85)' : '#293241';
-  const micColor  = sentDark ? 'rgba(255,255,255,0.7)' : '#3D5A80';
+  // Enviado: sobre el azul de marca → ondas y textos claros · recibido: sobre la tarjeta del tema
+  const onBrand   = isMine || isDark;
+  const iconColor = 'white';
+  const barIdle   = onBrand ? 'rgba(224,236,248,0.38)' : 'rgba(61,90,128,0.28)';
+  const barPlayed = onBrand ? '#FFFFFF' : '#3D5A80';
+  const timeColor = onBrand ? 'rgba(224,236,248,0.85)' : '#293241';
+  const micColor  = onBrand ? 'rgba(255,255,255,0.85)' : '#3D5A80';
+
+  // Ondas de la nota de voz: alturas fijas para cada audio (sacadas de su dirección), no cambian al repintar
+  const bars = useMemo(() => {
+    let h = 7;
+    for (const ch of String(src || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return Array.from({ length: 30 }, () => { h = (h * 1103515245 + 12345) >>> 0; return 0.25 + ((h >>> 16) % 1000) / 1333; });
+  }, [src]);
+  const played = duration ? progress / duration : 0;
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 180, maxWidth: 240 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 220, maxWidth: 270 }}>
       <audio
         ref={audioRef}
         src={src}
@@ -1778,50 +1804,58 @@ function AudioPlayer({ src, isMine, isDark, knownDuration }) {
         onEnded={() => { setPlaying(false); setProgress(0); if (playingAudio === audioRef.current) playingAudio = null; }}
         style={{ display: 'none' }}
       />
-      <button onClick={toggle} style={{
-        width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-        background: playBg, border: 'none', cursor: 'pointer',
+      <button onClick={toggle} aria-label={playing ? tr('Pausa') : tr('Reproducir')} style={{
+        width: 46, height: 46, borderRadius: '50%', flexShrink: 0,
+        background: 'radial-gradient(circle at 35% 30%, #8DB3F0 0%, #5B8DEF 40%, #3D5A80 100%)',
+        border: '2px solid rgba(255,255,255,0.25)', cursor: 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: playing ? '0 0 16px rgba(110,147,200,0.9)' : '0 0 10px rgba(79,124,196,0.55)',
       }}>
         {playing ? (
-          <svg width="14" height="14" fill={iconColor} viewBox="0 0 24 24">
-            <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+          <svg width="16" height="16" fill={iconColor} viewBox="0 0 24 24">
+            <rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>
           </svg>
         ) : (
-          <svg width="14" height="14" fill={iconColor} viewBox="0 0 24 24">
+          <svg width="17" height="17" fill={iconColor} viewBox="0 0 24 24" style={{ transform: 'translateX(1px)' }}>
             <path d="M8 5v14l11-7z"/>
           </svg>
         )}
       </button>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {/* Ondas: las ya escuchadas se encienden; tocar en ellas salta a ese punto */}
         <div
-          style={{ height: 4, borderRadius: 4, background: trackBg, cursor: 'pointer', position: 'relative' }}
+          style={{ height: 26, display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}
           onClick={e => {
             const rect = e.currentTarget.getBoundingClientRect();
-            const pct = (e.clientX - rect.left) / rect.width;
+            const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
             if (audioRef.current && duration) {
               audioRef.current.currentTime = pct * duration;
               setProgress(pct * duration);
             }
           }}
         >
-          <div style={{
-            height: '100%', borderRadius: 4, background: trackFill,
-            width: duration ? `${(progress / duration) * 100}%` : '0%',
-            transition: 'width 0.1s linear',
-          }} />
+          {bars.map((b, i) => (
+            <span key={i} style={{ flex: 1, height: `${Math.round(b * 100)}%`, minHeight: 3, borderRadius: 2,
+                                   background: (i + 0.5) / bars.length <= played ? barPlayed : barIdle,
+                                   boxShadow: (i + 0.5) / bars.length <= played && onBrand ? '0 0 4px rgba(255,255,255,0.6)' : 'none' }} />
+          ))}
         </div>
-        <span style={{ fontSize: 11, color: timeColor, fontWeight: 600 }}>
-          {playing || progress ? `${fmtTime(progress || 0)} / ${fmtTime(duration)}` : fmtTime(duration)}
-        </span>
+        {/* Duración a la izquierda · hora y ✓✓ a la derecha */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ flex: 1, fontSize: 12, color: timeColor, fontWeight: 700 }}>
+            {playing || progress ? `${fmtTime(progress || 0)} / ${fmtTime(duration)}` : fmtTime(duration)}
+          </span>
+          {meta}
+        </div>
       </div>
 
       {/* Velocidad: 1× → 1,5× → 2× */}
       <button onClick={(e) => { e.stopPropagation(); cycleSpeed(); }} aria-label={tr('Velocidad {p0}', { p0: speedLabel(speed) })}
-        style={{ flexShrink: 0, minWidth: 38, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', padding: '0 7px',
-                 background: speed !== 1 ? micColor : (sentDark ? 'rgba(255,255,255,0.18)' : 'rgba(61,90,128,0.14)'),
-                 color: speed !== 1 ? (sentDark ? '#293241' : 'white') : micColor, fontSize: 12, fontWeight: 800 }}>
+        style={{ flexShrink: 0, minWidth: 38, height: 24, borderRadius: 12, cursor: 'pointer', padding: '0 7px',
+                 background: speed !== 1 ? micColor : (onBrand ? 'rgba(255,255,255,0.14)' : 'rgba(61,90,128,0.14)'),
+                 border: onBrand ? '1px solid rgba(255,255,255,0.18)' : 'none',
+                 color: speed !== 1 ? (onBrand ? '#293241' : 'white') : micColor, fontSize: 12, fontWeight: 800 }}>
         {speedLabel(speed)}
       </button>
     </div>
@@ -1889,12 +1923,13 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
   const isSticker  = msg.type === 'sticker' && !isDeleted;
   const longPressRef = useRef(null);
 
-  const sentBg   = isDark ? 'linear-gradient(135deg, #293241, #3D5A80)' : '#D5E6F0';
-  const recvBg   = isDark ? '#2F3A4D' : 'white';
-  const sentText  = isDark ? '#ffffff' : '#293241';
+  // Enviados: azul de marca con brillo (en claro y en oscuro) y texto blanco · recibidos: tarjeta del tema
+  const sentBg   = 'linear-gradient(135deg, #34507A 0%, #3D5A80 55%, #4A6B95 100%)';
+  const recvBg   = isDark ? '#222A38' : 'white';
+  const sentText  = '#ffffff';
   const recvText  = isDark ? '#E0FBFC' : '#1f2937';
-  const timeColor = isDark ? '#93b8e0' : '#6b7280';
-  const recvTime  = isDark ? '#3d5578' : '#9ca3af';
+  const timeColor = 'rgba(224,236,248,0.78)';
+  const recvTime  = isDark ? '#7F9BB5' : '#9ca3af';
 
   // Pulsación larga: el menú solo se abre si se mantiene el dedo quieto 0,6 s (un toque o desplazar el chat no lo abre)
   const pressStart = useRef(null);
@@ -1916,6 +1951,23 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
   const isWide = (isImage || isVideo || isLocation) && !isOnce;
   const endPress   = () => { clearTimeout(longPressRef.current); pressStart.current = null; };
 
+  // Fijado · destacado · editado · hora · ✓✓
+  const meta = (
+    <>
+      {msg.pinned && !isDeleted && <span style={{ fontSize: 11 }} title={tr('Fijado')}>📌</span>}
+      {msg.starred && !isDeleted && <span style={{ fontSize: 11 }} title={tr('Destacado')}>⭐</span>}
+      {msg.editedAt && !isDeleted && <span style={{ fontSize: 11, fontStyle: 'italic', color: msg.isMine ? timeColor : recvTime }}>{tr('editado')}</span>}
+      <span style={{ fontSize: 12, color: msg.isMine ? timeColor : recvTime }}>{msg.time}</span>
+      {msg.isMine && (msg.status === 'sending' || msg.status === 'error'
+        ? <span style={{ fontSize: 12, color: timeColor }}>{msg.status === 'sending' ? '○' : '⚠️'}</span>
+        : (
+          <svg width="17" height="11" viewBox="0 0 26 16" fill="none" stroke={msg.status === 'read' ? '#7DD3FC' : timeColor} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-label={msg.status === 'read' ? tr('Leído') : tr('Enviado')}>
+            {msg.status === 'sent' ? <path d="M5 8.5l4.5 4.5L19 3" /> : <path d="M1.5 8.5l4.5 4.5L15 3M10 12.5l1 .5L24.5 3" />}
+          </svg>
+        ))}
+    </>
+  );
+
   return (
     <div
       id={`msg-${msg.id}`}
@@ -1930,14 +1982,17 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
         maxWidth: isWide ? 'min(82vw, 380px)' : isAudio ? 280 : '78%',
         width: isWide ? 'min(82vw, 380px)' : undefined,
         padding: isSticker ? 0 : isWide ? '4px 4px 8px' : '9px 14px',
-        borderRadius: msg.isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+        borderRadius: msg.isMine ? '20px 20px 6px 20px' : '20px 20px 20px 6px',
         background: isSticker ? 'transparent' : msg.isMine ? sentBg : recvBg,
-        boxShadow: isSticker ? 'none' : isDark ? '0 1px 4px rgba(0,0,0,0.4)' : '0 1px 3px rgba(0,0,0,0.08)',
+        border: isSticker ? 'none' : msg.isMine ? '1px solid rgba(127,163,209,0.45)' : (isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(41,50,65,0.04)'),
+        boxShadow: isSticker ? 'none'
+          : msg.isMine ? (isDark ? '0 0 14px rgba(79,124,196,0.45)' : '0 4px 14px rgba(61,90,128,0.3)')
+          : (isDark ? '0 2px 8px rgba(0,0,0,0.35)' : '0 2px 8px rgba(41,50,65,0.07)'),
         overflow: 'hidden',
       }}>
         {/* Nombre remitente en grupos */}
         {isGroup && !msg.isMine && (
-          <p style={{ fontSize: 12, fontWeight: 800, color: '#3D5A80', margin: '0 0 4px', letterSpacing: '0.2px', paddingLeft: (isImage || isVideo) ? 8 : 0 }}>
+          <p style={{ fontSize: 12, fontWeight: 800, color: isDark ? '#7FA3D1' : '#3D5A80', margin: '0 0 4px', letterSpacing: '0.2px', paddingLeft: (isImage || isVideo) ? 8 : 0 }}>
             {memberNames[msg.sender] || msg.sender?.replace(/^user_/, '') || '?'}
           </p>
         )}
@@ -1945,7 +2000,7 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
         {/* Cita del mensaje al que se responde */}
         {msg.replyTo && !isDeleted && (
           <div style={{ margin: isWide ? '0 0 6px' : '-3px -8px 7px', minWidth: 170 }}>
-            <ReplyQuote reply={msg.replyTo} where={msg.isMine ? 'sent' : 'recv'} isDark={isDark}
+            <ReplyQuote reply={msg.replyTo} where={msg.isMine ? 'sent' : 'recv'} isDark={msg.isMine || isDark}
               onClick={msg.replyTo.id ? (e) => { e.stopPropagation(); onJumpReply?.(msg.replyTo.id); } : undefined} />
           </div>
         )}
@@ -1996,10 +2051,10 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
             <div style={{ minWidth: 0 }}>
               <div style={{
                 fontSize: 13, fontWeight: 700,
-                color: msg.isMine ? (isDark ? '#D5E6F0' : '#293241') : (isDark ? '#E0FBFC' : '#293241'),
+                color: msg.isMine ? '#F1F6FB' : (isDark ? '#E0FBFC' : '#293241'),
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180,
               }}>{docName}</div>
-              <div style={{ fontSize: 11, color: msg.isMine ? (isDark ? '#93c5fd' : '#3b82f6') : (isDark ? '#93b8e0' : '#6b7280'), marginTop: 2 }}>{tr('Toca para descargar')}</div>
+              <div style={{ fontSize: 11, color: msg.isMine ? '#BFD7F2' : (isDark ? '#93b8e0' : '#6b7280'), marginTop: 2 }}>{tr('Toca para descargar')}</div>
             </div>
           </button>
           );
@@ -2024,29 +2079,21 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
           <LocationCard msg={msg} textColor={msg.isMine ? sentText : recvText} mutedColor={msg.isMine ? timeColor : recvTime}
                         onOpen={() => onOpenMap?.(msg)} />
         ) : isAudio ? (
-          <AudioPlayer src={msg.url} isMine={msg.isMine} isDark={isDark} knownDuration={msg.duration} />
+          <AudioPlayer src={msg.url} isMine={msg.isMine} isDark={isDark} knownDuration={msg.duration} meta={meta} />
         ) : (
           <p style={{ fontSize: 15, color: msg.isMine ? sentText : recvText, fontWeight: 500, lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap', padding: (isImage || isVideo) ? '0 8px' : 0 }}>
             {msg.text}
           </p>
         )}
 
-        {/* Hora y estado */}
-        <div style={{
+        {/* Hora y estado (las notas de voz lo llevan dentro del reproductor) */}
+        {!(isAudio && !isDeleted) && <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4,
           marginTop: isWide ? 2 : 4,
           padding: isWide ? '0 8px' : 0,
         }}>
-          {msg.pinned && !isDeleted && <span style={{ fontSize: 11 }} title={tr('Fijado')}>📌</span>}
-          {msg.starred && !isDeleted && <span style={{ fontSize: 11 }} title={tr('Destacado')}>⭐</span>}
-          {msg.editedAt && !isDeleted && <span style={{ fontSize: 11, fontStyle: 'italic', color: msg.isMine ? timeColor : recvTime }}>{tr('editado')}</span>}
-          <span style={{ fontSize: 12, color: msg.isMine ? timeColor : recvTime }}>{msg.time}</span>
-          {msg.isMine && (
-            <span style={{ fontSize: 12, color: msg.status === 'read' ? '#60a5fa' : timeColor }}>
-              {msg.status === 'sending' ? '○' : msg.status === 'error' ? '⚠️' : msg.status === 'sent' ? '✓' : '✓✓'}
-            </span>
-          )}
-        </div>
+          {meta}
+        </div>}
       </div>
     </div>
   );

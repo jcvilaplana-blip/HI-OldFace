@@ -654,4 +654,11 @@ export default {
   "Copiar": "Copy",
   "Fijar": "Pin",
   "Destacar": "Star",
+  // Pantalla de un chat
+  "Grabar nota de voz": "Record voice note",
+  "Adjuntar": "Attach",
+  "Emojis": "Emojis",
+  "Teclado": "Keyboard",
+  "Reproducir": "Play",
+  "Leído": "Read",
 };
