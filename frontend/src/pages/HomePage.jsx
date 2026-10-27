@@ -13,10 +13,13 @@ import ChatList from '../components/ChatList.jsx';
 import BottomNav from '../components/BottomNav.jsx';
 import NeonAvatar, { cardStyle, ringColorOf, RoundBtn, SectionLabel } from '../components/NeonAvatar.jsx';
 import GroupsSheet from '../components/GroupsSheet.jsx';
-import StatusList from '../components/StatusList.jsx';
+import StatusList, { prefetchStories } from '../components/StatusList.jsx';
 import { GroupCreateSheet } from '../components/GroupSheets.jsx';
 import { tr, LOCALE } from '../i18n';
 import { useBackClose } from '../utils/backHandler';
+import { matches } from '../components/SearchBox.jsx';
+import { openAvatar } from '../components/AvatarViewer.jsx';
+import { useUserAvatar } from '../utils/userAvatar';
 
 const BRAND   = '#3D5A80';
 const APP_URL = 'https://oldface.app';
@@ -68,6 +71,9 @@ export default function HomePage() {
     const interval = setInterval(() => fetchChats(user.id), 5000);
     return () => clearInterval(interval);
   }, [user?.id]);
+
+  // Estados: se piden ya (con sus fotos) para que la pestaña salga al instante
+  useEffect(() => { if (user?.id) prefetchStories(user.id); }, [user?.id]);
 
   // Atrás de Android cierra la hoja o el menú abiertos y vuelve a la pantalla principal
   useBackClose(showMenu,        () => setShowMenu(false));
@@ -163,7 +169,10 @@ export default function HomePage() {
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder={tr('Buscar conversación...')}
+                placeholder={activeTab === 'llamadas' ? tr('Buscar en llamadas...')
+                  : activeTab === 'contactos' ? tr('Buscar contacto...')
+                  : activeTab === 'estados' ? tr('Buscar estados...')
+                  : tr('Buscar conversación...')}
                 style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 14, color: T.textPrimary, fontWeight: 500 }}
               />
               {searchQuery && (
@@ -227,9 +236,9 @@ export default function HomePage() {
             : chats
           } />
         </>}
-        {activeTab === 'estados'   && <StatusList user={user} T={T} isDark={isDark} />}
-        {activeTab === 'llamadas'  && <CallsTab T={T} user={user} isDark={isDark} />}
-        {activeTab === 'contactos' && <ContactosTab T={T} isDark={isDark} />}
+        {activeTab === 'estados'   && <StatusList user={user} T={T} isDark={isDark} query={searchQuery} />}
+        {activeTab === 'llamadas'  && <CallsTab T={T} user={user} isDark={isDark} query={searchQuery} />}
+        {activeTab === 'contactos' && <ContactosTab T={T} isDark={isDark} query={searchQuery} />}
       </div>
 
       {/* ══ Willy, el asistente con IA: encima del "+", mismo tamaño, con "Háblame" al lado ══ */}
@@ -306,7 +315,7 @@ function toUserId(phone) {
 }
 
 // ══ Tab CONTACTOS ════════════════════════════════════════════════════════════
-function ContactosTab({ T, isDark }) {
+function ContactosTab({ T, isDark, query = '' }) {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { contacts, loading, error, loadContacts, openSettings } = useContacts();
@@ -438,8 +447,11 @@ function ContactosTab({ T, isDark }) {
     );
   }
 
-  const oldFaceContacts = contacts.filter(c => c.usesOldFace);
-  const others          = contacts.filter(c => !c.usesOldFace);
+  // Buscador de la cabecera: por nombre o por teléfono
+  const searching       = !!query.trim();
+  const shown           = contacts.filter(c => matches(query, c.name, c.phone));
+  const oldFaceContacts = shown.filter(c => c.usesOldFace);
+  const others          = shown.filter(c => !c.usesOldFace);
 
   return (
     <div style={{ paddingBottom: 16 }}>
@@ -478,10 +490,16 @@ function ContactosTab({ T, isDark }) {
       {others.length > 0 && (
         <>
           <SectionLabel T={T}>{tr('INVITAR A OLDFACE')}</SectionLabel>
-          {others.slice(0, 6).map(c => (
+          {(searching ? others : others.slice(0, 6)).map(c => (
             <ContactRow key={c.id} contact={c} T={T} isDark={isDark} isInvite />
           ))}
         </>
+      )}
+
+      {searching && contacts.length > 0 && shown.length === 0 && (
+        <p style={{ textAlign: 'center', padding: '32px 24px', margin: 0, fontSize: 14, fontWeight: 600, color: T.textSecondary }}>
+          {tr('Ningún contacto coincide con «{q}»', { q: query.trim() })}
+        </p>
       )}
 
       {contacts.length === 0 && (
@@ -500,7 +518,8 @@ function ContactRow({ contact, onChat, onCall, onVideo, isInvite, T, isDark }) {
   const open = () => { if (!onChat) return; setLit(true); setTimeout(() => { setLit(false); onChat(); }, 180); };
   return (
     <div style={{ ...cardStyle(T, isDark), display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', margin: '0 12px 8px' }}>
-      <button onClick={open} onTouchStart={() => onChat && setLit(true)} onTouchMove={() => setLit(false)}
+      <button onClick={contact.avatar ? () => openAvatar(contact.avatar, contact.name) : open}
+        onTouchStart={() => onChat && !contact.avatar && setLit(true)} onTouchMove={() => setLit(false)}
         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, position: 'relative', flexShrink: 0 }}>
         <NeonAvatar name={contact.name} src={contact.avatar || null} size={50} color={ringColorOf(contact.phone || contact.name)}
           active={lit} T={T} />
@@ -552,8 +571,32 @@ function ActionBtn({ onClick, children, T }) {
   );
 }
 
+/** Foto del contacto en el historial de llamadas (la pide al servidor si su privacidad lo permite) */
+function CallAvatar({ call, isDark, onChat }) {
+  const src = useUserAvatar(call.contactId);
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); if (src) openAvatar(src, call.contactName); else onChat(); }}
+      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0 }}
+    >
+      <div style={{
+        width: 52, height: 52, borderRadius: '50%', overflow: 'hidden',
+        background: `radial-gradient(circle at 35% 30%, #4E6F99 0%, ${BRAND} 55%, #233A5A 100%)`,
+        border: `2px solid ${isDark ? '#4F7CC4' : '#5B7FB0'}`, boxSizing: 'border-box',
+        boxShadow: isDark ? '0 0 12px rgba(79,124,196,0.7)' : '0 4px 12px rgba(61,90,128,0.35)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: 'white', fontWeight: 900, fontSize: 20,
+      }}>
+        {src
+          ? <img src={src} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          : (call.contactName?.[0]?.toUpperCase() || '?')}
+      </div>
+    </button>
+  );
+}
+
 // ══ Tab LLAMADAS ═════════════════════════════════════════════════════════════
-function CallsTab({ T, user, isDark }) {
+function CallsTab({ T, user, isDark, query = '' }) {
   const navigate = useNavigate();
   const { sendVoiceCall, sendVideoCall } = useCallStore();
   const [calls,        setCalls]        = React.useState([]);
@@ -617,6 +660,11 @@ function CallsTab({ T, user, isDark }) {
     );
   }
 
+  // Buscador de la cabecera: por nombre, o "vídeo" / "voz" / "perdida" para el tipo de llamada
+  const shownCalls = calls.filter(c => matches(query, c.contactName,
+    c.type === 'video' ? tr('Videollamada') : tr('Llamada'),
+    !c.duration || c.duration < 1 ? tr('No contestada') : ''));
+
   if (!calls.length) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 300, gap: 12, padding: 24 }}>
@@ -641,7 +689,13 @@ function CallsTab({ T, user, isDark }) {
           </svg>{tr('Borrar historial')}</button>
       </div>
 
-      {calls.map((call) => {
+      {shownCalls.length === 0 && (
+        <p style={{ textAlign: 'center', padding: '32px 24px', margin: 0, fontSize: 14, fontWeight: 600, color: T.textSecondary }}>
+          {tr('Ninguna llamada coincide con «{q}»', { q: query.trim() })}
+        </p>
+      )}
+
+      {shownCalls.map((call) => {
         const isIncoming  = call.direction === 'incoming';
         const isVideo     = call.type === 'video';
         const missed      = !call.duration || call.duration < 1;
@@ -664,22 +718,9 @@ function CallsTab({ T, user, isDark }) {
             onMouseUp={() => clearTimeout(pressTimerRef.current)}
             onMouseLeave={() => clearTimeout(pressTimerRef.current)}
           >
-            {/* Avatar */}
-            <button
-              onClick={() => navigate(`/chat/${call.contactId}`, { state: { chat: { id: call.contactId, name: call.contactName } } })}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0 }}
-            >
-              <div style={{
-                width: 52, height: 52, borderRadius: '50%',
-                background: `radial-gradient(circle at 35% 30%, #4E6F99 0%, ${BRAND} 55%, #233A5A 100%)`,
-                border: `2px solid ${isDark ? '#4F7CC4' : '#5B7FB0'}`, boxSizing: 'border-box',
-                boxShadow: isDark ? '0 0 12px rgba(79,124,196,0.7)' : '0 4px 12px rgba(61,90,128,0.35)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'white', fontWeight: 900, fontSize: 20,
-              }}>
-                {call.contactName?.[0]?.toUpperCase() || '?'}
-              </div>
-            </button>
+            {/* Avatar: con foto, pulsar la amplía; sin foto, abre el chat */}
+            <CallAvatar call={call} isDark={isDark}
+              onChat={() => navigate(`/chat/${call.contactId}`, { state: { chat: { id: call.contactId, name: call.contactName } } })} />
 
             {/* Info */}
             <div style={{ flex: 1, minWidth: 0 }}>

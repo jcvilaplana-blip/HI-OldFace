@@ -19,6 +19,7 @@ import { playRingSound } from '../utils/sounds';
 import { fetchGroup, fetchGroupCall, inviteToGroupCall, leaveGroupCall } from '../utils/groupsApi';
 import { tr } from '../i18n';
 import { useUserAvatar } from '../utils/userAvatar';
+import { useBluetoothAudio, BluetoothPill } from '../components/BluetoothButton.jsx';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const RING_MAX_MS = 45_000;   // el tono de "llamando" suena mientras estoy solo, como mucho esto
@@ -64,6 +65,8 @@ export default function GroupCallPage() {
       if (speakerRef.current) window.OldFaceAudio?.enableSpeaker(); else window.OldFaceAudio?.setEarpiece();
     }, ms));
   }, []);
+  // Bluetooth: al quitarlo vuelve el auricular o el altavoz que hubiera
+  const bt = useBluetoothAudio(applyAudioRoute);
 
   const upsertPeer = (id, patch) => setPeers(prev => {
     const old = prev.find(p => p.id === id);
@@ -226,6 +229,7 @@ export default function GroupCallPage() {
   };
 
   const toggleSpeaker = () => {
+    bt.off();   // elegir altavoz o auricular deja el Bluetooth
     const next = !speakerOn;
     speakerRef.current = next;
     setSpeakerOn(next);
@@ -302,6 +306,13 @@ export default function GroupCallPage() {
           <Tile key={t.id} tile={t} onFlip={t.local && camOn ? flipCam : null} />
         ))}
       </div>
+
+      {/* Bluetooth (solo con auriculares conectados) */}
+      {bt.available && (
+        <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', paddingTop: 10 }}>
+          <BluetoothPill bt={bt} />
+        </div>
+      )}
 
       {/* Controles */}
       <div style={{ flexShrink: 0, padding: '14px 6px', paddingBottom: 'calc(var(--sab, 0px) + 18px)',

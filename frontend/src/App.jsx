@@ -52,6 +52,8 @@ function prefetchPages() {
 prefetchPages();
 import { listenDeepLinks, savePendingLink, takePendingLink } from './utils/deepLinks';
 import AppLock from './components/AppLock.jsx';
+import AvatarViewer from './components/AvatarViewer.jsx';
+import { useStatusBarIcons } from './utils/statusBar';
 import { syncTone, usePrefsStore } from './store/prefsStore';
 import { getDeviceId, heartbeat } from './utils/devices';
 import { onRtc } from './utils/rtcClient';
@@ -518,6 +520,9 @@ function AppShell() {
           pendingCallOut, clearPendingCall, callAccepted, clearCallAccepted,
           pendingFCMCall, clearPendingFCMCall, showIncomingCall } = useCallStore();
 
+  // Iconos de la barra de estado de Android (hora, batería…) oscuros o claros según el fondo de arriba
+  useStatusBarIcons();
+
   // Conectar con el servidor RTC propio (llamadas y mensajes en tiempo real) al autenticarse
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
@@ -798,6 +803,9 @@ function AppShell() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </React.Suspense>
+
+      {/* ── Foto de perfil ampliada (la abre openAvatar desde cualquier pantalla) ── */}
+      <AvatarViewer />
 
       {/* ── Bloqueo de la app (PIN / huella) — por debajo de la llamada entrante ── */}
       <AppLock />

@@ -13,6 +13,8 @@ import { useChatStore }  from '../store/chatStore';
 import { playRingSound } from '../utils/sounds';
 import { tr } from '../i18n';
 import { useUserAvatar } from '../utils/userAvatar';
+import { useBluetoothAudio, BluetoothPill } from '../components/BluetoothButton.jsx';
+import { openAvatar } from '../components/AvatarViewer.jsx';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -56,6 +58,11 @@ export default function CallPage() {
   const [remoteVids,  setRemoteVids]  = useState({});   // peerId → { stream, off }
   const [camBusy,     setCamBusy]     = useState(false);
   const [camError,    setCamError]    = useState(false);
+  const [swapped,     setSwapped]     = useState(false);   // vídeo: mi cámara en grande y la del otro en pequeño
+  // Bluetooth: al quitarlo vuelve el auricular o el altavoz que hubiera
+  const bt = useBluetoothAudio(() => {
+    if (speakerOnRef.current) window.OldFaceAudio?.enableSpeaker(); else window.OldFaceAudio?.setEarpiece();
+  });
 
   const isIncoming = state?.isIncoming || false;
   const calleeName = state?.chat?.name || userId;
@@ -290,6 +297,7 @@ export default function CallPage() {
 
   // ── Pasar a videollamada (encender / apagar mi cámara) ─────────────────────
   const setSpeaker = (on) => {
+    bt.off();   // elegir altavoz o auricular deja el Bluetooth
     speakerOnRef.current = on;
     setSpeakerOn(on);
     if (on) window.OldFaceAudio?.enableSpeaker(); else window.OldFaceAudio?.setEarpiece();
@@ -305,7 +313,7 @@ export default function CallPage() {
       setLocalStream(s);
       setFacing(call.facingMode);
       setCamOn(true);
-      if (!speakerOnRef.current) setSpeaker(true);           // con vídeo, altavoz (como en WhatsApp)
+      if (!speakerOnRef.current && !bt.on) setSpeaker(true); // con vídeo, altavoz (como en WhatsApp), salvo con Bluetooth
       window.OldFaceAudio?.startCallService?.(true, calleeName); // la cámara también sigue al minimizar
     } catch {
       setCamError(true);
@@ -324,6 +332,7 @@ export default function CallPage() {
 
   const remoteVideo = Object.entries(remoteVids).find(([, v]) => !v.off);
   const videoMode = status === 'active' && (camOn || !!remoteVideo);
+  const pipSwap   = swapped && !!remoteVideo && camOn;   // solo se intercambian si se ven los dos vídeos
 
   const fmt = (s) =>
     `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
@@ -344,18 +353,24 @@ export default function CallPage() {
       {videoMode && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: '#000' }}>
           {remoteVideo
-            ? <VideoEl stream={remoteVideo[1].stream} />
+            ? (pipSwap
+                ? <VideoEl stream={localStream} mirror={facing === 'user'} />
+                : <VideoEl stream={remoteVideo[1].stream} />)
             : <VideoEl stream={localStream} mirror={facing === 'user'} />}
-          {remoteVideo && camOn && (
-            <div style={{ position: 'absolute', zIndex: 3, top: 'calc(env(safe-area-inset-top, 44px) + 70px)', right: 14,
-                          width: 104, height: 146, borderRadius: 14, overflow: 'hidden',
-                          border: '2px solid rgba(255,255,255,0.35)', boxShadow: '0 4px 18px rgba(0,0,0,0.45)', background: '#1f2937' }}>
-              <VideoEl stream={localStream} mirror={facing === 'user'} />
-            </div>
-          )}
           {/* Degradados para leer la cabecera y los controles sobre la imagen */}
           <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 160, background: 'linear-gradient(rgba(0,0,0,0.55), transparent)' }} />
           <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 220, background: 'linear-gradient(transparent, rgba(0,0,0,0.6))' }} />
+        </div>
+      )}
+      {/* Miniatura (por encima de los controles para poder tocarla): al tocarla se cambia por la grande */}
+      {videoMode && remoteVideo && camOn && (
+        <div onClick={() => setSwapped(s => !s)}
+          style={{ position: 'absolute', zIndex: 5, top: 'calc(env(safe-area-inset-top, 44px) + 70px)', right: 14,
+                   width: 104, height: 146, borderRadius: 14, overflow: 'hidden', cursor: 'pointer',
+                   border: '2px solid rgba(255,255,255,0.35)', boxShadow: '0 4px 18px rgba(0,0,0,0.45)', background: '#1f2937' }}>
+          {pipSwap
+            ? <VideoEl stream={remoteVideo[1].stream} />
+            : <VideoEl stream={localStream} mirror={facing === 'user'} />}
         </div>
       )}
 
@@ -411,7 +426,8 @@ export default function CallPage() {
                 <div key={`p2-${animKey}`} style={{ position: 'absolute', inset: -16, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', animation: 'ocPulse 2.4s ease-out infinite 0.6s' }} />
               </>
             )}
-            <div style={{ width: 190, height: 190, borderRadius: '50%', overflow: 'hidden', position: 'relative', zIndex: 2, border: '3px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div onClick={() => openAvatar(contactAvatar, calleeName)}
+              style={{ width: 190, height: 190, borderRadius: '50%', overflow: 'hidden', position: 'relative', zIndex: 2, border: '3px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: contactAvatar ? 'pointer' : 'default' }}>
               {contactAvatar
                 ? <img src={contactAvatar} alt={calleeName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 : <span style={{ color: 'white', fontSize: 76, fontWeight: 900, lineHeight: 1 }}>{calleeName?.[0]?.toUpperCase() || '?'}</span>
@@ -438,10 +454,11 @@ export default function CallPage() {
           <div style={{ marginBottom: 12, background: 'rgba(15,15,25,0.92)', color: 'white', padding: '8px 16px', borderRadius: 18, fontSize: 13, fontWeight: 600 }}>{tr('No se pudo encender la cámara')}</div>
         )}
 
-        {/* ── Botón Añadir participante ── */}
-        {status === 'active' && (
-          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'center' }}>
-            <button
+        {/* ── Bluetooth (solo con auriculares conectados) + Añadir participante ── */}
+        {(status === 'active' || bt.available) && (
+          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 10 }}>
+            <BluetoothPill bt={bt} />
+            {status === 'active' && <button
               onClick={() => setShowInvite(true)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
@@ -456,7 +473,7 @@ export default function CallPage() {
                 <circle cx="9" cy="7" r="4"/>
                 <line x1="19" y1="8" x2="19" y2="14"/>
                 <line x1="22" y1="11" x2="16" y2="11"/>
-              </svg>{tr('Añadir participante')}</button>
+              </svg>{tr('Añadir participante')}</button>}
           </div>
         )}
 

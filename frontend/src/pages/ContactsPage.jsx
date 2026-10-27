@@ -11,6 +11,8 @@ import { useContacts } from '../hooks/useContacts';
 import { useCallStore } from '../store/callStore';
 import NeonAvatar, { cardStyle, ringColorOf, RoundBtn, SectionLabel, BRAND } from '../components/NeonAvatar.jsx';
 import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
+import SearchBox, { matches } from '../components/SearchBox.jsx';
+import { openAvatar } from '../components/AvatarViewer.jsx';
 import { tr } from '../i18n';
 
 const APP_URL     = 'https://oldface.app';
@@ -55,6 +57,7 @@ export default function ContactsPage() {
   const { sendVoiceCall, sendVideoCall } = useCallStore();
   const { isDark } = useThemeStore();
   const T = isDark ? DARK : LIGHT;
+  const [query, setQuery] = useState('');
 
   useEffect(() => { loadContacts(); }, []);
 
@@ -71,8 +74,10 @@ export default function ContactsPage() {
     }
   };
 
-  const oldFaceContacts = contacts.filter(c => c.usesOldFace);
-  const otherContacts   = contacts.filter(c => !c.usesOldFace);
+  // Buscador: por nombre o por teléfono
+  const shown           = contacts.filter(c => matches(query, c.name, c.phone));
+  const oldFaceContacts = shown.filter(c => c.usesOldFace);
+  const otherContacts   = shown.filter(c => !c.usesOldFace);
 
   // Botones redondos de la cabecera (como en la pantalla principal)
   const headBtn = (filled) => ({
@@ -117,6 +122,10 @@ export default function ContactsPage() {
             </button>
           )}
         </div>
+        {/* Buscador (llamar, videollamar o abrir chat con alguien concreto) */}
+        {!loading && !error && contacts.length > 0 && (
+          <SearchBox value={query} onChange={setQuery} T={T} placeholder={tr('Buscar contacto...')} style={{ margin: '0 12px 10px' }} />
+        )}
       </div>
 
       {/* Contenido */}
@@ -211,6 +220,12 @@ export default function ContactsPage() {
               </>
             )}
 
+            {contacts.length > 0 && shown.length === 0 && (
+              <p style={{ textAlign: 'center', padding: '40px 24px', margin: 0, fontSize: 14, fontWeight: 600, color: T.textSecondary }}>
+                {tr('Ningún contacto coincide con «{q}»', { q: query.trim() })}
+              </p>
+            )}
+
             {contacts.length === 0 && (
               <div style={{ textAlign: 'center', padding: '48px 24px' }}>
                 <p style={{ fontSize: 15, fontWeight: 700, color: T.textSecondary, margin: '0 0 8px' }}>{tr('No se encontraron contactos')}</p>
@@ -245,8 +260,9 @@ function ContactRow({ contact, action, isInvite, onPress, onCall, onVideo, onInv
   return (
     <div style={{ ...cardStyle(T, isDark), display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', margin: '0 12px 8px' }}>
 
-      {/* Avatar con aro — pulsar abre chat */}
-      <button onClick={open} onTouchStart={() => setLit(true)} onTouchMove={() => setLit(false)}
+      {/* Avatar con aro — con foto, pulsar la amplía; sin foto, abre el chat */}
+      <button onClick={contact.avatar ? () => openAvatar(contact.avatar, contact.name) : open}
+        onTouchStart={() => !contact.avatar && setLit(true)} onTouchMove={() => setLit(false)}
         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, position: 'relative', flexShrink: 0 }}>
         <NeonAvatar name={contact.name} src={contact.avatar || null} size={50} color={ringColorOf(contact.phone || contact.name)}
           active={lit} T={T} />

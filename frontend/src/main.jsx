@@ -1,4 +1,5 @@
 import './utils/authFetch';   // sesión en todas las peticiones al backend (antes que cualquier otra cosa)
+import './utils/videoPoster'; // sin el cuadro gris con "play" del WebView mientras carga un vídeo o una llamada
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';

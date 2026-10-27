@@ -1,6 +1,6 @@
 /**
  * themeStore — Tema global de la app (oscuro / claro)
- * Por defecto: OSCURO (azul marino profundo estilo VS Code)
+ * Por defecto: CLARO; el oscuro (azul marino profundo) es opcional
  * Persiste en localStorage.
  */
 import { create } from 'zustand';

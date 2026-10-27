@@ -17,6 +17,8 @@ import { ensureRtcConnected } from '../utils/rtcClient';
 import { playRingSound } from '../utils/sounds';
 import { tr } from '../i18n';
 import { useUserAvatar } from '../utils/userAvatar';
+import { useBluetoothAudio, BluetoothPill } from '../components/BluetoothButton.jsx';
+import { openAvatar } from '../components/AvatarViewer.jsx';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -44,6 +46,9 @@ export default function VideoCallPage() {
   const [facing,      setFacing]      = useState('user');   // 'user' (frontal) | 'environment' (trasera)
   const [showInvite,  setShowInvite]  = useState(false);
   const [inviteSent,  setInviteSent]  = useState({});  // { contactId: true } tras enviar invitación
+  const [swapped,     setSwapped]     = useState(false);  // mi cámara en grande y la del otro en pequeño
+  // Bluetooth: al quitarlo vuelve el altavoz (la videollamada va por el altavoz)
+  const bt = useBluetoothAudio(() => window.OldFaceAudio?.enableSpeaker());
 
   const { chats } = useChatStore();
 
@@ -295,28 +300,39 @@ export default function VideoCallPage() {
     startCall();
   };
 
+  // Tocar la miniatura la cambia por la grande (solo 1:1 y con mi cámara encendida)
+  const pipSwap = swapped && remotes.length === 1 && cameraOn && uiStatus === 'active';
+  const pipBox = {
+    position: 'absolute', top: 'max(env(safe-area-inset-top, 16px), 16px)', right: 14, zIndex: 30,
+    width: 104, height: 146, borderRadius: 14, overflow: 'hidden', cursor: 'pointer',
+    border: '2px solid rgba(255,255,255,0.35)', background: '#1f2937', boxShadow: '0 4px 18px rgba(0,0,0,0.45)',
+  };
+
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#111827', zIndex: 50 }}>
 
       {/* Vídeo remoto a pantalla completa (o cuadrícula) + vista propia */}
-      <div style={{
+      <div onClick={pipSwap ? () => setSwapped(false) : undefined}
+        style={pipSwap ? { ...pipBox, display: 'grid' } : {
         position: 'absolute', inset: 0,
         display: 'grid', gap: remotes.length > 1 ? 4 : 0, background: '#000',
         gridTemplateColumns: remotes.length > 1 ? '1fr 1fr' : '1fr',
         gridAutoRows: remotes.length > 2 ? '1fr' : undefined,
       }}>
         {remotes.map(r => (
-          <RemoteTile key={r.id} stream={r.stream} name={r.name} videoOff={r.videoOff} showName={remotes.length > 1} />
+          <RemoteTile key={r.id} stream={r.stream} name={r.name} videoOff={r.videoOff} showName={remotes.length > 1} small={pipSwap} />
         ))}
       </div>
       <video
         ref={localVideoRef} data-rtc="local" autoPlay playsInline muted
+        onClick={() => { if (remotes.length === 1 && !pipSwap) setSwapped(true); }}
         style={{
-          position: 'absolute', top: 'max(env(safe-area-inset-top, 16px), 16px)', right: 14, zIndex: 30,
-          width: 104, height: 146, objectFit: 'cover', borderRadius: 14,
-          border: '2px solid rgba(255,255,255,0.35)', background: '#1f2937',
-          transform: facing === 'user' ? 'scaleX(-1)' : 'none', boxShadow: '0 4px 18px rgba(0,0,0,0.45)',
+          ...(pipSwap
+            ? { position: 'absolute', inset: 0, zIndex: 1, width: '100%', height: '100%', background: '#000' }
+            : { ...pipBox, overflow: undefined }),
+          objectFit: 'cover',
+          transform: facing === 'user' ? 'scaleX(-1)' : 'none',
           visibility: cameraOn && uiStatus === 'active' ? 'visible' : 'hidden',
         }}
       />
@@ -347,8 +363,8 @@ export default function VideoCallPage() {
                   }} />
                 </>
               )}
-              <div style={{
-                width: 140, height: 140, borderRadius: '50%',
+              <div onClick={() => openAvatar(calleeAvatar, calleeName)} style={{
+                width: 140, height: 140, borderRadius: '50%', cursor: calleeAvatar ? 'pointer' : 'default',
                 background: 'rgba(255,255,255,0.15)',
                 border: '3px solid rgba(255,255,255,0.25)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -395,15 +411,16 @@ export default function VideoCallPage() {
         </div>
       )}
 
-      {/* ── Botón Invitar — encima de los controles principales ── */}
+      {/* ── Bluetooth (solo con auriculares conectados) + Invitar — encima de los controles principales ── */}
       {uiStatus === 'active' && (
         <div style={{
           position: 'fixed',
           top: '68%',
           left: 0, right: 0,
           zIndex: 200,
-          display: 'flex', justifyContent: 'center',
+          display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 10,
         }}>
+          <BluetoothPill bt={bt} />
           <button
             onClick={() => setShowInvite(true)}
             style={{
@@ -613,7 +630,7 @@ export default function VideoCallPage() {
 // ── Componentes auxiliares ─────────────────────────────────────────────────
 
 /** Vídeo de un participante (servidor RTC propio). El audio suena por el propio <video>. */
-function RemoteTile({ stream, name, videoOff, showName }) {
+function RemoteTile({ stream, name, videoOff, showName, small = false }) {
   const ref = useRef(null);
   useEffect(() => {
     if (ref.current && ref.current.srcObject !== stream) {
@@ -628,9 +645,9 @@ function RemoteTile({ stream, name, videoOff, showName }) {
       {videoOff && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{
-            width: 110, height: 110, borderRadius: '50%', background: 'rgba(255,255,255,0.12)',
+            width: small ? 48 : 110, height: small ? 48 : 110, borderRadius: '50%', background: 'rgba(255,255,255,0.12)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'white', fontSize: 46, fontWeight: 900,
+            color: 'white', fontSize: small ? 20 : 46, fontWeight: 900,
           }}>
             {name?.[0]?.toUpperCase() || '?'}
           </div>

@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
 import Avatar from './Avatar.jsx';
 import { cardStyle } from './NeonAvatar.jsx';
+import { matches } from './SearchBox.jsx';
 import { useCandidates, PeoplePicker, Sheet, PrimaryBtn } from './GroupSheets.jsx';
 import { tr, LOCALE } from '../i18n';
 
@@ -70,20 +71,51 @@ async function uploadFile(blob, userId) {
   return d.url.startsWith('http') ? d.url : `${BACKEND}${d.url}`;
 }
 
+// ══ Carga rápida ═════════════════════════════════════════════════════════════
+// La última lista se guarda en memoria y se pide al abrir la app (prefetchStories desde la pantalla principal):
+// al entrar en Estados se ve al instante y después se actualiza. Las fotos se precargan para que salgan sin espera.
+const storyCache = new Map();   // userId → { stories, authors, limits }
+const warmed = new Set();       // fotos ya precargadas
+
+function preloadStory(story) {
+  if (story?.mediaType !== 'image') return;
+  const src = mediaSrc(story.content);
+  if (!src || warmed.has(src) || warmed.size > 200) return;
+  warmed.add(src);
+  const img = new Image();
+  img.decoding = 'async';
+  img.src = src;
+}
+
+/** Pide los estados y los deja en memoria (devuelve los datos, o null si falla) */
+export function prefetchStories(userId) {
+  if (!userId) return Promise.resolve(null);
+  return fetch(`${BACKEND}/stories?userId=${encodeURIComponent(userId)}`)
+    .then(r => (r.ok ? r.json() : null))
+    .then(d => {
+      if (!d) return null;
+      const data = { stories: d.stories || [], authors: d.authors || {}, limits: d.limits || DEFAULT_LIMITS };
+      storyCache.set(userId, data);
+      data.stories.slice(0, 40).forEach(preloadStory);
+      return data;
+    })
+    .catch(() => null);
+}
+
 // ══ Lista ════════════════════════════════════════════════════════════════════
-export default function StatusList({ user, T, isDark, compact = false, onSeeAll }) {
-  const [stories, setStories]   = useState([]);
-  const [authors, setAuthors]   = useState({});
-  const [limits, setLimits]     = useState(DEFAULT_LIMITS);
+export default function StatusList({ user, T, isDark, compact = false, onSeeAll, query = '' }) {
+  const cached = storyCache.get(user?.id);
+  const [stories, setStories]   = useState(cached?.stories || []);
+  const [authors, setAuthors]   = useState(cached?.authors || {});
+  const [limits, setLimits]     = useState(cached?.limits || DEFAULT_LIMITS);
   const [creating, setCreating] = useState(false);
   const [viewer, setViewer]     = useState(null);   // { queue: [userId], ui, idx }
 
   const fetchStories = useCallback(() => {
-    if (!user?.id) return;
-    fetch(`${BACKEND}/stories?userId=${encodeURIComponent(user.id)}`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (!d) return; setStories(d.stories || []); setAuthors(d.authors || {}); if (d.limits) setLimits(d.limits); })
-      .catch(() => {});
+    prefetchStories(user?.id).then(d => {
+      if (!d) return;
+      setStories(d.stories); setAuthors(d.authors); setLimits(d.limits);
+    });
   }, [user?.id]);
 
   useEffect(() => {
@@ -110,8 +142,10 @@ export default function StatusList({ user, T, isDark, compact = false, onSeeAll 
       };
     }).sort((a, b) => b.latest.createdAt - a.latest.createdAt);
   }, [stories, authors, user?.id]);
-  const recent = people.filter(p => !p.allSeen);
-  const seen   = people.filter(p => p.allSeen);
+  // Buscador de la cabecera (pestaña Estados): por nombre de la persona
+  const found  = people.filter(p => matches(query, p.name));
+  const recent = found.filter(p => !p.allSeen);
+  const seen   = found.filter(p => p.allSeen);
 
   const storiesOf = useCallback((uid) => (uid === user?.id ? mine : people.find(p => p.userId === uid)?.stories || []), [mine, people, user?.id]);
 
@@ -182,6 +216,9 @@ export default function StatusList({ user, T, isDark, compact = false, onSeeAll 
         {compact && hidden > 0 && (
           <button onClick={onSeeAll}
             style={{ width: '100%', background: 'none', border: 'none', padding: '8px 16px 10px', textAlign: 'left', color: BRAND, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>{tr('Ver')}{' '}{hidden}{' '}{tr('estado')}{hidden === 1 ? '' : 's'}{' '}{tr('más')}</button>
+        )}
+        {!compact && people.length > 0 && found.length === 0 && (
+          <p style={{ margin: 0, padding: '14px 16px 18px', fontSize: 13, color: T.textMuted }}>{tr('Ningún estado coincide con «{q}»', { q: query.trim() })}</p>
         )}
         {!compact && people.length === 0 && (
           <p style={{ margin: 0, padding: '14px 16px 18px', fontSize: 13, color: T.textMuted, lineHeight: 1.5 }}>{tr('Aquí verás los estados de tus contactos. Duran 24 horas.')}</p>
@@ -260,7 +297,7 @@ function Ring({ T, count, seen, empty, children }) {
 /** Miniatura del último estado de una persona */
 function Thumb({ story, name, avatar }) {
   const fill = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' };
-  if (story?.mediaType === 'image') return <img src={mediaSrc(story.content)} alt="" style={fill} />;
+  if (story?.mediaType === 'image') return <img src={mediaSrc(story.content)} alt="" decoding="async" style={fill} />;
   if (story?.mediaType === 'video') return <video src={`${mediaSrc(story.content)}#t=0.5`} muted playsInline preload="metadata" style={fill} />;
   if (story?.mediaType === 'text') {
     return (
@@ -590,6 +627,15 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
 
   // Sin estados (p. ej. borré el último) → cerrar
   useEffect(() => { if (!story) close(); }, [story, close]);
+
+  // Precargar el siguiente estado (de esta persona o de la siguiente) para que salga sin espera
+  useEffect(() => {
+    if (viewer.idx < list.length - 1) { preloadStory(list[viewer.idx + 1]); return; }
+    for (let u = viewer.ui + 1; u < viewer.queue.length; u++) {
+      const l = storiesOf(viewer.queue[u]);
+      if (l.length) { preloadStory(l[Math.max(0, l.findIndex(s => !s.seen))]); return; }
+    }
+  }, [story?.id]); // eslint-disable-line
 
   // Marcar como visto al mostrarlo
   useEffect(() => {

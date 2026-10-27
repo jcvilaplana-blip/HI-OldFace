@@ -11,9 +11,10 @@ import { usePrefsStore, MESSAGE_TONES, LOCK_AFTER } from '../store/prefsStore';
 import { playTone } from '../utils/sounds';
 import { biometricAvailable, verifyBiometric } from '../components/AppLock.jsx';
 import LinkedDevicesSheet from '../components/LinkedDevicesSheet.jsx';
+import { openAvatar } from '../components/AvatarViewer.jsx';
 import { useCandidates, PeoplePicker, Sheet, PrimaryBtn } from '../components/GroupSheets.jsx';
 import { getPrivacy, savePrivacy, privacyModeLabel } from '../utils/account';
-import { tr } from '../i18n';
+import { tr, getLanguageChoice, setLanguageChoice } from '../i18n';
 
 const BRAND   = '#3D5A80';
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
@@ -139,7 +140,8 @@ export default function SettingsPage() {
                 <img
                   src={avatarSrc}
                   alt={tr('Avatar')}
-                  className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-lg"
+                  onClick={() => openAvatar(avatarSrc, user?.name)}
+                  className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-lg cursor-pointer"
                 />
               ) : (
                 <div
@@ -299,6 +301,9 @@ export default function SettingsPage() {
 
         {/* ── Sección: Apariencia ── */}
         <AppearanceSection isDark={isDark} setTheme={setTheme} cardBg={cardBg} textClr={textClr} borderClr={borderClr} />
+
+        {/* ── Sección: Idioma ── */}
+        <LanguageSection cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} isDark={isDark} />
 
         {/* ── Sección: Almacenamiento ── */}
         <SettingsSection title={tr('Almacenamiento y datos')} icon="💾" cardBg={cardBg} textClr={textClr} labelClr={labelClr} borderClr={borderClr} items={[
@@ -722,6 +727,39 @@ function SettingsSection({ title, icon, items, cardBg, textClr, labelClr, border
   );
 }
 
+// ── Sección Idioma: Automático (el del móvil) / Español / English — al cambiarlo se recarga la app ──
+function LanguageSection({ cardBg, textClr, labelClr, borderClr, isDark }) {
+  const current = getLanguageChoice();
+  const options = [
+    { key: 'auto', label: tr('Automático'), sub: tr('El del móvil') },
+    { key: 'es',   label: 'Español',        sub: 'ES' },
+    { key: 'en',   label: 'English',        sub: 'EN' },
+  ];
+  return (
+    <div className="mx-4 mt-4 rounded-3xl shadow-sm overflow-hidden" style={{ backgroundColor: cardBg }}>
+      <div className="px-5 py-3" style={{ borderBottom: `1px solid ${borderClr}` }}>
+        <p className="text-xs font-black tracking-wider uppercase" style={{ color: labelClr }}>{tr('🌐 Idioma')}</p>
+      </div>
+      <div className="px-5 py-4 flex gap-3">
+        {options.map(o => {
+          const on = current === o.key;
+          return (
+            <button key={o.key} onClick={() => { if (!on) setLanguageChoice(o.key); }}
+              className="flex-1 rounded-2xl py-3 px-2 text-center transition-all duration-200"
+              style={{
+                border: on ? `2px solid ${BRAND}` : '2px solid rgba(120,140,170,0.2)',
+                background: on ? (isDark ? 'rgba(61,90,128,0.25)' : '#E3EDF2') : 'transparent',
+              }}>
+              <span className="block text-sm font-extrabold" style={{ color: on ? (isDark ? '#9FC0E6' : BRAND) : textClr }}>{o.label}</span>
+              <span className="block text-[10px] mt-0.5" style={{ color: labelClr }}>{o.sub}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Sección Apariencia: tarjetas visuales Oscuro / Claro ──
 function AppearanceSection({ isDark, setTheme, cardBg, textClr, labelClr, borderClr }) {
   return (
@@ -734,11 +772,12 @@ function AppearanceSection({ isDark, setTheme, cardBg, textClr, labelClr, border
       {/* Tarjetas de modo */}
       <div className="px-5 py-5 flex gap-4">
 
-        {/* ── Tarjeta OSCURO ── */}
+        {/* ── Tarjeta OSCURO (opcional; se muestra después de Claro) ── */}
         <button
           onClick={() => setTheme('dark')}
           className="flex-1 rounded-2xl overflow-hidden transition-all duration-200"
           style={{
+            order: 1,
             border: isDark ? '2px solid #3D5A80' : '2px solid rgba(120,140,170,0.2)',
             boxShadow: isDark ? '0 0 0 1px rgba(119,189,148,0.3), 0 6px 20px rgba(0,0,0,0.4)' : '0 2px 8px rgba(0,0,0,0.15)',
           }}
@@ -770,11 +809,11 @@ function AppearanceSection({ isDark, setTheme, cardBg, textClr, labelClr, border
                 </span>
               )}
             </div>
-            <p style={{ fontSize: 10, color: labelClr, marginTop: 2 }}>{tr('Por defecto')}</p>
+            <p style={{ fontSize: 10, color: labelClr, marginTop: 2 }}>{tr('Opcional')}</p>
           </div>
         </button>
 
-        {/* ── Tarjeta CLARO ── */}
+        {/* ── Tarjeta CLARO (por defecto) ── */}
         <button
           onClick={() => setTheme('light')}
           className="flex-1 rounded-2xl overflow-hidden transition-all duration-200"
@@ -810,7 +849,7 @@ function AppearanceSection({ isDark, setTheme, cardBg, textClr, labelClr, border
                 </span>
               )}
             </div>
-            <p style={{ fontSize: 10, color: labelClr, marginTop: 2 }}>{tr('Opcional')}</p>
+            <p style={{ fontSize: 10, color: labelClr, marginTop: 2 }}>{tr('Por defecto')}</p>
           </div>
         </button>
       </div>

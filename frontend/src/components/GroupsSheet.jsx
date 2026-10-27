@@ -9,6 +9,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NeonAvatar, { cardStyle, ringColorOf, BRAND } from './NeonAvatar.jsx';
+import { openAvatar } from './AvatarViewer.jsx';
 import { GroupCreateSheet, AddMembersSheet, SheetHandle, CloseBtn, sheetBg } from './GroupSheets.jsx';
 import { fetchGroups } from '../utils/groupsApi';
 import { useChatStore } from '../store/chatStore';
@@ -102,7 +103,8 @@ export default function GroupsSheet({ user, T, isDark, onClose }) {
               <button key={g.id} onClick={() => pressGroup(g)} onTouchStart={() => setLit(g.id)} onTouchMove={() => setLit(null)}
                 style={{ ...cardStyle(T, isDark), width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
                          marginBottom: 8, cursor: 'pointer', textAlign: 'left' }}>
-                <div style={{ position: 'relative', flexShrink: 0 }}>
+                <div style={{ position: 'relative', flexShrink: 0 }}
+                  onClick={g.avatar ? (e) => { e.stopPropagation(); setLit(null); openAvatar(g.avatar, g.name); } : undefined}>
                   <NeonAvatar name={g.name} src={g.avatar || null} size={50} T={T}
                     color={g.activeCall ? '#22C55E' : ringColorOf(g.id)} active={lit === g.id || !!g.activeCall} />
                   {g.activeCall && (
