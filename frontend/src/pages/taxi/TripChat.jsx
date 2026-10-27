@@ -98,7 +98,7 @@ function TripChatPanel({ code, role, otherName, onClose }) {
   const time = (ms) => new Date(ms).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
 
   return (
-    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, height: '62dvh', zIndex: 900, background: 'white', borderRadius: '22px 22px 0 0',
+    <div className="taxi-light" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, height: '62dvh', zIndex: 900, background: 'white', borderRadius: '22px 22px 0 0',
                   boxShadow: '0 -8px 30px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px 10px', borderBottom: `1px solid ${C.line}` }}>
         <div style={{ flex: 1, minWidth: 0 }}>

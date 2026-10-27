@@ -63,8 +63,9 @@ export default function TaxiPage() {
   return <Screen><DriverApp boot={boot} reload={load} onExit={exit} /></Screen>;
 }
 
+// .taxi-light: el taxi siempre se ve en claro, también con el modo oscuro de OldFace (ver index.css)
 function Screen({ children }) {
-  return <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: C.bg, color: C.text }}>{children}</div>;
+  return <div className="taxi-light" style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: C.bg, color: C.text }}>{children}</div>;
 }
 
 // ── Elegir rol (una sola vez) ────────────────────────────────────────────────
