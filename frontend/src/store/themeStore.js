@@ -49,10 +49,7 @@ function applyTheme(theme) {
   el.style.setProperty('--border',         t.border);
 }
 
-// Migración: si estaba guardado 'dark' de versión anterior, resetear a 'light'
-if (localStorage.getItem('oldface-theme') === 'dark') {
-  localStorage.removeItem('oldface-theme');
-}
+// Se respeta la elección guardada (claro u oscuro); por defecto, claro
 const _stored = localStorage.getItem('oldface-theme') || 'light';
 applyTheme(_stored);
 

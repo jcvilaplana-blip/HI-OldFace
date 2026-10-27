@@ -661,4 +661,11 @@ export default {
   "Teclado": "Keyboard",
   "Reproducir": "Play",
   "Leído": "Read",
+  // Pantalla de contactos
+  "Actualizar contactos": "Refresh contacts",
+  // Hoja de grupos
+  "1 grupo": "1 group",
+  "{n} grupos": "{n} groups",
+  "MIS GRUPOS": "MY GROUPS",
+  "{n} miembros": "{n} members",
 };

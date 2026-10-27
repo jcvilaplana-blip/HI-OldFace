@@ -10,13 +10,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useContacts } from '../hooks/useContacts';
 import { useChatStore } from '../store/chatStore';
-import Avatar from './Avatar.jsx';
+import NeonAvatar, { cardStyle, ringColorOf, BRAND } from './NeonAvatar.jsx';
 import {
   createGroup, addMembers, fetchGroup, updateGroup, removeMember, compressGroupPhoto,
 } from '../utils/groupsApi';
 import { tr } from '../i18n';
-
-const BRAND = '#3D5A80';
 
 // Misma lógica que el backend — userId desde cualquier formato de teléfono
 function toUserId(phone) {
@@ -55,32 +53,50 @@ export function useCandidates(myId) {
   return { candidates: list, loading };
 }
 
-// ── Piezas comunes ───────────────────────────────────────────────────────────
+// ── Piezas comunes (mismo aspecto que la pantalla principal) ─────────────────
+/** Fondo de las hojas: el de la pantalla principal (las tarjetas destacan encima) */
+export const sheetBg = (T) => T.bgMain;
+
+/** Asa superior de las hojas */
+export function SheetHandle({ isDark }) {
+  return <div style={{ width: 40, height: 4, borderRadius: 2, background: isDark ? 'rgba(255,255,255,0.2)' : '#cbd5e1', margin: '10px auto 10px', flexShrink: 0 }} />;
+}
+
+/** Botón redondo de cerrar (✕) */
+export function CloseBtn({ T, isDark, onClick }) {
+  return (
+    <button onClick={onClick} aria-label={tr('Cerrar')}
+      style={{ background: T.bgSurface, border: isDark ? '1px solid rgba(255,255,255,0.08)' : 'none', borderRadius: '50%', width: 40, height: 40, cursor: 'pointer', flexShrink: 0,
+               display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: isDark ? 'none' : '0 2px 8px rgba(41,50,65,0.08)' }}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.textPrimary} strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+  );
+}
+
 export function Sheet({ T, isDark, title, subtitle, onClose, onBack, children, footer, z = 500 }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: z, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end' }}>
       <div onClick={e => e.stopPropagation()}
-        style={{ width: '100%', maxHeight: '90vh', background: isDark ? '#0a1929' : 'white', borderRadius: '24px 24px 0 0',
+        style={{ width: '100%', maxHeight: '90vh', background: sheetBg(T, isDark), borderRadius: '24px 24px 0 0',
                  display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '18px 18px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        <SheetHandle isDark={isDark} />
+        <div style={{ padding: '2px 16px 12px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           {onBack && (
-            <button onClick={onBack} aria-label={tr('Atrás')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, marginLeft: -4 }}>
-              <svg width="22" height="22" fill="none" stroke={T.textPrimary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
+            <button onClick={onBack} aria-label={tr('Atrás')}
+              style={{ background: T.bgSurface, border: isDark ? '1px solid rgba(255,255,255,0.08)' : 'none', borderRadius: '50%', width: 40, height: 40, cursor: 'pointer', flexShrink: 0,
+                       display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: isDark ? 'none' : '0 2px 8px rgba(41,50,65,0.08)' }}>
+              <svg width="20" height="20" fill="none" stroke={T.textPrimary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
             </button>
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: 18, fontWeight: 900, color: T.textPrimary, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</p>
-            {subtitle && <p style={{ fontSize: 12, color: T.textSecondary, margin: '2px 0 0', fontWeight: 500 }}>{subtitle}</p>}
+            <p style={{ fontSize: 20, fontWeight: 700, color: T.textPrimary, margin: 0, lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</p>
+            {subtitle && <p style={{ fontSize: 13, color: T.textSecondary, margin: '3px 0 0', fontWeight: 600 }}>{subtitle}</p>}
           </div>
-          <button onClick={onClose} aria-label={tr('Cerrar')}
-            style={{ background: isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9', border: 'none', borderRadius: '50%', width: 34, height: 34, cursor: 'pointer',
-                     display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-          </button>
+          <CloseBtn T={T} isDark={isDark} onClick={onClose} />
         </div>
         <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>{children}</div>
         {footer && (
-          <div style={{ padding: '12px 18px', paddingBottom: 'calc(var(--sab, 0px) + 14px)', borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
+          <div style={{ padding: '12px 16px', paddingBottom: 'calc(var(--sab, 0px) + 14px)', flexShrink: 0 }}>
             {footer}
           </div>
         )}
@@ -90,10 +106,12 @@ export function Sheet({ T, isDark, title, subtitle, onClose, onBack, children, f
 }
 
 export function PrimaryBtn({ children, disabled, onClick, danger }) {
+  const glow = danger ? 'rgba(239,68,68,0.35)' : 'rgba(61,90,128,0.4)';
   return (
     <button onClick={onClick} disabled={disabled}
-      style={{ width: '100%', padding: 14, borderRadius: 16, border: 'none', cursor: disabled ? 'default' : 'pointer',
-               background: danger ? '#ef4444' : BRAND, color: 'white', fontWeight: 800, fontSize: 15, opacity: disabled ? 0.5 : 1 }}>
+      style={{ width: '100%', padding: 15, borderRadius: 28, border: 'none', cursor: disabled ? 'default' : 'pointer',
+               background: danger ? '#ef4444' : `linear-gradient(135deg, #34507A, ${BRAND}, #4A6B95)`, color: 'white', fontWeight: 800, fontSize: 15,
+               opacity: disabled ? 0.5 : 1, boxShadow: disabled ? 'none' : `0 6px 16px ${glow}` }}>
       {children}
     </button>
   );
@@ -114,32 +132,44 @@ export function PeoplePicker({ T, isDark, people, selected, onToggle, loading, e
   const [filter, setFilter] = useState('');
   if (loading && people.length === 0) return <Spinner T={T} text={tr('Cargando contactos...')} />;
   const shown = filter.trim() ? people.filter(p => p.name.toLowerCase().includes(filter.trim().toLowerCase())) : people;
+  const check = isDark ? '#4F7CC4' : BRAND;
   return (
     <>
       {people.length > 6 && (
-        <div style={{ padding: '10px 18px 4px' }}>
-          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder={tr('Buscar...')}
-            style={{ width: '100%', boxSizing: 'border-box', padding: '10px 14px', borderRadius: 14, border: `1px solid ${T.border}`,
-                     background: T.bgInput, color: T.textPrimary, fontSize: 14, outline: 'none', fontFamily: 'inherit' }} />
+        <div style={{ padding: '4px 12px 10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.bgSurface, borderRadius: 22, padding: '10px 16px', border: `1px solid ${T.borderStrong}` }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input value={filter} onChange={e => setFilter(e.target.value)} placeholder={tr('Buscar...')}
+              style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', fontSize: 14, color: T.textPrimary, fontWeight: 500, fontFamily: 'inherit' }} />
+          </div>
         </div>
       )}
       {people.length === 0 ? (
         <p style={{ padding: '28px 24px', textAlign: 'center', fontSize: 14, color: T.textSecondary, margin: 0 }}>{emptyText}</p>
-      ) : shown.map(p => {
-        const on = selected.has(p.id);
-        return (
-          <button key={p.id} onClick={() => onToggle(p.id)}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 14, padding: '10px 18px', border: 'none', cursor: 'pointer', textAlign: 'left',
-                     background: on ? (isDark ? 'rgba(61,90,128,0.22)' : '#E3EDF2') : 'transparent', borderBottom: `1px solid ${T.border}` }}>
-            <div style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, border: `2px solid ${on ? BRAND : T.borderStrong}`,
-                          background: on ? BRAND : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {on && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>}
-            </div>
-            <Avatar name={p.name} src={p.avatar} size="sm" />
-            <p style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, color: T.textPrimary, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</p>
-          </button>
-        );
-      })}
+      ) : (
+        <div style={{ padding: '0 12px 6px' }}>
+          {shown.map(p => {
+            const on = selected.has(p.id);
+            return (
+              <button key={p.id} onClick={() => onToggle(p.id)}
+                style={{ ...cardStyle(T, isDark), width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', marginBottom: 8,
+                         cursor: 'pointer', textAlign: 'left',
+                         border: on ? `1.5px solid ${check}` : cardStyle(T, isDark).border,
+                         background: on ? (isDark ? 'rgba(61,90,128,0.25)' : '#EDF3F8') : T.bgSurface }}>
+                <NeonAvatar name={p.name} src={p.avatar} size={46} color={ringColorOf(p.id)} active={on} T={T} />
+                <p style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, color: T.textPrimary, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</p>
+                <div style={{ width: 26, height: 26, borderRadius: '50%', flexShrink: 0, border: `2px solid ${on ? check : T.borderStrong}`,
+                              background: on ? check : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              boxShadow: on ? `0 0 10px ${isDark ? 'rgba(79,124,196,0.6)' : 'rgba(61,90,128,0.35)'}` : 'none' }}>
+                  {on && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </>
   );
 }
@@ -149,12 +179,14 @@ function GroupPhotoPicker({ T, src, onPick, size = 76 }) {
   const ref = useRef(null);
   return (
     <button onClick={() => ref.current?.click()} aria-label={tr('Elegir foto del grupo')}
-      style={{ position: 'relative', width: size, height: size, borderRadius: '50%', border: 'none', padding: 0, cursor: 'pointer', flexShrink: 0,
-               background: src ? 'transparent' : T.bgHover }}>
+      className="of-ring" style={{ '--ring': '#4F7CC4', position: 'relative', width: size, height: size, borderRadius: '50%', border: 'none', padding: 2, cursor: 'pointer', flexShrink: 0,
+               boxSizing: 'border-box', background: 'transparent' }}>
       {src
-        ? <img src={src} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
-        : <GroupIcon size={size * 0.45} color={T.textMuted} />}
-      <span style={{ position: 'absolute', right: -2, bottom: -2, width: 28, height: 28, borderRadius: '50%', background: BRAND, border: '2px solid white',
+        ? <img src={src} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+        : <span style={{ width: '100%', height: '100%', borderRadius: '50%', display: 'flex', background: 'radial-gradient(circle at 35% 30%, #EEF5FC 0%, #D6E6F5 75%)' }}>
+            <GroupIcon size={size * 0.42} color={BRAND} />
+          </span>}
+      <span style={{ position: 'absolute', right: -2, bottom: -2, width: 28, height: 28, borderRadius: '50%', background: BRAND, border: `2px solid ${T.bgMain}`,
                      display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
           <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>
@@ -207,13 +239,13 @@ export function GroupCreateSheet({ user, T, isDark, onClose, onCreated }) {
           {busy ? tr('Creando grupo...') : tr('Crear grupo{p0}', { p0: selected.size ? ` (${selected.size + 1})` : '' })}
         </PrimaryBtn>
       </>}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px 10px' }}>
+      <div style={{ ...cardStyle(T, isDark), display: 'flex', alignItems: 'center', gap: 14, padding: '14px', margin: '0 12px' }}>
         <GroupPhotoPicker T={T} src={photo} onPick={p => p && setPhoto(p)} />
         <input value={name} onChange={e => { setName(e.target.value); setError(''); }} placeholder={tr('Nombre del grupo')} maxLength={50}
-          style={{ flex: 1, minWidth: 0, padding: '12px 14px', borderRadius: 14, border: `1.5px solid ${T.borderStrong}`, fontSize: 15, fontWeight: 600,
-                   outline: 'none', background: T.bgInput, color: T.textPrimary, fontFamily: 'inherit' }} />
+          style={{ flex: 1, minWidth: 0, padding: '12px 16px', borderRadius: 22, border: `1px solid ${T.borderStrong}`, fontSize: 15, fontWeight: 600,
+                   outline: 'none', background: isDark ? T.bgInput : '#F4F8FB', color: T.textPrimary, fontFamily: 'inherit' }} />
       </div>
-      <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, letterSpacing: '0.5px', margin: '8px 18px 4px' }}>{tr('PARTICIPANTES')}</p>
+      <p style={{ fontSize: 12, fontWeight: 800, color: T.textSecondary, letterSpacing: '0.6px', margin: '16px 18px 8px' }}>{tr('PARTICIPANTES')}</p>
       <PeoplePicker T={T} isDark={isDark} people={candidates} selected={selected} onToggle={toggle} loading={loading}
         emptyText={tr('No hay contactos en OldFace para añadir. Busca a alguien por teléfono en Contactos y escríbele primero.')} />
     </Sheet>
@@ -250,18 +282,22 @@ export function AddMembersSheet({ user, T, isDark, group: initialGroup = null, g
       <Sheet T={T} isDark={isDark} title={tr('Añadir miembros')} subtitle={tr('¿A qué grupo?')} onClose={onClose} z={z}>
         {groups.length === 0 ? (
           <p style={{ padding: '28px 24px', textAlign: 'center', fontSize: 14, color: T.textSecondary, margin: 0 }}>{tr('Todavía no tienes grupos')}</p>
-        ) : groups.map(g => (
-          <button key={g.id} onClick={() => setGroup(g)}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', border: 'none', background: 'transparent',
-                     cursor: 'pointer', textAlign: 'left', borderBottom: `1px solid ${T.border}` }}>
-            <Avatar name={g.name} src={g.avatar} size="md" />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</p>
-              <p style={{ margin: 0, fontSize: 12, color: T.textSecondary }}>{g.members.length}{' '}{tr('miembros')}</p>
-            </div>
-            <svg width="18" height="18" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
-          </button>
-        ))}
+        ) : (
+          <div style={{ padding: '0 12px 14px' }}>
+            {groups.map(g => (
+              <button key={g.id} onClick={() => setGroup(g)}
+                style={{ ...cardStyle(T, isDark), width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', marginBottom: 8,
+                         cursor: 'pointer', textAlign: 'left' }}>
+                <NeonAvatar name={g.name} src={g.avatar} size={50} color={ringColorOf(g.id)} T={T} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: T.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</p>
+                  <p style={{ margin: '2px 0 0', fontSize: 12, fontWeight: 500, color: T.textSecondary }}>{tr('{n} miembros', { n: g.members.length })}</p>
+                </div>
+                <svg width="18" height="18" fill="none" stroke={T.textMuted} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+              </button>
+            ))}
+          </div>
+        )}
       </Sheet>
     );
   }
@@ -348,7 +384,7 @@ export function GroupInfoSheet({ user, T, isDark, groupId, onClose, onChanged, o
             <div style={{ display: 'flex', gap: 8, width: '100%' }}>
               <input value={name} onChange={e => setName(e.target.value)} maxLength={50} autoFocus
                 onKeyDown={e => e.key === 'Enter' && saveName()}
-                style={{ flex: 1, minWidth: 0, padding: '10px 14px', borderRadius: 14, border: `1.5px solid ${BRAND}`, fontSize: 15, fontWeight: 700,
+                style={{ flex: 1, minWidth: 0, padding: '10px 16px', borderRadius: 22, border: `1.5px solid ${BRAND}`, fontSize: 15, fontWeight: 700,
                          outline: 'none', background: T.bgInput, color: T.textPrimary, fontFamily: 'inherit' }} />
               <button onClick={saveName} style={{ background: BRAND, color: 'white', border: 'none', borderRadius: 14, padding: '0 16px', fontWeight: 800, cursor: 'pointer' }}>{tr('Guardar')}</button>
             </div>
@@ -363,32 +399,38 @@ export function GroupInfoSheet({ user, T, isDark, groupId, onClose, onChanged, o
 
         {error && <p style={{ fontSize: 12, color: '#ef4444', margin: '0 18px 8px', fontWeight: 600 }}>{error}</p>}
 
-        <p style={{ fontSize: 11, fontWeight: 800, color: BRAND, letterSpacing: '0.5px', margin: '6px 18px 4px' }}>{tr('MIEMBROS')}</p>
-        <button onClick={() => setAdding(true)}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 14, padding: '10px 18px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
-          <span style={{ width: 36, height: 36, borderRadius: '50%', background: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
-          </span>
-          <span style={{ fontSize: 15, fontWeight: 700, color: BRAND }}>{tr('Añadir miembros')}</span>
-        </button>
-        {members.map(id => {
-          const nm = id === user.id ? tr('Tú') : (group.memberNames[id] || id);
-          return (
-            <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 18px' }}>
-              <Avatar name={group.memberNames[id] || id} size="sm" />
-              <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 14, fontWeight: 700, color: T.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nm}</p>
-              {group.adminId === id && (
-                <span style={{ fontSize: 11, fontWeight: 800, color: BRAND, background: isDark ? 'rgba(61,90,128,0.25)' : '#E3EDF2', padding: '3px 8px', borderRadius: 8 }}>{tr('Admin')}</span>
-              )}
-              {isAdmin && id !== user.id && (
-                <button onClick={() => setConfirm({ type: 'remove', id, name: nm })}
-                  style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 12, fontWeight: 800, cursor: 'pointer', padding: '4px 6px' }}>{tr('Quitar')}</button>
-              )}
-            </div>
-          );
-        })}
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '8px 18px 8px' }}>
+          <p style={{ fontSize: 12, fontWeight: 800, color: T.textSecondary, letterSpacing: '0.6px', margin: 0 }}>{tr('MIEMBROS')}</p>
+          <span style={{ fontSize: 12, fontWeight: 700, color: T.textMuted }}>{group.members.length}</span>
+        </div>
+        <div style={{ padding: '0 12px' }}>
+          <button onClick={() => setAdding(true)}
+            style={{ ...cardStyle(T, isDark), width: '100%', display: 'flex', alignItems: 'center', gap: 14, padding: '10px 12px', marginBottom: 8, cursor: 'pointer', textAlign: 'left' }}>
+            <span style={{ width: 44, height: 44, borderRadius: '50%', background: BRAND, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                           boxShadow: isDark ? '0 0 14px rgba(61,90,128,0.8)' : '0 4px 12px rgba(61,90,128,0.35)' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+            </span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: isDark ? '#9FC0E6' : BRAND }}>{tr('Añadir miembros')}</span>
+          </button>
+          {members.map(id => {
+            const nm = id === user.id ? tr('Tú') : (group.memberNames[id] || id);
+            return (
+              <div key={id} style={{ ...cardStyle(T, isDark), display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', marginBottom: 8 }}>
+                <NeonAvatar name={group.memberNames[id] || id} size={44} color={ringColorOf(id)} T={T} />
+                <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 15, fontWeight: 600, color: T.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nm}</p>
+                {group.adminId === id && (
+                  <span style={{ fontSize: 11, fontWeight: 800, color: isDark ? '#9FC0E6' : BRAND, background: isDark ? 'rgba(61,90,128,0.25)' : '#E3EDF2', padding: '4px 10px', borderRadius: 12 }}>{tr('Admin')}</span>
+                )}
+                {isAdmin && id !== user.id && (
+                  <button onClick={() => setConfirm({ type: 'remove', id, name: nm })}
+                    style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 14, color: '#ef4444', fontSize: 12, fontWeight: 800, cursor: 'pointer', padding: '5px 12px' }}>{tr('Quitar')}</button>
+                )}
+              </div>
+            );
+          })}
+        </div>
 
-        <div style={{ padding: '18px 18px', paddingBottom: 'calc(var(--sab, 0px) + 18px)' }}>
+        <div style={{ padding: '18px 16px', paddingBottom: 'calc(var(--sab, 0px) + 18px)' }}>
           <PrimaryBtn danger onClick={() => setConfirm({ type: 'leave' })}>{tr('Salir del grupo')}</PrimaryBtn>
         </div>
       </Sheet>
@@ -401,7 +443,7 @@ export function GroupInfoSheet({ user, T, isDark, groupId, onClose, onChanged, o
 
       {confirm && (
         <div onClick={() => !busy && setConfirm(null)} style={{ position: 'fixed', inset: 0, zIndex: 700, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: isDark ? '#0f2236' : 'white', borderRadius: 20, padding: '22px 20px 16px', width: '100%', maxWidth: 340 }}>
+          <div onClick={e => e.stopPropagation()} style={{ ...cardStyle(T, isDark), borderRadius: 22, padding: '22px 20px 16px', width: '100%', maxWidth: 340 }}>
             <p style={{ margin: '0 0 8px', fontSize: 17, fontWeight: 900, color: T.textPrimary }}>
               {confirm.type === 'leave' ? tr('¿Salir de "{name}"?', { name: group.name }) : tr('¿Quitar a {name}?', { name: confirm.name })}
             </p>

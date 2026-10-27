@@ -641,14 +641,17 @@ function PinSheet({ mode, onClose }) {
     onClose();
   };
 
+  const { theme } = useThemeStore();
+  const T = theme === 'dark' ? DARK : LIGHT;
+
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end' }}>
       <div onClick={e => e.stopPropagation()}
-        style={{ width: '100%', background: 'white', borderRadius: '22px 22px 0 0', padding: 22, paddingBottom: 'calc(var(--sab, 0px) + 22px)' }}>
-        <p style={{ margin: 0, fontWeight: 800, fontSize: 17, color: '#293241' }}>
+        style={{ width: '100%', background: T.bgSurface, borderRadius: '22px 22px 0 0', padding: 22, paddingBottom: 'calc(var(--sab, 0px) + 22px)' }}>
+        <p style={{ margin: 0, fontWeight: 800, fontSize: 17, color: T.textPrimary }}>
           {mode === 'change' ? tr('Nuevo PIN') : tr('Crea tu PIN')}
         </p>
-        <p style={{ margin: '4px 0 16px', fontSize: 13, color: '#6b7280' }}>
+        <p style={{ margin: '4px 0 16px', fontSize: 13, color: T.textSecondary }}>
           {confirmStep ? tr('Escríbelo otra vez para confirmarlo') : tr('Entre 4 y 6 cifras. Lo pediremos al abrir OldFace.')}
         </p>
         <input
@@ -657,11 +660,11 @@ function PinSheet({ mode, onClose }) {
           onKeyDown={e => { if (e.key === 'Enter') submit(); }}
           aria-label="PIN"
           style={{ width: '100%', fontSize: 28, letterSpacing: 12, textAlign: 'center', padding: '10px 0', borderRadius: 14,
-                   border: `2px solid ${error ? '#ef4444' : '#D5E6F0'}`, outline: 'none', color: '#293241' }}
+                   border: `2px solid ${error ? '#ef4444' : T.borderStrong}`, outline: 'none', color: T.textPrimary, background: T.bgInput }}
         />
         <p style={{ minHeight: 18, margin: '8px 0', color: '#ef4444', fontSize: 13, fontWeight: 600 }}>{error}</p>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={onClose} style={{ flex: 1, padding: 13, borderRadius: 14, border: 'none', background: '#E3EDF2', color: '#293241', fontWeight: 700, fontSize: 15 }}>{tr('Cancelar')}</button>
+          <button onClick={onClose} style={{ flex: 1, padding: 13, borderRadius: 14, border: 'none', background: T.bgHover, color: T.textPrimary, fontWeight: 700, fontSize: 15 }}>{tr('Cancelar')}</button>
           <button onClick={submit} style={{ flex: 1, padding: 13, borderRadius: 14, border: 'none', background: BRAND, color: 'white', fontWeight: 800, fontSize: 15 }}>
             {confirmStep ? tr('Guardar') : tr('Siguiente')}
           </button>

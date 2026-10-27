@@ -6,6 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { tr } from '../i18n';
+import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 
 // ─── Definición de items ────────────────────────────────────────────────────
 // route   → navega a esa ruta React Router
@@ -149,9 +150,20 @@ const FEATURED_LOOK = {
   poll:    { bg: '#f0fdf4', border: '#bbf7d0', tile: 'linear-gradient(135deg,#4ade80,#16a34a)', arrow: '#16a34a' },
 };
 
+// Modo oscuro: mismo color de cada tarjeta, pero en tono translúcido sobre el fondo oscuro
+const FEATURED_LOOK_DARK = {
+  directo: { bg: 'rgba(225,29,72,0.12)',  border: 'rgba(244,63,94,0.35)',  tile: 'white', arrow: '#fb7185' },
+  social:  { bg: 'rgba(234,88,12,0.12)',  border: 'rgba(251,146,60,0.35)', tile: FEATURED_LOOK.social.tile, arrow: '#fb923c' },
+  taxi:    { bg: 'rgba(202,138,4,0.12)',  border: 'rgba(250,204,21,0.30)', tile: 'white', arrow: '#facc15' },
+  poll:    { bg: 'rgba(22,163,74,0.12)',  border: 'rgba(74,222,128,0.30)', tile: FEATURED_LOOK.poll.tile, arrow: '#4ade80' },
+};
+
 // ─── Componente principal ───────────────────────────────────────────────────
 export default function PopupMenu({ onClose, onGroups }) {
   const navigate = useNavigate();
+  const { isDark } = useThemeStore();
+  const T = isDark ? DARK : LIGHT;
+  const looks = isDark ? FEATURED_LOOK_DARK : FEATURED_LOOK;
   const [soonMsg, setSoonMsg] = useState('');
   const [query, setQuery] = useState('');
   const soonTimer = useRef(null);
@@ -205,11 +217,11 @@ export default function PopupMenu({ onClose, onGroups }) {
       {/* Bottom sheet */}
       <div
         className="relative w-full rounded-t-3xl shadow-2xl animate-slide-up scroll-hide"
-        style={{ background: 'white', minHeight: '80vh', maxHeight: '94vh', overflowY: 'auto' }}
+        style={{ background: isDark ? T.bgMain : 'white', minHeight: '80vh', maxHeight: '94vh', overflowY: 'auto' }}
       >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-3">
-          <div style={{ width: 40, height: 4, background: '#cbd5e1', borderRadius: 2 }} />
+          <div style={{ width: 40, height: 4, background: isDark ? 'rgba(255,255,255,0.2)' : '#cbd5e1', borderRadius: 2 }} />
         </div>
 
         {/* Header */}
@@ -218,8 +230,9 @@ export default function PopupMenu({ onClose, onGroups }) {
             {/* Logo */}
             <div
               className="flex items-center justify-center overflow-hidden"
-              style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: 'white', border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(15,23,42,0.08)' }}
+              style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: isDark ? T.bgSurface : 'white',
+                border: `1px solid ${isDark ? T.borderStrong : '#e2e8f0'}`,
+                boxShadow: isDark ? 'none' : '0 2px 8px rgba(15,23,42,0.08)' }}
             >
               <img
                 src="/logo-oldface.png"
@@ -229,8 +242,8 @@ export default function PopupMenu({ onClose, onGroups }) {
               />
             </div>
             <div>
-              <p style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', lineHeight: 1.15 }}>{tr('OldFace')}</p>
-              <p style={{ fontSize: 13, fontWeight: 500, color: '#64748b' }}>{tr('Elige una acción')}</p>
+              <p style={{ fontSize: 20, fontWeight: 800, color: isDark ? T.textPrimary : '#0f172a', lineHeight: 1.15 }}>{tr('OldFace')}</p>
+              <p style={{ fontSize: 13, fontWeight: 500, color: isDark ? T.textSecondary : '#64748b' }}>{tr('Elige una acción')}</p>
             </div>
           </div>
           <button
@@ -238,9 +251,9 @@ export default function PopupMenu({ onClose, onGroups }) {
             aria-label={tr('Cerrar')}
             style={{
               width: 36, height: 36, borderRadius: '50%',
-              background: '#f1f5f9', border: 'none', cursor: 'pointer',
+              background: isDark ? T.bgSurface : '#f1f5f9', border: 'none', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#0f172a', fontSize: 16, fontWeight: 700,
+              color: isDark ? T.textPrimary : '#0f172a', fontSize: 16, fontWeight: 700,
             }}
           >
             ✕
@@ -249,9 +262,9 @@ export default function PopupMenu({ onClose, onGroups }) {
 
         <div style={{ padding: '0 20px calc(var(--sab) + 24px)' }}>
           {/* Buscador */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f1f5f9', borderRadius: 14,
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: isDark ? T.bgSurface : '#f1f5f9', borderRadius: 14,
             padding: '0 14px', height: 46, marginBottom: 16 }}>
-            <svg width="18" height="18" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" viewBox="0 0 24 24">
+            <svg width="18" height="18" fill="none" stroke={isDark ? T.textSecondary : '#64748b'} strokeWidth="2" strokeLinecap="round" viewBox="0 0 24 24">
               <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
             </svg>
             <input
@@ -259,7 +272,7 @@ export default function PopupMenu({ onClose, onGroups }) {
               onChange={e => setQuery(e.target.value)}
               placeholder={tr('Buscar acción…')}
               style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent',
-                fontSize: 15, color: '#0f172a' }}
+                fontSize: 15, color: isDark ? T.textPrimary : '#0f172a' }}
             />
             {query && (
               <button onClick={() => setQuery('')} aria-label={tr('Borrar')}
@@ -273,7 +286,7 @@ export default function PopupMenu({ onClose, onGroups }) {
           {featured.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
               {featured.map(id => (
-                <MenuCard key={id} id={id} item={ITEMS[id]} look={FEATURED_LOOK[id]} onClick={() => handleItem(ITEMS[id])} />
+                <MenuCard key={id} id={id} item={ITEMS[id]} look={looks[id]} isDark={isDark} T={T} onClick={() => handleItem(ITEMS[id])} />
               ))}
             </div>
           )}
@@ -281,19 +294,19 @@ export default function PopupMenu({ onClose, onGroups }) {
           {/* Comunicación: 2 columnas */}
           {communication.length > 0 && (
             <>
-              <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, color: '#64748b', margin: '0 0 10px 2px' }}>
+              <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, color: isDark ? T.textSecondary : '#64748b', margin: '0 0 10px 2px' }}>
                 {tr('Comunicación').toUpperCase()}
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 {communication.map(id => (
-                  <MenuCard key={id} id={id} item={ITEMS[id]} onClick={() => handleItem(ITEMS[id])} />
+                  <MenuCard key={id} id={id} item={ITEMS[id]} isDark={isDark} T={T} onClick={() => handleItem(ITEMS[id])} />
                 ))}
               </div>
             </>
           )}
 
           {!featured.length && !communication.length && (
-            <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 14, padding: '24px 0' }}>{tr('Sin resultados')}</p>
+            <p style={{ textAlign: 'center', color: isDark ? T.textMuted : '#94a3b8', fontSize: 14, padding: '24px 0' }}>{tr('Sin resultados')}</p>
           )}
         </div>
 
@@ -313,9 +326,11 @@ export default function PopupMenu({ onClose, onGroups }) {
 }
 
 // ─── Tarjeta de una acción (destacada con color o de la sección Comunicación) ─
-function MenuCard({ id, item, look, onClick }) {
+function MenuCard({ id, item, look, isDark, T, onClick }) {
   const isSoon = item.action === 'soon';
   const gradientTile = look && look.tile !== 'white';
+  // Cuadro blanco del icono: en oscuro pasa a gris azulado (los emblemas Directo/Taxi se ven bien encima)
+  const plainTile = isDark ? T.bgHover : 'white';
 
   return (
     <button
@@ -323,8 +338,8 @@ function MenuCard({ id, item, look, onClick }) {
       style={{
         display: 'flex', alignItems: 'center', gap: 10, minWidth: 0,
         padding: look ? '12px 10px 12px 12px' : '10px 10px 10px 10px', borderRadius: 16, textAlign: 'left',
-        background: look ? look.bg : '#f8fafc',
-        border: `1px solid ${look ? look.border : '#e2e8f0'}`,
+        background: look ? look.bg : (isDark ? T.bgSurface : '#f8fafc'),
+        border: `1px solid ${look ? look.border : (isDark ? T.borderStrong : '#e2e8f0')}`,
         cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
         opacity: isSoon ? 0.75 : 1, transition: 'transform 0.15s',
       }}
@@ -338,9 +353,9 @@ function MenuCard({ id, item, look, onClick }) {
       <div style={{
         width: look ? 44 : 40, height: look ? 44 : 40, flexShrink: 0, borderRadius: 12,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: look ? look.tile : 'white',
-        border: gradientTile ? 'none' : '1px solid #e2e8f0',
-        boxShadow: gradientTile ? '0 3px 10px rgba(0,0,0,0.15)' : '0 1px 4px rgba(15,23,42,0.06)',
+        background: gradientTile ? look.tile : plainTile,
+        border: gradientTile ? 'none' : `1px solid ${isDark ? T.borderStrong : '#e2e8f0'}`,
+        boxShadow: gradientTile ? '0 3px 10px rgba(0,0,0,0.15)' : (isDark ? 'none' : '0 1px 4px rgba(15,23,42,0.06)'),
       }}>
         {item.image ? (
           <img src={item.image} alt="" style={{ width: '82%', height: '82%', objectFit: 'contain' }} />
@@ -349,7 +364,7 @@ function MenuCard({ id, item, look, onClick }) {
           <svg
             width="22" height="22"
             fill="none"
-            stroke={gradientTile ? 'white' : '#0f172a'}
+            stroke={gradientTile ? 'white' : (isDark ? T.textPrimary : '#0f172a')}
             strokeLinecap="round"
             strokeLinejoin="round"
             viewBox="0 0 24 24"
@@ -360,14 +375,14 @@ function MenuCard({ id, item, look, onClick }) {
 
       {/* Nombre y subtítulo */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', lineHeight: 1.2,
+        <p style={{ fontSize: 14, fontWeight: 700, color: isDark ? T.textPrimary : '#0f172a', lineHeight: 1.2,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</p>
-        <p style={{ fontSize: 11.5, color: '#64748b', lineHeight: 1.3, marginTop: 2,
+        <p style={{ fontSize: 11.5, color: isDark ? T.textSecondary : '#64748b', lineHeight: 1.3, marginTop: 2,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tr(SUBTITLES[id])}</p>
       </div>
 
       {/* Flecha */}
-      <svg width="16" height="16" fill="none" stroke={look ? look.arrow : '#94a3b8'} strokeWidth="2.2"
+      <svg width="16" height="16" fill="none" stroke={look ? look.arrow : (isDark ? T.textMuted : '#94a3b8')} strokeWidth="2.2"
         strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
         <path d="M9 6l6 6-6 6" />
       </svg>
