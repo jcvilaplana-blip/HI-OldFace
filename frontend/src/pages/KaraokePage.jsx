@@ -11,6 +11,7 @@ import { useAuthStore } from '../store/authStore';
 import { RTC_HTTP } from '../utils/rtcClient';
 import { fmtTime } from '../utils/lrc';
 import { tr, LOCALE } from '../i18n';
+import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const BRAND   = '#3D5A80';
@@ -20,6 +21,8 @@ export const absUrl = (u) => (!u ? null : /^https?:/.test(u) ? u : `${BACKEND}${
 export default function KaraokePage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
+  const { isDark } = useThemeStore();
+  const T = isDark ? DARK : LIGHT;
   const [params, setParams] = useSearchParams();
   const tab = params.get('tab') || 'cantar';
   const setTab = (t) => setParams({ tab: t }, { replace: true });
@@ -83,10 +86,10 @@ export default function KaraokePage() {
         </div>
         {tab === 'cantar' && (
           <div style={{ padding: '4px 14px 10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'white', borderRadius: 22, padding: '9px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: isDark ? T.bgInput : 'white', borderRadius: 22, padding: '9px 14px' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
               <input value={query} onChange={e => setQuery(e.target.value)} placeholder={tr('Busca una canción o artista')}
-                style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, color: '#293241', background: 'transparent' }} />
+                style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, color: T.textPrimary, background: 'transparent' }} />
               {query && <button onClick={() => setQuery('')} style={{ border: 'none', background: 'none', color: '#94a3b8', fontSize: 16 }}>✕</button>}
             </div>
           </div>
@@ -127,7 +130,7 @@ export default function KaraokePage() {
                   <button key={g.id || 'all'} onClick={() => setGenre(g.id)} style={{
                     flexShrink: 0, padding: '7px 14px', borderRadius: 20, fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
                     border: `1px solid ${genre === g.id ? BRAND : 'rgba(148,163,184,0.35)'}`,
-                    background: genre === g.id ? BRAND : 'white', color: genre === g.id ? 'white' : '#475569',
+                    background: genre === g.id ? BRAND : T.bgSurface, color: genre === g.id ? 'white' : T.textSecondary,
                   }}>{g.icon ? `${g.icon} ` : ''}{g.name}</button>
                 ))}
               </div>
@@ -183,7 +186,7 @@ export default function KaraokePage() {
                   <input autoFocus value={roomTitle} onChange={e => setRoomTitle(e.target.value)} maxLength={60}
                     placeholder={tr('Karaoke de {p0}', { p0: user?.name || 'OldFace' })}
                     onKeyDown={e => e.key === 'Enter' && createRoom()}
-                    style={{ flex: 1, minWidth: 0, padding: '12px 14px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: 14, outline: 'none' }} />
+                    style={{ flex: 1, minWidth: 0, padding: '12px 14px', borderRadius: 12, border: `1.5px solid ${T.borderStrong}`, fontSize: 14, outline: 'none' }} />
                   <button onClick={createRoom} style={{ background: RED, color: 'white', border: 'none', borderRadius: 12, padding: '0 16px', fontWeight: 900 }}>{tr('Crear')}</button>
                 </div>
               )}
@@ -321,7 +324,7 @@ function DuetRow({ duet, mine, onJoin }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <p className="text-gray-800" style={{ margin: 0, fontWeight: 800, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{duet.songTitle}</p>
           <p className="text-gray-500" style={{ margin: 0, fontSize: 12 }}>{mine ? tr('Tú') : duet.userName}{' '}{tr('· parte')}{' '}{duet.duetPart}{duet.duetJoins ? (duet.duetJoins === 1 ? tr(' · 1 dúo') : tr(' · {n} dúos', { n: duet.duetJoins })) : ''}</p>
-          <button onClick={() => setOpen(o => !o)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 2, color: BRAND, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+          <button onClick={() => setOpen(o => !o)} style={{ background: 'none', border: 'none', padding: 0, marginTop: 2, color: 'var(--accent-text)', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
             {open ? tr('Ocultar') : duet.video ? '▶ Ver su parte' : '▶ Escuchar su parte'}
           </button>
         </div>

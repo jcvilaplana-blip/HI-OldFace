@@ -6,8 +6,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { listDevices, revokeDevice, approveLink, getDeviceId } from '../utils/devices';
 import { tr, LOCALE } from '../i18n';
+import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 
 const BRAND = '#3D5A80';
+const useT = () => { const { isDark } = useThemeStore(); return { isDark, T: isDark ? DARK : LIGHT }; };
 
 const ago = (ts) => {
   const m = Math.round((Date.now() - ts) / 60000);
@@ -25,6 +27,7 @@ export default function LinkedDevicesSheet({ onClose }) {
   const [notice, setNotice] = useState('');
   const [confirm, setConfirm] = useState(null);   // deviceId a cerrar
   const me = getDeviceId();
+  const { isDark, T } = useT();
 
   const load = () => listDevices().then(setDevices).catch(e => { setError(e.message); setDevices([]); });
   useEffect(() => { load(); }, []);
@@ -44,46 +47,46 @@ export default function LinkedDevicesSheet({ onClose }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end' }}>
       <div onClick={e => e.stopPropagation()}
-        style={{ width: '100%', maxHeight: '88vh', overflowY: 'auto', background: 'white', borderRadius: '22px 22px 0 0',
+        style={{ width: '100%', maxHeight: '88vh', overflowY: 'auto', background: T.bgSurface, borderRadius: '22px 22px 0 0',
                  padding: '18px 20px', paddingBottom: 'calc(var(--sab, 0px) + 20px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
-          <p style={{ flex: 1, margin: 0, fontWeight: 800, fontSize: 17, color: '#293241' }}>
+          <p style={{ flex: 1, margin: 0, fontWeight: 800, fontSize: 17, color: T.textPrimary }}>
             {scan ? tr('Vincular un dispositivo') : tr('Dispositivos vinculados')}
           </p>
           <button onClick={scan ? () => setScan(false) : onClose} aria-label={tr('Cerrar')}
             style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={T.textSecondary} strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
         </div>
 
         {scan ? <Scanner onLinked={onLinked} /> : (
           <>
-            <p style={{ margin: '0 0 14px', fontSize: 13, color: '#6b7280' }}>{tr('Usa OldFace en el ordenador o en una tablet con tu misma cuenta. Abre')}{' '}<strong>{tr('oldface.app')}</strong>{' '}{tr('en el otro dispositivo, elige')}{' '}<strong>{tr('Vincular con mi móvil')}</strong>{' '}{tr('y escanea el código.')}</p>
+            <p style={{ margin: '0 0 14px', fontSize: 13, color: T.textSecondary }}>{tr('Usa OldFace en el ordenador o en una tablet con tu misma cuenta. Abre')}{' '}<strong>{tr('oldface.app')}</strong>{' '}{tr('en el otro dispositivo, elige')}{' '}<strong>{tr('Vincular con mi móvil')}</strong>{' '}{tr('y escanea el código.')}</p>
             <button onClick={() => { setNotice(''); setError(''); setScan(true); }}
               style={{ width: '100%', padding: 14, borderRadius: 16, border: 'none', background: BRAND, color: 'white', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>{tr('Vincular un dispositivo')}</button>
 
-            {notice && <p style={{ margin: '12px 0 0', fontSize: 13, fontWeight: 700, color: '#15803d' }}>{notice}</p>}
+            {notice && <p style={{ margin: '12px 0 0', fontSize: 13, fontWeight: 700, color: isDark ? '#4ade80' : '#15803d' }}>{notice}</p>}
             {error && <p style={{ margin: '12px 0 0', fontSize: 13, fontWeight: 700, color: '#ef4444' }}>{error}</p>}
 
-            <p style={{ margin: '20px 0 6px', fontSize: 11, fontWeight: 800, letterSpacing: '0.6px', color: '#6b7280' }}>{tr('CON LA SESIÓN INICIADA')}</p>
-            {devices === null && <p style={{ fontSize: 13, color: '#9ca3af' }}>{tr('Cargando…')}</p>}
-            {devices?.length === 0 && !error && <p style={{ fontSize: 13, color: '#9ca3af' }}>{tr('Todavía no hay dispositivos.')}</p>}
+            <p style={{ margin: '20px 0 6px', fontSize: 11, fontWeight: 800, letterSpacing: '0.6px', color: T.textSecondary }}>{tr('CON LA SESIÓN INICIADA')}</p>
+            {devices === null && <p style={{ fontSize: 13, color: T.textMuted }}>{tr('Cargando…')}</p>}
+            {devices?.length === 0 && !error && <p style={{ fontSize: 13, color: T.textMuted }}>{tr('Todavía no hay dispositivos.')}</p>}
             {devices?.map(d => (
-              <div key={d.deviceId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: '1px solid #f1f5f9' }}>
-                <DeviceIcon platform={d.platform} />
+              <div key={d.deviceId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: `1px solid ${T.borderStrong}` }}>
+                <DeviceIcon platform={d.platform} isDark={isDark} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#293241', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</p>
-                  <p style={{ margin: '2px 0 0', fontSize: 12, color: d.deviceId === me ? '#15803d' : '#6b7280', fontWeight: d.deviceId === me ? 700 : 500 }}>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: T.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</p>
+                  <p style={{ margin: '2px 0 0', fontSize: 12, color: d.deviceId === me ? (isDark ? '#4ade80' : '#15803d') : T.textSecondary, fontWeight: d.deviceId === me ? 700 : 500 }}>
                     {d.deviceId === me ? tr('Este dispositivo') : tr('Última vez {p0}', { p0: ago(d.lastSeen) })}
                   </p>
                 </div>
                 {d.deviceId !== me && (confirm === d.deviceId ? (
                   <span style={{ display: 'flex', gap: 6 }}>
-                    <button onClick={() => setConfirm(null)} style={smallBtn('#E3EDF2', '#293241')}>{tr('No')}</button>
+                    <button onClick={() => setConfirm(null)} style={smallBtn(T.bgHover, T.textPrimary)}>{tr('No')}</button>
                     <button onClick={() => doRevoke(d.deviceId)} style={smallBtn('#ef4444', 'white')}>{tr('Cerrar')}</button>
                   </span>
                 ) : (
-                  <button onClick={() => setConfirm(d.deviceId)} style={smallBtn('#fee2e2', '#b91c1c')}>{tr('Cerrar sesión')}</button>
+                  <button onClick={() => setConfirm(d.deviceId)} style={smallBtn(isDark ? 'rgba(239,68,68,0.15)' : '#fee2e2', isDark ? '#fca5a5' : '#b91c1c')}>{tr('Cerrar sesión')}</button>
                 ))}
               </div>
             ))}
@@ -96,11 +99,11 @@ export default function LinkedDevicesSheet({ onClose }) {
 
 const smallBtn = (bg, color) => ({ border: 'none', borderRadius: 14, padding: '7px 12px', background: bg, color, fontWeight: 800, fontSize: 12, cursor: 'pointer', flexShrink: 0 });
 
-function DeviceIcon({ platform }) {
+function DeviceIcon({ platform, isDark }) {
   const desk = platform === 'web' || platform === 'desktop';
   return (
-    <span style={{ width: 40, height: 40, borderRadius: 12, background: '#E3EDF2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <span style={{ width: 40, height: 40, borderRadius: 12, background: isDark ? 'rgba(61,90,128,0.25)' : '#E3EDF2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isDark ? '#9FC0E6' : BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         {desk ? <><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></>
               : <><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></>}
       </svg>
@@ -116,6 +119,7 @@ function Scanner({ onLinked }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const doneRef = useRef(false);
+  const { T } = useT();
 
   const approve = async (raw) => {
     if (doneRef.current) return;
@@ -195,16 +199,16 @@ function Scanner({ onLinked }) {
           {busy && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800 }}>{tr('Vinculando…')}</div>}
         </div>
       ) : (
-        <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0 0' }}>{camError}</p>
+        <p style={{ fontSize: 13, color: T.textSecondary, margin: '4px 0 0' }}>{camError}</p>
       )}
-      {!camError && <p style={{ fontSize: 13, color: '#6b7280', textAlign: 'center', margin: '10px 0 0' }}>{tr('Apunta al código QR de la pantalla del otro dispositivo')}</p>}
+      {!camError && <p style={{ fontSize: 13, color: T.textSecondary, textAlign: 'center', margin: '10px 0 0' }}>{tr('Apunta al código QR de la pantalla del otro dispositivo')}</p>}
 
-      <p style={{ margin: '18px 0 6px', fontSize: 11, fontWeight: 800, letterSpacing: '0.6px', color: '#6b7280' }}>{tr('O ESCRIBE EL CÓDIGO')}</p>
+      <p style={{ margin: '18px 0 6px', fontSize: 11, fontWeight: 800, letterSpacing: '0.6px', color: T.textSecondary }}>{tr('O ESCRIBE EL CÓDIGO')}</p>
       <div style={{ display: 'flex', gap: 8 }}>
         <input value={code} onChange={e => { setCode(e.target.value.toUpperCase().slice(0, 9)); setError(''); }}
           placeholder="ABCD-EFGH" autoCapitalize="characters" autoComplete="off" aria-label={tr('Código de vinculación')}
           onKeyDown={e => { if (e.key === 'Enter') approve(code); }}
-          style={{ flex: 1, minWidth: 0, padding: '12px 14px', borderRadius: 14, border: '2px solid #D5E6F0', fontSize: 18, fontWeight: 800, letterSpacing: 3, color: '#293241', outline: 'none' }} />
+          style={{ flex: 1, minWidth: 0, padding: '12px 14px', borderRadius: 14, border: `2px solid ${T.borderStrong}`, fontSize: 18, fontWeight: 800, letterSpacing: 3, color: T.textPrimary, background: T.bgInput, outline: 'none' }} />
         <button onClick={() => approve(code)} disabled={busy || typed.length !== 8}
           style={{ padding: '0 18px', borderRadius: 14, border: 'none', background: BRAND, color: 'white', fontWeight: 800, fontSize: 14, cursor: 'pointer',
                    opacity: busy || typed.length !== 8 ? 0.5 : 1 }}>{tr('Vincular')}</button>

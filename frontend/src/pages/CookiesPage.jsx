@@ -1,9 +1,10 @@
 /**
- * CookiesPage — Política de cookies
+ * CookiesPage — Política de cookies (modo claro y oscuro)
  */
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { tr } from '../i18n';
+import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 
 const BRAND = '#3D5A80';
 
@@ -30,13 +31,16 @@ const COOKIE_TYPES = [
 
 export default function CookiesPage() {
   const navigate = useNavigate();
+  const { isDark } = useThemeStore();
+  const T = isDark ? DARK : LIGHT;
+  const accent = isDark ? '#7FA3D1' : BRAND;
 
   return (
-    <div style={{ height: '100%', overflowY: 'auto', background: '#f8fafc' }}>
+    <div style={{ height: '100%', overflowY: 'auto', background: isDark ? T.bgMain : '#f8fafc' }}>
       {/* Header */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 10,
-        background: 'white', borderBottom: '1px solid #e2e8f0',
+        background: T.bgSurface, borderBottom: `1px solid ${T.borderStrong}`,
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '14px 16px',
       }}>
@@ -46,16 +50,16 @@ export default function CookiesPage() {
             background: 'none', border: 'none', cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             width: 36, height: 36, borderRadius: '50%',
-            color: BRAND,
+            color: accent,
           }}
         >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={BRAND} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 12H5M12 19l-7-7 7-7"/>
           </svg>
         </button>
         <div>
-          <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#293241' }}>{tr('Política de cookies')}</h1>
-          <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>{tr('Última actualización: enero 2025')}</p>
+          <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: T.textPrimary }}>{tr('Política de cookies')}</h1>
+          <p style={{ margin: 0, fontSize: 11, color: T.textMuted }}>{tr('Última actualización: enero 2025')}</p>
         </div>
       </div>
 
@@ -71,26 +75,27 @@ export default function CookiesPage() {
         </div>
 
         {/* Tipos de cookies — cards visuales */}
-        <h2 style={{ fontSize: 15, fontWeight: 800, color: BRAND, margin: '0 0 14px' }}>{tr('Tipos de cookies que utilizamos')}</h2>
+        <h2 style={{ fontSize: 15, fontWeight: 800, color: accent, margin: '0 0 14px' }}>{tr('Tipos de cookies que utilizamos')}</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
           {COOKIE_TYPES.map((c, i) => (
             <div key={i} style={{
-              background: 'white', borderRadius: 14, padding: '14px 16px',
-              boxShadow: '0 1px 6px rgba(0,0,0,0.06)',
+              background: T.bgSurface, borderRadius: 14, padding: '14px 16px',
+              boxShadow: isDark ? 'none' : '0 1px 6px rgba(0,0,0,0.06)',
+              border: isDark ? `1px solid ${T.borderStrong}` : 'none',
               display: 'flex', alignItems: 'flex-start', gap: 14,
             }}>
               <span style={{ fontSize: 24, flexShrink: 0, lineHeight: 1 }}>{c.icon}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                  <p style={{ fontSize: 13, fontWeight: 800, color: '#293241', margin: 0 }}>{c.name}</p>
+                  <p style={{ fontSize: 13, fontWeight: 800, color: T.textPrimary, margin: 0 }}>{c.name}</p>
                   {c.required && (
                     <span style={{
-                      fontSize: 10, fontWeight: 700, color: BRAND,
-                      background: '#E3EDF2', borderRadius: 6, padding: '2px 7px',
+                      fontSize: 10, fontWeight: 700, color: accent,
+                      background: isDark ? 'rgba(61,90,128,0.25)' : '#E3EDF2', borderRadius: 6, padding: '2px 7px',
                     }}>{tr('Obligatoria')}</span>
                   )}
                 </div>
-                <p style={{ fontSize: 12, color: '#64748b', margin: 0, lineHeight: 1.6 }}>{c.desc}</p>
+                <p style={{ fontSize: 12, color: T.textSecondary, margin: 0, lineHeight: 1.6 }}>{c.desc}</p>
               </div>
             </div>
           ))}
@@ -123,14 +128,14 @@ export default function CookiesPage() {
           },
         ].map((section, i) => (
           <div key={i} style={{ marginBottom: 24 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 800, color: BRAND, margin: '0 0 8px' }}>{section.title}</h2>
-            <p style={{ fontSize: 13, color: '#475569', lineHeight: 1.8, margin: 0 }}>{section.body}</p>
+            <h2 style={{ fontSize: 15, fontWeight: 800, color: accent, margin: '0 0 8px' }}>{section.title}</h2>
+            <p style={{ fontSize: 13, color: T.textSecondary, lineHeight: 1.8, margin: 0 }}>{section.body}</p>
           </div>
         ))}
 
         {/* Footer */}
-        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 20, marginTop: 12 }}>
-          <p style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', margin: 0 }}>
+        <div style={{ borderTop: `1px solid ${T.borderStrong}`, paddingTop: 20, marginTop: 12 }}>
+          <p style={{ fontSize: 11, color: T.textMuted, textAlign: 'center', margin: 0 }}>
             © {new Date().getFullYear()}{' '}{tr('OldFace. Todos los derechos reservados.')}</p>
         </div>
       </div>

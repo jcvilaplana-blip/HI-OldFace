@@ -8,9 +8,12 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { tr, LOCALE } from '../i18n';
+import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const BRAND   = '#3D5A80';
+/** Tema actual (modo claro / oscuro) */
+const useT = () => { const { isDark } = useThemeStore(); return { isDark, T: isDark ? DARK : LIGHT }; };
 
 const SEX_LABELS = { male: 'Hombre', female: 'Mujer', other: 'Otro', prefer_not_say: tr('Prefiero no decirlo') };
 const AGE_ORDER  = ['< 18', '18-24', '25-34', '35-44', '45-54', '55+'];
@@ -211,6 +214,7 @@ function PollRow({ poll, onOpen }) {
   const closed = poll.status === 'closed';
   const left   = timeLeft(poll.endsAt);
   const winner = closed && poll.totalVotes ? [...poll.options].sort((a, b) => b.count - a.count)[0] : null;
+  const { isDark, T } = useT();
   return (
     <button onClick={onOpen} className="bg-white" style={{
       width: '100%', textAlign: 'left', border: '1px solid rgba(148,163,184,0.25)', cursor: 'pointer',
@@ -219,7 +223,7 @@ function PollRow({ poll, onOpen }) {
     }}>
       <div style={{
         width: 42, height: 42, borderRadius: 12, flexShrink: 0, fontSize: 20,
-        background: closed ? '#f1f5f9' : '#E3EDF2', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: closed ? T.bgHover : (isDark ? 'rgba(61,90,128,0.25)' : '#E3EDF2'), display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         {poll.category?.icon || '📊'}
       </div>
@@ -233,9 +237,9 @@ function PollRow({ poll, onOpen }) {
         </p>
       </div>
       {poll.myVote
-        ? <Badge color="#16a34a" bg="#dcfce7">{tr('Votado')}</Badge>
-        : closed ? <Badge color="#64748b" bg="#f1f5f9">{tr('Cerrada')}</Badge>
-        : <Badge color={BRAND} bg="#D5E6F0">{tr('Votar')}</Badge>}
+        ? <Badge color={isDark ? '#4ade80' : '#16a34a'} bg={isDark ? 'rgba(22,163,74,0.18)' : '#dcfce7'}>{tr('Votado')}</Badge>
+        : closed ? <Badge color={T.textSecondary} bg={T.bgHover}>{tr('Cerrada')}</Badge>
+        : <Badge color={isDark ? '#9FC0E6' : BRAND} bg={isDark ? 'rgba(61,90,128,0.3)' : '#D5E6F0'}>{tr('Votar')}</Badge>}
     </button>
   );
 }
@@ -250,6 +254,7 @@ function PollDetail({ pollId }) {
   const [voting, setVoting]     = useState(false);
   const [voteError, setVoteError] = useState('');
   const [showProfile, setShowProfile] = useState(false);
+  const { isDark, T } = useT();
 
   const load = useCallback(async () => {
     setError('');
@@ -309,8 +314,8 @@ function PollDetail({ pollId }) {
                 </div>
               )}
 
-              {poll.status === 'closed' && <Notice color="#64748b" bg="#f1f5f9">{tr('Esta encuesta está cerrada y ya no acepta votos.')}</Notice>}
-              {poll.myVote && <Notice color="#15803d" bg="#dcfce7">{tr('¡Gracias por participar! Tu voto ha sido registrado.')}</Notice>}
+              {poll.status === 'closed' && <Notice color={T.textSecondary} bg={T.bgHover}>{tr('Esta encuesta está cerrada y ya no acepta votos.')}</Notice>}
+              {poll.myVote && <Notice color={isDark ? '#4ade80' : '#15803d'} bg={isDark ? 'rgba(22,163,74,0.18)' : '#dcfce7'}>{tr('¡Gracias por participar! Tu voto ha sido registrado.')}</Notice>}
             </Card>
 
             {canVote && (
@@ -323,7 +328,7 @@ function PollDetail({ pollId }) {
                       width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: 8,
                       padding: '13px 14px', borderRadius: 12, fontSize: 14, fontWeight: 700,
                       border: `2px solid ${on ? BRAND : 'rgba(148,163,184,0.35)'}`,
-                      background: on ? '#D5E6F0' : undefined, color: on ? BRAND : undefined,
+                      background: on ? (isDark ? 'rgba(61,90,128,0.3)' : '#D5E6F0') : undefined, color: on ? (isDark ? '#9FC0E6' : BRAND) : undefined,
                       display: 'flex', alignItems: 'center', gap: 10,
                     }}>
                       <span style={{
@@ -338,7 +343,7 @@ function PollDetail({ pollId }) {
                 {voteError && <p style={{ color: '#dc2626', fontSize: 13, fontWeight: 600, margin: '4px 0 8px' }}>{voteError}</p>}
                 <button onClick={vote} disabled={!selected || voting} style={{
                   width: '100%', marginTop: 6, padding: 14, border: 'none', borderRadius: 14,
-                  background: selected ? BRAND : '#cbd5e1', color: 'white', fontSize: 15, fontWeight: 900,
+                  background: selected ? BRAND : (isDark ? T.bgHover : '#cbd5e1'), color: 'white', fontSize: 15, fontWeight: 900,
                   cursor: selected && !voting ? 'pointer' : 'default',
                 }}>
                   {voting ? tr('Enviando…') : tr('Votar')}
@@ -453,17 +458,18 @@ function ProfileModal({ userId, onClose, onSaved }) {
     } catch (err) { setError(err.message); setSaving(false); }
   };
 
-  const input = { width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #cbd5e1', fontSize: 15, outline: 'none', background: 'white', color: '#293241' };
-  const label = { display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', margin: '0 0 6px' };
+  const { isDark, T } = useT();
+  const input = { width: '100%', padding: '12px 14px', borderRadius: 12, border: `1px solid ${isDark ? T.borderStrong : '#cbd5e1'}`, fontSize: 15, outline: 'none', background: T.bgInput, color: T.textPrimary };
+  const label = { display: 'block', fontSize: 12, fontWeight: 800, color: T.textSecondary, margin: '0 0 6px' };
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
       <form onSubmit={save} onClick={e => e.stopPropagation()} style={{
-        background: 'white', width: '100%', maxWidth: 480, borderRadius: '24px 24px 0 0',
+        background: T.bgSurface, width: '100%', maxWidth: 480, borderRadius: '24px 24px 0 0',
         padding: '22px 20px calc(var(--sab) + 22px)', maxHeight: '92dvh', overflowY: 'auto',
       }}>
-        <p style={{ fontSize: 19, fontWeight: 900, color: '#293241', margin: '0 0 8px' }}>{tr('Completa tu perfil')}</p>
-        <p style={{ fontSize: 13, color: '#293241', background: '#E3EDF2', border: '1px solid #98C1D9', borderRadius: 12, padding: 12, margin: '0 0 16px', lineHeight: 1.5 }}>{tr('Para mostrar resultados claros necesitamos tu sexo, edad, código postal y nacionalidad. Se muestran solo de forma agregada y anónima. Solo se pide una vez.')}</p>
+        <p style={{ fontSize: 19, fontWeight: 900, color: T.textPrimary, margin: '0 0 8px' }}>{tr('Completa tu perfil')}</p>
+        <p style={{ fontSize: 13, color: T.textPrimary, background: isDark ? 'rgba(61,90,128,0.25)' : '#E3EDF2', border: `1px solid ${isDark ? 'rgba(127,163,209,0.35)' : '#98C1D9'}`, borderRadius: 12, padding: 12, margin: '0 0 16px', lineHeight: 1.5 }}>{tr('Para mostrar resultados claros necesitamos tu sexo, edad, código postal y nacionalidad. Se muestran solo de forma agregada y anónima. Solo se pide una vez.')}</p>
 
         <div style={{ marginBottom: 12 }}>
           <label style={label} htmlFor="pp-age">{tr('Edad')}</label>
@@ -491,7 +497,7 @@ function ProfileModal({ userId, onClose, onSaved }) {
         {error && <p style={{ color: '#dc2626', fontSize: 13, fontWeight: 600, margin: '0 0 10px' }}>{error}</p>}
 
         <div style={{ display: 'flex', gap: 10 }}>
-          <button type="button" onClick={onClose} style={{ flex: 1, padding: 14, borderRadius: 14, border: '1px solid #cbd5e1', background: 'white', color: '#475569', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>{tr('Cancelar')}</button>
+          <button type="button" onClick={onClose} style={{ flex: 1, padding: 14, borderRadius: 14, border: `1px solid ${isDark ? T.borderStrong : '#cbd5e1'}`, background: T.bgSurface, color: T.textSecondary, fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>{tr('Cancelar')}</button>
           <button type="submit" disabled={saving} style={{ flex: 2, padding: 14, borderRadius: 14, border: 'none', background: BRAND, color: 'white', fontWeight: 900, fontSize: 15, cursor: 'pointer' }}>
             {saving ? tr('Guardando…') : tr('Guardar y votar')}
           </button>

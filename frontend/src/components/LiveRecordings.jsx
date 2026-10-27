@@ -14,8 +14,8 @@ import { tr, LOCALE } from '../i18n';
 
 const BRAND = '#3D5A80';
 const RED   = '#ef4444';
-const TEXT  = '#293241';
-const MUTED = '#64748b';
+const TEXT  = 'var(--text-primary)';
+const MUTED = 'var(--text-secondary)';
 // Póster vacío: sin él, Android pinta su imagen gris de "play" mientras carga el vídeo
 const NO_POSTER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
@@ -64,11 +64,11 @@ export function RecordingsGrid({ recordings, loading, emptyText, showOwner = tru
     <div>
       {searchable && recordings.length > 0 && (
         <div style={{ padding: '0 12px 10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'white', borderRadius: 14, padding: '9px 12px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-surface)', borderRadius: 14, padding: '9px 12px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
             <input value={query} onChange={e => setQuery(e.target.value)} placeholder={tr('Buscar vídeos o canales')}
               style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, color: TEXT, background: 'transparent', fontFamily: 'inherit' }} />
-            {query && <button onClick={() => setQuery('')} aria-label={tr('Borrar')} style={{ border: 'none', background: 'none', color: '#94a3b8', fontSize: 16, cursor: 'pointer' }}>✕</button>}
+            {query && <button onClick={() => setQuery('')} aria-label={tr('Borrar')} style={{ border: 'none', background: 'none', color: 'var(--text-muted)', fontSize: 16, cursor: 'pointer' }}>✕</button>}
           </div>
           <div style={{ display: 'flex', gap: 6, marginTop: 8, overflowX: 'auto' }}>
             {FILTERS.map(([key, label]) => (
@@ -81,9 +81,9 @@ export function RecordingsGrid({ recordings, loading, emptyText, showOwner = tru
         </div>
       )}
 
-      {loading && <p style={{ textAlign: 'center', color: '#94a3b8', padding: 40, fontSize: 13 }}>{tr('Cargando…')}</p>}
+      {loading && <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 40, fontSize: 13 }}>{tr('Cargando…')}</p>}
       {!loading && !list.length && (
-        <p style={{ textAlign: 'center', color: '#94a3b8', padding: '50px 24px', fontSize: 14, fontWeight: 600 }}>
+        <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '50px 24px', fontSize: 14, fontWeight: 600 }}>
           {recordings.length ? tr('No hay vídeos que coincidan') : emptyText}
         </p>
       )}
@@ -107,7 +107,7 @@ export function RecordingsGrid({ recordings, loading, emptyText, showOwner = tru
                   {formatDuration(r.duration)}
                 </span>
                 {!r.locked && r.price > 0 && r.ownerId === myId && (
-                  <span style={{ position: 'absolute', left: 6, top: 6, background: '#fef9c3', color: TEXT, fontSize: 10, fontWeight: 900, borderRadius: 6, padding: '2px 6px' }}>{formatMoney(r.price)}</span>
+                  <span style={{ position: 'absolute', left: 6, top: 6, background: 'rgba(250,204,21,0.25)', color: TEXT, fontSize: 10, fontWeight: 900, borderRadius: 6, padding: '2px 6px' }}>{formatMoney(r.price)}</span>
                 )}
                 <span style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '28px 8px 8px', textAlign: 'left',
                                background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', color: 'white' }}>
@@ -122,7 +122,7 @@ export function RecordingsGrid({ recordings, loading, emptyText, showOwner = tru
                 <div style={{ display: 'flex', gap: 4, marginTop: 5, flexWrap: 'wrap', alignItems: 'center' }}>
                   {!r.published && <Badge bg="#f1f5f9" color={MUTED}>{tr('Oculta')}</Badge>}
                   {r.hiddenByAdmin && <Badge bg="#fee2e2" color={RED}>{tr('Retirada por el administrador')}</Badge>}
-                  {onEdit && <button onClick={() => onEdit(r)} style={{ marginLeft: 'auto', background: '#E3EDF2', color: BRAND, border: 'none', borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>{tr('Editar')}</button>}
+                  {onEdit && <button onClick={() => onEdit(r)} style={{ marginLeft: 'auto', background: 'var(--accent-dim)', color: 'var(--accent-text)', border: 'none', borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>{tr('Editar')}</button>}
                 </div>
               )}
             </div>
@@ -260,7 +260,7 @@ function FeedItem({ rec, active, near, muted, onMuted, onOpenChannel, onPay }) {
         </button>
         <p style={{ fontSize: 15, fontWeight: 800, margin: '8px 0 0' }}>{rec.title}</p>
         <p style={{ fontSize: 12, color: '#cbd5e1', margin: '4px 0 0' }}>{fmtDate(rec.createdAt)} · {tr('{n} vistas', { n: rec.views || 0 })} · {formatDuration(rec.duration)}</p>
-        {rec.description && <p style={{ fontSize: 13, color: '#e2e8f0', margin: '6px 0 0', whiteSpace: 'pre-wrap', maxHeight: 60, overflow: 'hidden' }}>{rec.description}</p>}
+        {rec.description && <p style={{ fontSize: 13, color: 'var(--border-strong)', margin: '6px 0 0', whiteSpace: 'pre-wrap', maxHeight: 60, overflow: 'hidden' }}>{rec.description}</p>}
       </div>
     </section>
   );
@@ -291,7 +291,7 @@ export function RecordingEditSheet({ rec, onClose, onSaved, onDeleted }) {
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 720, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end' }}>
-      <div onClick={e => e.stopPropagation()} style={{ width: '100%', background: 'white', borderRadius: '24px 24px 0 0', maxHeight: '92vh', overflowY: 'auto',
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', background: 'var(--bg-surface)', borderRadius: '24px 24px 0 0', maxHeight: '92vh', overflowY: 'auto',
                                                         padding: '18px 16px calc(18px + env(safe-area-inset-bottom, 0px))', boxSizing: 'border-box' }}>
         <h2 style={{ fontSize: 16, fontWeight: 900, color: TEXT, margin: '0 0 14px' }}>{tr('Editar grabación')}</h2>
         <p style={labelStyle}>{tr('TÍTULO')}</p>
@@ -302,7 +302,7 @@ export function RecordingEditSheet({ rec, onClose, onSaved, onDeleted }) {
         <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 0', cursor: 'pointer' }}>
           <span>
             <span style={{ display: 'block', fontSize: 14, fontWeight: 800, color: TEXT }}>{tr('Publicada en mi canal')}</span>
-            <span style={{ fontSize: 11, color: '#94a3b8' }}>{published ? tr('Tus contactos pueden verla') : tr('Oculta: solo la ves tú')}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{published ? tr('Tus contactos pueden verla') : tr('Oculta: solo la ves tú')}</span>
           </span>
           <input type="checkbox" checked={published} onChange={e => setPublished(e.target.checked)} style={{ width: 22, height: 22, accentColor: BRAND }} />
         </label>
@@ -312,18 +312,18 @@ export function RecordingEditSheet({ rec, onClose, onSaved, onDeleted }) {
             : tr('Solo la ven tus contactos (o los que elegiste para el directo).')}
         </p>
 
-        {error && <p style={{ fontSize: 12, color: RED, background: '#fee2e2', padding: '10px 14px', borderRadius: 10, margin: '10px 0 0' }}>{error}</p>}
+        {error && <p style={{ fontSize: 12, color: RED, background: 'rgba(239,68,68,0.14)', padding: '10px 14px', borderRadius: 10, margin: '10px 0 0' }}>{error}</p>}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-          <button onClick={onClose} style={{ ...btn, flex: 1, background: '#f1f5f9', color: MUTED }}>{tr('Cancelar')}</button>
+          <button onClick={onClose} style={{ ...btn, flex: 1, background: 'var(--bg-hover)', color: MUTED }}>{tr('Cancelar')}</button>
           <button onClick={save} disabled={busy} style={{ ...btn, flex: 2, background: BRAND, color: 'white', opacity: busy ? 0.7 : 1 }}>{busy ? tr('Guardando...') : tr('Guardar cambios')}</button>
         </div>
         {!confirmDel
-          ? <button onClick={() => setConfirmDel(true)} style={{ ...btn, width: '100%', marginTop: 10, background: '#fee2e2', color: RED }}>{tr('Eliminar grabación')}</button>
-          : <div style={{ marginTop: 10, padding: 12, background: '#fee2e2', borderRadius: 14 }}>
+          ? <button onClick={() => setConfirmDel(true)} style={{ ...btn, width: '100%', marginTop: 10, background: 'rgba(239,68,68,0.14)', color: RED }}>{tr('Eliminar grabación')}</button>
+          : <div style={{ marginTop: 10, padding: 12, background: 'rgba(239,68,68,0.14)', borderRadius: 14 }}>
               <p style={{ fontSize: 13, fontWeight: 700, color: RED, margin: '0 0 10px' }}>{tr('¿Eliminar esta grabación para siempre? No se puede deshacer.')}</p>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => setConfirmDel(false)} style={{ ...btn, flex: 1, background: 'white', color: MUTED }}>{tr('No')}</button>
+                <button onClick={() => setConfirmDel(false)} style={{ ...btn, flex: 1, background: 'var(--bg-surface)', color: MUTED }}>{tr('No')}</button>
                 <button onClick={remove} disabled={busy} style={{ ...btn, flex: 1, background: RED, color: 'white' }}>{tr('Sí, eliminar')}</button>
               </div>
             </div>}
@@ -382,8 +382,8 @@ export function ChannelView({ ownerId, embedded = false, onClose }) {
   );
   if (embedded) return body;
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 650, background: '#f8fafc', overflowY: 'auto', paddingTop: 'var(--sat)' }}>
-      <div style={{ position: 'sticky', top: 0, zIndex: 1, background: 'white', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 650, background: 'var(--bg-section)', overflowY: 'auto', paddingTop: 'var(--sat)' }}>
+      <div style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-surface)', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
         <button onClick={onClose} aria-label={tr('Atrás')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={TEXT} strokeWidth="2.5" strokeLinecap="round"><path d="M15 19l-7-7 7-7" /></svg>
         </button>
@@ -395,6 +395,6 @@ export function ChannelView({ ownerId, embedded = false, onClose }) {
 }
 
 const labelStyle = { fontSize: 11, fontWeight: 800, color: MUTED, letterSpacing: '0.4px', margin: '12px 0 6px' };
-const inputStyle = { width: '100%', padding: '11px 14px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: 14, color: TEXT,
-                     background: 'white', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' };
+const inputStyle = { width: '100%', padding: '11px 14px', borderRadius: 12, border: '1.5px solid var(--border-strong)', fontSize: 14, color: TEXT,
+                     background: 'var(--bg-surface)', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' };
 const btn = { padding: '13px', border: 'none', borderRadius: 14, fontWeight: 800, fontSize: 14, cursor: 'pointer' };

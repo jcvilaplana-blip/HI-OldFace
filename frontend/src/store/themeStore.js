@@ -47,6 +47,14 @@ function applyTheme(theme) {
   el.style.setProperty('--text-primary',   t.textPrimary);
   el.style.setProperty('--text-secondary', t.textSecondary);
   el.style.setProperty('--border',         t.border);
+  el.style.setProperty('--border-strong',  t.borderStrong);
+  el.style.setProperty('--text-muted',     t.textMuted);
+  el.style.setProperty('--bg-hover',       t.bgHover);
+  el.style.setProperty('--bg-input',       t.bgInput);
+  el.style.setProperty('--bg-section',     t.bgSection);
+  el.style.setProperty('--accent-dim',     t.accentDim);
+  // Texto en azul de marca: en oscuro, un azul claro para que se lea sobre el fondo
+  el.style.setProperty('--accent-text',    theme === 'dark' ? '#9FC0E6' : t.accent);
 }
 
 // Se respeta la elección guardada (claro u oscuro); por defecto, claro

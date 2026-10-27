@@ -14,18 +14,18 @@ import { tr, LANG, LOCALE } from '../i18n';
 
 const BRAND = '#3D5A80';
 const RED   = '#ef4444';
-const TEXT  = '#293241';
-const MUTED = '#64748b';
+const TEXT  = 'var(--text-primary)';
+const MUTED = 'var(--text-secondary)';
 const GREEN = '#15803d';
 
 function Sheet({ title, onClose, children, z = 760 }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: z, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end' }}>
-      <div onClick={e => e.stopPropagation()} style={{ width: '100%', background: 'white', borderRadius: '24px 24px 0 0', maxHeight: '92vh', overflowY: 'auto',
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', background: 'var(--bg-surface)', borderRadius: '24px 24px 0 0', maxHeight: '92vh', overflowY: 'auto',
                                                         padding: '18px 16px calc(18px + env(safe-area-inset-bottom, 0px))', boxSizing: 'border-box', color: TEXT }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <h2 style={{ fontSize: 17, fontWeight: 900, margin: 0 }}>{title}</h2>
-          <button onClick={onClose} aria-label={tr('Cerrar')} style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 30, height: 30, cursor: 'pointer', fontSize: 15, fontWeight: 800, color: MUTED }}>✕</button>
+          <button onClick={onClose} aria-label={tr('Cerrar')} style={{ background: 'var(--bg-hover)', border: 'none', borderRadius: '50%', width: 30, height: 30, cursor: 'pointer', fontSize: 15, fontWeight: 800, color: MUTED }}>✕</button>
         </div>
         {children}
       </div>
@@ -75,7 +75,7 @@ export function PaySheet({ kind, id, price, title, ownerName, onClose, onUnlocke
 
   return (
     <Sheet title={tr('Directo de pago')} onClose={onClose}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 14, background: '#fef9c3', borderRadius: 16, marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 14, background: 'rgba(250,204,21,0.25)', borderRadius: 16, marginBottom: 14 }}>
         <span style={{ fontSize: 26 }}>🔒</span>
         <div style={{ minWidth: 0 }}>
           <p style={{ margin: 0, fontWeight: 900, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || tr('Directo')}</p>
@@ -95,7 +95,7 @@ export function PaySheet({ kind, id, price, title, ownerName, onClose, onUnlocke
           </button>
           {cfg?.ready === false && <p style={{ fontSize: 12, color: MUTED, margin: '8px 0 0', textAlign: 'center' }}>{tr('El pago con tarjeta no está disponible ahora. Puedes usar un código.')}</p>}
           {cfg?.testMode && <p style={{ fontSize: 12, color: '#92400e', margin: '8px 0 0', textAlign: 'center' }}>🧪 {tr('Modo pruebas: no se cobra dinero real.')}</p>}
-          <button onClick={() => { setMode('code'); setError(''); }} style={{ ...btn, width: '100%', marginTop: 10, background: '#E3EDF2', color: BRAND }}>
+          <button onClick={() => { setMode('code'); setError(''); }} style={{ ...btn, width: '100%', marginTop: 10, background: 'var(--accent-dim)', color: 'var(--accent-text)' }}>
             🎟️ {tr('Tengo un código')}
           </button>
         </>
@@ -108,14 +108,14 @@ export function PaySheet({ kind, id, price, title, ownerName, onClose, onUnlocke
             style={{ ...inputStyle, fontSize: 20, fontWeight: 800, letterSpacing: 3, textAlign: 'center' }} />
           <p style={{ fontSize: 11, color: MUTED, margin: '6px 0 0' }}>{tr('Te lo da quien hace el directo. Cada código sirve para una sola persona.')}</p>
           <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-            <button onClick={() => { setMode('choose'); setError(''); }} style={{ ...btn, flex: 1, background: '#f1f5f9', color: MUTED }}>{tr('Atrás')}</button>
+            <button onClick={() => { setMode('choose'); setError(''); }} style={{ ...btn, flex: 1, background: 'var(--bg-hover)', color: MUTED }}>{tr('Atrás')}</button>
             <button onClick={redeem} disabled={busy} style={{ ...btn, flex: 2, background: BRAND, color: 'white', opacity: busy ? 0.7 : 1 }}>{busy ? tr('Comprobando…') : tr('Usar código')}</button>
           </div>
         </>
       )}
 
-      {error && <p style={{ fontSize: 13, color: RED, background: '#fee2e2', padding: '10px 14px', borderRadius: 10, margin: '12px 0 0', fontWeight: 600 }}>{error}</p>}
-      <p style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', margin: '14px 0 0' }}>🔒 {tr('Pago seguro. Los datos de tu tarjeta no se guardan en OldFace.')}</p>
+      {error && <p style={{ fontSize: 13, color: RED, background: 'rgba(239,68,68,0.14)', padding: '10px 14px', borderRadius: 10, margin: '12px 0 0', fontWeight: 600 }}>{error}</p>}
+      <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', margin: '14px 0 0' }}>🔒 {tr('Pago seguro. Los datos de tu tarjeta no se guardan en OldFace.')}</p>
     </Sheet>
   );
 }
@@ -168,27 +168,27 @@ export function CodesSheet({ directo, onClose }) {
 
       {unused.length > 0 && <p style={labelStyle}>{tr('SIN USAR ({n})', { n: unused.length })}</p>}
       {unused.map(c => (
-        <div key={c.code} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: '#f8fafc', borderRadius: 12, marginBottom: 6 }}>
+        <div key={c.code} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: 'var(--bg-section)', borderRadius: 12, marginBottom: 6 }}>
           <span style={{ flex: 1, fontFamily: 'monospace', fontSize: 17, fontWeight: 800, letterSpacing: 2 }}>{c.code}</span>
-          <button onClick={() => share(c.code)} style={{ ...chip, background: '#E3EDF2', color: BRAND }}>{copied === c.code ? tr('Copiado') : tr('Enviar')}</button>
-          <button onClick={() => remove(c.code)} aria-label={tr('Anular')} style={{ ...chip, background: '#fee2e2', color: RED }}>✕</button>
+          <button onClick={() => share(c.code)} style={{ ...chip, background: 'var(--accent-dim)', color: 'var(--accent-text)' }}>{copied === c.code ? tr('Copiado') : tr('Enviar')}</button>
+          <button onClick={() => remove(c.code)} aria-label={tr('Anular')} style={{ ...chip, background: 'rgba(239,68,68,0.14)', color: RED }}>✕</button>
         </div>
       ))}
       {used.length > 0 && <p style={labelStyle}>{tr('USADOS ({n})', { n: used.length })}</p>}
       {used.map(c => (
         <div key={c.code} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 12, marginBottom: 4 }}>
-          <span style={{ fontFamily: 'monospace', fontSize: 14, color: '#94a3b8', textDecoration: 'line-through' }}>{c.code}</span>
+          <span style={{ fontFamily: 'monospace', fontSize: 14, color: 'var(--text-muted)', textDecoration: 'line-through' }}>{c.code}</span>
           <span style={{ flex: 1, fontSize: 12, color: MUTED, textAlign: 'right' }}>{c.usedByName || ''}</span>
         </div>
       ))}
-      {!codes.length && !error && <p style={{ fontSize: 13, color: '#94a3b8', textAlign: 'center', padding: '18px 0 4px' }}>{tr('Todavía no has creado códigos')}</p>}
+      {!codes.length && !error && <p style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '18px 0 4px' }}>{tr('Todavía no has creado códigos')}</p>}
     </Sheet>
   );
 }
 
 // ── Ganancias del emisor ─────────────────────────────────────────────────────
 const MOVE_LABEL = { sale: 'Venta', refund: 'Devolución', withdrawal: 'Retirada', withdrawal_back: 'Retirada rechazada' };
-const WD_LABEL = { pending: ['Pendiente', '#fef9c3', '#92400e'], paid: ['Pagada', '#dcfce7', GREEN], rejected: ['Rechazada', '#fee2e2', RED] };
+const WD_LABEL = { pending: ['Pendiente', 'rgba(250,204,21,0.25)', '#92400e'], paid: ['Pagada', 'rgba(34,197,94,0.16)', GREEN], rejected: ['Rechazada', 'rgba(239,68,68,0.14)', RED] };
 
 export function EarningsSheet({ onClose }) {
   useBackClose(true, onClose);
@@ -216,7 +216,7 @@ export function EarningsSheet({ onClose }) {
 
   return (
     <Sheet title={tr('Mis ganancias')} onClose={onClose}>
-      {!data && !error && <p style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>{tr('Cargando…')}</p>}
+      {!data && !error && <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 30 }}>{tr('Cargando…')}</p>}
       {data && (
         <>
           <div style={{ background: `linear-gradient(135deg, ${RED}, #ec4899)`, color: 'white', borderRadius: 18, padding: '16px 18px' }}>
@@ -240,7 +240,7 @@ export function EarningsSheet({ onClose }) {
           )}
 
           {form && (
-            <div style={{ marginTop: 12, padding: 12, background: '#f8fafc', borderRadius: 16 }}>
+            <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-section)', borderRadius: 16 }}>
               <p style={labelStyle}>{tr('IMPORTE (€)')}</p>
               <input value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" placeholder={String(data.balance)} style={inputStyle} />
               <p style={labelStyle}>{tr('TITULAR DE LA CUENTA')}</p>
@@ -249,18 +249,18 @@ export function EarningsSheet({ onClose }) {
               <input value={iban} onChange={e => setIban(e.target.value.toUpperCase())} placeholder="ES00 0000 0000 0000 0000 0000" maxLength={42} style={{ ...inputStyle, fontFamily: 'monospace' }} />
               <p style={{ fontSize: 11, color: MUTED, margin: '6px 0 0' }}>{tr('La cuenta se guarda cifrada y solo la ve el administrador para hacerte la transferencia.')}</p>
               <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-                <button onClick={() => setForm(false)} style={{ ...btn, flex: 1, background: 'white', color: MUTED }}>{tr('Cancelar')}</button>
+                <button onClick={() => setForm(false)} style={{ ...btn, flex: 1, background: 'var(--bg-surface)', color: MUTED }}>{tr('Cancelar')}</button>
                 <button onClick={withdraw} disabled={busy} style={{ ...btn, flex: 2, background: BRAND, color: 'white', opacity: busy ? 0.7 : 1 }}>{busy ? tr('Enviando…') : tr('Pedir retirada')}</button>
               </div>
             </div>
           )}
-          {error && <p style={{ fontSize: 12, color: RED, background: '#fee2e2', padding: '10px 14px', borderRadius: 10, margin: '10px 0 0' }}>{error}</p>}
+          {error && <p style={{ fontSize: 12, color: RED, background: 'rgba(239,68,68,0.14)', padding: '10px 14px', borderRadius: 10, margin: '10px 0 0' }}>{error}</p>}
 
           {data.withdrawals?.length > 0 && <p style={labelStyle}>{tr('RETIRADAS')}</p>}
           {data.withdrawals?.map(w => {
             const [label, bg, color] = WD_LABEL[w.status] || WD_LABEL.pending;
             return (
-              <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
+              <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--bg-hover)' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>{formatMoney(w.amount)}</p>
                   <p style={{ margin: 0, fontSize: 11, color: MUTED }}>{fmtDate(w.createdAt)} · {w.account}{w.note ? ` · ${w.note}` : ''}</p>
@@ -272,7 +272,7 @@ export function EarningsSheet({ onClose }) {
 
           {data.moves?.length > 0 && <p style={labelStyle}>{tr('MOVIMIENTOS')}</p>}
           {data.moves?.map((m, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid #f1f5f9' }}>
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--bg-hover)' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{tr(MOVE_LABEL[m.kind] || 'Movimiento')}</p>
                 <p style={{ margin: 0, fontSize: 11, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtDate(m.at)} · {m.text}</p>
@@ -280,7 +280,7 @@ export function EarningsSheet({ onClose }) {
               <span style={{ fontSize: 14, fontWeight: 900, color: m.amount >= 0 ? GREEN : RED }}>{m.amount >= 0 ? '+' : ''}{formatMoney(m.amount)}</span>
             </div>
           ))}
-          {!data.moves?.length && <p style={{ fontSize: 13, color: '#94a3b8', textAlign: 'center', padding: '18px 0 4px' }}>{tr('Cuando alguien pague uno de tus directos aparecerá aquí.')}</p>}
+          {!data.moves?.length && <p style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '18px 0 4px' }}>{tr('Cuando alguien pague uno de tus directos aparecerá aquí.')}</p>}
         </>
       )}
     </Sheet>
@@ -288,7 +288,7 @@ export function EarningsSheet({ onClose }) {
 }
 
 const labelStyle = { fontSize: 11, fontWeight: 800, color: MUTED, letterSpacing: '0.4px', margin: '14px 0 6px' };
-const inputStyle = { width: '100%', padding: '11px 14px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: 14, color: TEXT,
-                     background: 'white', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' };
+const inputStyle = { width: '100%', padding: '11px 14px', borderRadius: 12, border: '1.5px solid var(--border-strong)', fontSize: 14, color: TEXT,
+                     background: 'var(--bg-surface)', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' };
 const btn  = { padding: '13px', border: 'none', borderRadius: 14, fontWeight: 800, fontSize: 14, cursor: 'pointer' };
 const chip = { border: 'none', borderRadius: 20, padding: '6px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer' };
