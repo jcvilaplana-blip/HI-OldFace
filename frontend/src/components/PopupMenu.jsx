@@ -142,6 +142,16 @@ const SUBTITLES = {
 const FEATURED = ['directo', 'social', 'taxi', 'poll'];
 const COMMUNICATION = ['calls', 'videocalls', 'chats', 'groups', 'contacts', 'karaoke', 'settings', 'archived'];
 
+// Apps que el administrador puede ocultar desde /admin (GET /app/features). Hasta saberlo se usa lo último que dijo
+// el servidor; la primera vez, ocultas (así no aparecen y desaparecen al abrir el menú).
+const BACKEND = import.meta.env.VITE_BACKEND_URL;
+const HIDEABLE = ['social', 'karaoke'];
+const FEATURES_KEY = 'oldface-features';
+function cachedFeatures() {
+  try { return { social: false, karaoke: false, ...JSON.parse(localStorage.getItem(FEATURES_KEY) || '{}') }; }
+  catch { return { social: false, karaoke: false }; }
+}
+
 // Colores de cada tarjeta destacada: fondo suave, borde, cuadro del icono y flecha
 const FEATURED_LOOK = {
   directo: { bg: '#fff1f2', border: '#fecdd3', tile: 'white', arrow: '#e11d48' },
@@ -166,12 +176,25 @@ export default function PopupMenu({ onClose, onGroups }) {
   const looks = isDark ? FEATURED_LOOK_DARK : FEATURED_LOOK;
   const [soonMsg, setSoonMsg] = useState('');
   const [query, setQuery] = useState('');
+  const [features, setFeatures] = useState(cachedFeatures);
   const soonTimer = useRef(null);
 
-  // Buscador: filtra por nombre o subtítulo (sin distinguir mayúsculas ni acentos)
+  useEffect(() => {
+    fetch(`${BACKEND}/app/features`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(f => {
+        if (!f) return;
+        setFeatures(f);
+        try { localStorage.setItem(FEATURES_KEY, JSON.stringify(f)); } catch { /* sin almacenamiento */ }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Buscador: filtra por nombre o subtítulo (sin distinguir mayúsculas ni acentos); las apps ocultas no salen
   const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const q = norm(query.trim());
-  const matches = (id) => !q || norm(ITEMS[id].label).includes(q) || norm(tr(SUBTITLES[id])).includes(q);
+  const matches = (id) => (!HIDEABLE.includes(id) || features[id] === true)
+    && (!q || norm(ITEMS[id].label).includes(q) || norm(tr(SUBTITLES[id])).includes(q));
   const featured = FEATURED.filter(matches);
   const communication = COMMUNICATION.filter(matches);
 
@@ -285,8 +308,9 @@ export default function PopupMenu({ onClose, onGroups }) {
           {/* Destacadas: tarjetas de color 2 × 2 */}
           {featured.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-              {featured.map(id => (
-                <MenuCard key={id} id={id} item={ITEMS[id]} look={looks[id]} isDark={isDark} T={T} onClick={() => handleItem(ITEMS[id])} />
+              {featured.map((id, i) => (
+                <MenuCard key={id} id={id} item={ITEMS[id]} look={looks[id]} isDark={isDark} T={T} onClick={() => handleItem(ITEMS[id])}
+                  wide={featured.length % 2 === 1 && i === featured.length - 1} />
               ))}
             </div>
           )}
@@ -326,7 +350,7 @@ export default function PopupMenu({ onClose, onGroups }) {
 }
 
 // ─── Tarjeta de una acción (destacada con color o de la sección Comunicación) ─
-function MenuCard({ id, item, look, isDark, T, onClick }) {
+function MenuCard({ id, item, look, isDark, T, onClick, wide = false }) {
   const isSoon = item.action === 'soon';
   const gradientTile = look && look.tile !== 'white';
   // Cuadro blanco del icono: en oscuro pasa a gris azulado (los emblemas Directo/Taxi se ven bien encima)
@@ -337,6 +361,7 @@ function MenuCard({ id, item, look, isDark, T, onClick }) {
       onClick={onClick}
       style={{
         display: 'flex', alignItems: 'center', gap: 10, minWidth: 0,
+        gridColumn: wide ? '1 / -1' : undefined,   // la última tarjeta suelta ocupa toda la fila
         padding: look ? '12px 10px 12px 12px' : '10px 10px 10px 10px', borderRadius: 16, textAlign: 'left',
         background: look ? look.bg : (isDark ? T.bgSurface : '#f8fafc'),
         border: `1px solid ${look ? look.border : (isDark ? T.borderStrong : '#e2e8f0')}`,

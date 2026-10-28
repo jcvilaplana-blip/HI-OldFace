@@ -1115,7 +1115,10 @@ router.get('/files/:filename', (req, res) => {
     return res.status(403).json({ error: 'Enlace caducado o sin permiso' });
   const filePath = path.join(UPLOADS_DIR, safeName);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Archivo no encontrado' });
-  res.sendFile(filePath);
+  // Cada archivo tiene un nombre único que nunca se reutiliza: el móvil puede guardarlo y no volver a pedirlo
+  // (los de directos van con enlace firmado y caducan: esos no se guardan)
+  if (safeName.startsWith('live_')) return res.sendFile(filePath);
+  res.sendFile(filePath, { cacheControl: false, headers: { 'Cache-Control': 'private, max-age=2592000, immutable' } });
 });
 
 /** Texto de la vista previa del chat (lista de chats) */
@@ -1550,13 +1553,13 @@ const canSeeStory = (s, viewerId) => s.userId === viewerId || (!!viewerId && Arr
 const STORY_FILE_RE = /\/files\/([\w.-]+)$/;
 /** Archivos de estados borrados/caducados: se eliminan más tarde si ningún mensaje los usa (respuestas a estados) */
 const storyFileTrash = new Map();   // nombre de archivo → cuándo se dejó de usar
+const storyFileName = (url) => String(url || '').match(STORY_FILE_RE)?.[1] || null;
 function trashStoryFile(story) {
-  const m = String(story?.content || '').match(STORY_FILE_RE);
-  if (m) storyFileTrash.set(m[1], Date.now());
+  for (const name of [storyFileName(story?.content), storyFileName(story?.thumb)]) if (name) storyFileTrash.set(name, Date.now());
 }
 function sweepStoryFiles() {
   if (!storyFileTrash.size) return;
-  const live = new Set(storiesList.map(s => String(s.content || '').match(STORY_FILE_RE)?.[1]).filter(Boolean));
+  const live = new Set(storiesList.flatMap(s => [storyFileName(s.content), storyFileName(s.thumb)]).filter(Boolean));
   const referenced = (name) => {
     const tail = `/files/${name}`;
     for (const list of messageStore.values()) {
@@ -1663,6 +1666,7 @@ router.post('/stories', (req, res) => {
   };
   storiesList.unshift(story);
   saveStories();
+  queueStoryMedia(story);
   return res.status(201).json(storyFor(story, userId));
 });
 
@@ -1698,6 +1702,78 @@ router.delete('/stories/:storyId', (req, res) => {
   saveStories();
   return res.json({ success: true });
 });
+
+// ── Estados más ligeros ─────────────────────────────────────────────────────────
+// Al publicar una foto o un vídeo se crea una miniatura pequeña (`thumb`, para la lista y como primera imagen del
+// vídeo) y el vídeo se pasa a 720p con el índice al principio, para que empiece a verse sin descargarlo entero.
+// Mientras tanto el estado se ve con el archivo original. De uno en uno y con prioridad baja (llamadas, directos y
+// Willy van primero). Si ffmpeg falla, todo sigue como estaba.
+const storyMediaQueue = [];
+let storyMediaBusy = false;
+
+function runStoryFfmpeg(args, timeoutMs) {
+  return new Promise((resolve) => {
+    const p = require('child_process').spawn(FFMPEG, args, { stdio: 'ignore' });
+    try { require('os').setPriority(p.pid, 15); } catch { /* sin permiso: prioridad normal */ }
+    const t = setTimeout(() => p.kill('SIGKILL'), timeoutMs);
+    p.on('close', (code) => { clearTimeout(t); resolve(code === 0); });
+    p.on('error', () => { clearTimeout(t); resolve(false); });
+  });
+}
+
+const fileSize = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
+const dropFile = (f) => { try { fs.unlinkSync(f); } catch { /* ya no estaba */ } };
+
+async function prepareStoryMedia(story) {
+  const name = storyFileName(story.content);
+  const input = name && path.join(UPLOADS_DIR, name);
+  if (!input || !fs.existsSync(input)) { story.prepared = true; return; }
+  const base = name.replace(/\.[^.]+$/, '');
+  const isVideo = story.mediaType === 'video';
+  const stillThere = () => storiesList.includes(story);
+
+  // Miniatura: un JPG de 400 px
+  if (!story.thumb) {
+    const thumbName = `${base}_th.jpg`, thumb = path.join(UPLOADS_DIR, thumbName);
+    const frame = (at) => runStoryFfmpeg(['-y', ...(at != null ? ['-ss', String(at)] : []), '-i', input,
+      '-frames:v', '1', '-vf', 'scale=400:-2', '-q:v', '5', thumb], 60_000);
+    const ok = (isVideo ? (await frame(0.5)) || (await frame(0)) : await frame(null)) && fileSize(thumb) > 0;
+    if (ok && stillThere()) story.thumb = story.content.replace(name, thumbName);
+    else if (ok) dropFile(thumb);
+  }
+
+  // Vídeo: 720p (lado corto), H.264 + AAC, índice al principio. Solo se usa si pesa menos que el original.
+  if (isVideo && stillThere()) {
+    const outName = `${base}_s.mp4`, out = path.join(UPLOADS_DIR, outName);
+    const ok = await runStoryFfmpeg(['-y', '-i', input, '-map', '0:v:0', '-map', '0:a:0?',
+      '-vf', "scale='if(gt(iw,ih),-2,min(720,iw))':'if(gt(iw,ih),min(720,ih),-2)'",
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '27', '-maxrate', '2500k', '-bufsize', '5000k', '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', '-threads', '2', out], 5 * 60_000);
+    if (ok && stillThere() && fileSize(out) > 0 && fileSize(out) < fileSize(input)) {
+      storyFileTrash.set(name, Date.now());   // el original se borra luego (si nadie lo usa, p. ej. una respuesta)
+      story.content = story.content.replace(name, outName);
+    } else dropFile(out);
+  }
+  story.prepared = true;
+}
+
+function queueStoryMedia(story) {
+  if (!FFMPEG || story.prepared || !['image', 'video'].includes(story.mediaType)) return;
+  storyMediaQueue.push(story);
+  if (storyMediaBusy) return;
+  storyMediaBusy = true;
+  (async () => {
+    while (storyMediaQueue.length) {
+      const s = storyMediaQueue.shift();
+      if (!storiesList.includes(s)) continue;
+      await prepareStoryMedia(s).catch((e) => console.error('[estados] No se pudo preparar el archivo:', e.message));
+      if (storiesList.includes(s)) saveStories();
+    }
+    storyMediaBusy = false;
+  })();
+}
+// Al arrancar: los estados que aún no tienen miniatura ni vídeo ligero
+setTimeout(() => storiesList.forEach(queueStoryMedia), 20_000).unref?.();
 
 // ════════════════════════════════════════════════════════════════
 //  PRIVACIDAD — quién ve mi última vez, mi foto de perfil y mis estados
@@ -2758,6 +2834,28 @@ router.get('/admin/calls', adminAuth, (_req, res) => {
   for (const calls of callLogStore.values()) if (Array.isArray(calls)) all.push(...calls);
   all.sort((a, b) => (b.ts || b.timestamp || 0) - (a.ts || a.timestamp || 0));
   res.json({ calls: all.slice(0, 200) });
+});
+
+// ── Apps del menú emergente que se pueden ocultar (Social y Karaoke: ocultas hasta que el administrador las muestre) ──
+const APP_FEATURES = ['social', 'karaoke'];
+const appFeatures = { social: false, karaoke: false, ...loadJSON('app_features.json', {}) };
+const saveAppFeatures = () => saveJSON('app_features.json', appFeatures);
+
+/** GET /app/features — { social, karaoke }: qué apps salen en el menú (público: no tiene datos de nadie) */
+router.get('/app/features', (_req, res) => res.json(appFeatures));
+
+/** GET /admin/features — lo mismo, para el panel */
+router.get('/admin/features', adminAuth, (_req, res) => res.json(appFeatures));
+
+/** PUT /admin/features — { social?: bool, karaoke?: bool } mostrar u ocultar cada app */
+router.put('/admin/features', adminAuth, (req, res) => {
+  const body = req.body || {};
+  const keys = Object.keys(body);
+  if (!keys.length || keys.some(k => !APP_FEATURES.includes(k) || typeof body[k] !== 'boolean'))
+    return res.status(400).json({ error: 'Datos no válidos' });
+  for (const k of keys) appFeatures[k] = body[k];
+  saveAppFeatures();
+  res.json(appFeatures);
 });
 
 // ── Directos: quién puede emitir y registro de grabaciones ─────────

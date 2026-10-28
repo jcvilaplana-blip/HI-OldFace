@@ -797,7 +797,7 @@ export default function ChatPage() {
 
         <div style={{ flex: 1, minWidth: 0, cursor: isGroup ? 'pointer' : 'default' }} onClick={() => isGroup && setShowGroupInfo(true)}>
           <p style={{ fontWeight: 700, fontSize: 18, color: T.textPrimary, margin: 0, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{headerName}</p>
-          <p style={{ fontSize: 12, color: isGroup ? T.textMuted : (presenceInfo.online ? (isDark ? '#7FA3D1' : BRAND) : T.textMuted), margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <p style={{ fontSize: 12, color: isGroup ? T.textMuted : (presenceInfo.online ? (isDark ? '#7FA3D1' : BRAND) : T.textMuted), margin: '2px 0 0', lineHeight: 1.25, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
             {isGroup
               ? (Object.keys(memberNames).length ? tr('Grupo · {length} miembros', { length: Object.keys(memberNames).length }) : tr('Grupo'))
               : presenceInfo.online

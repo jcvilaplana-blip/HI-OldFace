@@ -48,6 +48,7 @@ const TABLES = [
   { file: 'live_withdrawals.json',   table: 'live_withdrawals',   kind: 'map',  cols: { owner_id: 'ownerId', status: 'status' } },
   { file: 'live_settings.json',      table: 'app_docs',           kind: 'doc' },
   { file: 'ai_usage.json',           table: 'app_docs',           kind: 'doc' },
+  { file: 'app_features.json',       table: 'app_docs',           kind: 'doc' },
 ];
 
 /** Registros que solo se añaden (nunca se leen al arrancar): una fila por línea */

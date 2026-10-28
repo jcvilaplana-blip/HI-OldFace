@@ -79,6 +79,8 @@ export default function HomePage() {
   useBackClose(showMenu,        () => setShowMenu(false));
   useBackClose(showGroups,      () => setShowGroups(false));
   useBackClose(showGroupCreate, () => setShowGroupCreate(false));
+  // En Estados, Llamadas o Contactos, Atrás vuelve a la pestaña Chats
+  useBackClose(activeTab !== 'chats', () => setActiveTab('chats'));
 
   // Los grupos salen en la lista de chats y también en el botón "Grupos" de la barra inferior
   const isGroupChat  = (c) => c.isGroup || String(c.id).startsWith('group_');

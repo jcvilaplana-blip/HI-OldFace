@@ -76,15 +76,28 @@ async function uploadFile(blob, userId) {
 // al entrar en Estados se ve al instante y después se actualiza. Las fotos se precargan para que salgan sin espera.
 const storyCache = new Map();   // userId → { stories, authors, limits }
 const warmed = new Set();       // fotos ya precargadas
+const warmVideos = [];          // los últimos vídeos que se están precargando (como mucho 2)
 
-function preloadStory(story) {
-  if (story?.mediaType !== 'image') return;
-  const src = mediaSrc(story.content);
+function warmImage(src) {
   if (!src || warmed.has(src) || warmed.size > 200) return;
   warmed.add(src);
   const img = new Image();
   img.decoding = 'async';
   img.src = src;
+}
+
+/** Precarga un estado: la miniatura (si la hay), la foto o el principio del vídeo */
+function preloadStory(story, withVideo = false) {
+  if (story?.thumb) warmImage(mediaSrc(story.thumb));
+  if (story?.mediaType === 'image') { warmImage(mediaSrc(story.content)); return; }
+  if (story?.mediaType !== 'video' || !withVideo) return;
+  const src = mediaSrc(story.content);
+  if (!src || warmVideos.some(v => v.dataset.src === src)) return;
+  const v = document.createElement('video');
+  v.preload = 'auto'; v.muted = true; v.playsInline = true;
+  v.dataset.src = src; v.src = src; v.load();
+  warmVideos.push(v);
+  if (warmVideos.length > 2) { const old = warmVideos.shift(); old.removeAttribute('src'); old.load(); }
 }
 
 /** Pide los estados y los deja en memoria (devuelve los datos, o null si falla) */
@@ -297,6 +310,8 @@ function Ring({ T, count, seen, empty, children }) {
 /** Miniatura del último estado de una persona */
 function Thumb({ story, name, avatar }) {
   const fill = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' };
+  // Miniatura pequeña del servidor (los estados antiguos no la tienen: foto entera o fotograma del vídeo)
+  if (story?.thumb) return <img src={mediaSrc(story.thumb)} alt="" decoding="async" style={fill} />;
   if (story?.mediaType === 'image') return <img src={mediaSrc(story.content)} alt="" decoding="async" style={fill} />;
   if (story?.mediaType === 'video') return <video src={`${mediaSrc(story.content)}#t=0.5`} muted playsInline preload="metadata" style={fill} />;
   if (story?.mediaType === 'text') {
@@ -630,10 +645,10 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
 
   // Precargar el siguiente estado (de esta persona o de la siguiente) para que salga sin espera
   useEffect(() => {
-    if (viewer.idx < list.length - 1) { preloadStory(list[viewer.idx + 1]); return; }
+    if (viewer.idx < list.length - 1) { preloadStory(list[viewer.idx + 1], true); return; }
     for (let u = viewer.ui + 1; u < viewer.queue.length; u++) {
       const l = storiesOf(viewer.queue[u]);
-      if (l.length) { preloadStory(l[Math.max(0, l.findIndex(s => !s.seen))]); return; }
+      if (l.length) { preloadStory(l[Math.max(0, l.findIndex(s => !s.seen))], true); return; }
     }
   }, [story?.id]); // eslint-disable-line
 
@@ -735,9 +750,13 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
 
       {/* Contenido: tocar a la izquierda = anterior, a la derecha = siguiente */}
       <div style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {story.mediaType === 'image' && <img src={mediaSrc(story.content)} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />}
+        {/* Mientras llega la foto o arranca el vídeo se ve ya su miniatura */}
+        {story.mediaType === 'image' && <img key={story.id} src={mediaSrc(story.content)} alt=""
+          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain',
+                   ...(story.thumb ? { background: `url("${mediaSrc(story.thumb)}") center / contain no-repeat` } : {}) }} />}
         {story.mediaType === 'video' && (
-          <video key={story.id} src={mediaSrc(story.content)} autoPlay playsInline onEnded={goNext}
+          <video key={story.id} src={mediaSrc(story.content)} poster={story.thumb ? mediaSrc(story.thumb) : undefined}
+            autoPlay playsInline preload="auto" onEnded={goNext}
             style={{ maxWidth: '100%', maxHeight: '100%' }} />
         )}
         {story.mediaType === 'text' && (

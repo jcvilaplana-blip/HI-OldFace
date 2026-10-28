@@ -292,6 +292,12 @@
 
         <!-- ── OVERVIEW ── -->
         <div class="section active" id="s-overview">
+          <!-- Apps del menú emergente que se pueden ocultar -->
+          <div class="table-card" style="padding:18px 20px">
+            <h3 style="font-size:15px;font-weight:700;margin-bottom:4px">Apps del menú emergente</h3>
+            <p class="stat-sub">Ocultas no aparecen en el menú de la app. Se aplica al abrir el menú, sin instalar nada.</p>
+            <div id="feat-list" style="display:flex;flex-direction:column;gap:10px;margin-top:14px"><span class="spinner"></span></div>
+          </div>
           <div class="stats-grid">
             <div class="stat-card"><div class="stat-label">Usuarios</div><div class="stat-value" id="st-users"><span class="spinner"></span></div><div class="stat-icon">👤</div></div>
             <div class="stat-card"><div class="stat-label">Activos hoy</div><div class="stat-value" id="st-active">—</div><div class="stat-icon">🟢</div></div>
@@ -763,6 +769,26 @@ async function initDashboard() {
   await Promise.all([loadStats(), loadUsers()]);
   renderOverview();
   renderPlanCards();
+  loadFeatures();
+}
+
+// ── Apps del menú emergente: Mostrar / Ocultar ───────────────
+const FEATURE_NAMES = { social: '✨ Social', karaoke: '🎤 Karaoke' };
+async function loadFeatures() {
+  try { renderFeatures(await apiP('/api/admin/features')); }
+  catch (e) { set('feat-list', ''); toast(e.message, 'er'); }
+}
+function renderFeatures(f) {
+  document.getElementById('feat-list').innerHTML = Object.keys(FEATURE_NAMES).map(k => `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div><b>${FEATURE_NAMES[k]}</b> <span class="stat-sub">· ${f[k] ? '🟢 Visible en la app' : '⚪ Oculta'}</span></div>
+      <button class="btn-pri" style="${f[k] ? 'background:#64748b' : ''}" onclick="toggleFeature('${k}', ${!f[k]})">${f[k] ? 'Ocultar' : 'Mostrar'}</button>
+    </div>`).join('');
+}
+async function toggleFeature(key, show) {
+  try { renderFeatures(await apiP('/api/admin/features', { method: 'PUT', body: JSON.stringify({ [key]: show }) }));
+        toast(`${FEATURE_NAMES[key].replace(/^\S+\s/, '')}: ${show ? 'visible' : 'oculta'}`, 'ok'); }
+  catch (e) { toast(e.message, 'er'); }
 }
 
 // ── API ──────────────────────────────────────────────────────
