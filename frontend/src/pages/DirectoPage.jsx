@@ -4,8 +4,10 @@
  *   · Grabaciones: los directos terminados de todos los canales que puedo ver (se graban solos en el servidor).
  *   · Mi canal: mis grabaciones (editar, publicar/ocultar, borrar). Solo si puedo emitir.
  * Emitir: de momento solo las cuentas autorizadas en el Administrador (GET /directos/permissions).
- * Cada directo es SOLO para mis contactos (todos o los que elija). Si tiene precio, cada contacto lo paga (o canjea
- * un código que le mando) para verlo en vivo y su grabación.
+ * Cada directo es Público (cualquier usuario de OldFace) o solo para mis contactos (todos o los que elija). Si tiene
+ * precio, cada espectador lo paga (o canjea un código que le mando) para verlo en vivo y su grabación.
+ * Aspecto de Social (2026-11-11): "OldFace DIRECTO", "Todos los directos", tarjetas en 2 columnas con Seguir y barra
+ * inferior Explorar · Mi canal · Social · OldFace.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -16,10 +18,13 @@ import { useBackClose } from '../utils/backHandler';
 import { getPermissions, listDirectos, saveDirecto, deleteDirecto, listRecordings, formatMoney } from '../utils/directos';
 import { RecordingsGrid, RecordingFeed, ChannelView } from '../components/LiveRecordings';
 import { PaySheet, CodesSheet } from '../components/LivePay';
+import { useSocialTheme, Icon, ChannelAvatar, chip } from '../components/SocialUI.jsx';
+import { DirectoBrand, gradientFor } from './DirectoLivePage.jsx';
+import * as social from '../utils/social';
 import { tr, LOCALE } from '../i18n';
 
 const BRAND = '#3D5A80';
-const RED   = '#ef4444';
+const RED   = '#F0174B';   // el rojo de Social y Directos
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function formatScheduled(iso) {
@@ -34,7 +39,8 @@ function statusLabel(status) {
   return                             { text: tr('Programado'),   color: 'var(--accent-text)',    bg: 'var(--accent-dim)' };
 }
 
-const visibilityLabel = (d) => (d.contacts?.length ? tr('{n} contactos', { n: d.contacts.length }) : tr('Mis contactos'));
+const visibilityLabel = (d) => (d.visibility === 'public' ? tr('Público')
+  : d.contacts?.length ? tr('{n} contactos', { n: d.contacts.length }) : tr('Mis contactos'));
 
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function DirectoPage() {
@@ -83,12 +89,12 @@ export default function DirectoPage() {
   // "En directo ahora": primero se elige si es gratis o de pago (para mis contactos) y se empieza a emitir al instante
   const [quickLive, setQuickLive] = useState(false);
   const [goingLive, setGoingLive] = useState(false);
-  const goLiveNow = async (price) => {
+  const goLiveNow = async (price, visibility = 'contacts') => {
     if (goingLive) return;
     setGoingLive(true);
     setError('');
     try {
-      const d = await saveDirecto(null, { title: tr('Directo de {p0}', { p0: user.name || 'OldFace' }), visibility: 'contacts', price });
+      const d = await saveDirecto(null, { title: tr('Directo de {p0}', { p0: user.name || 'OldFace' }), visibility, price });
       setQuickLive(false);
       navigate(`/directo/${d.id}/live`);
     } catch (e) {
@@ -123,67 +129,65 @@ export default function DirectoPage() {
     } catch (e) { setError(e.message); }
   };
 
-  const tabs = [['live', tr('Directos')], ['recordings', tr('Grabaciones')], ...(canCreate ? [['mine', tr('Mi canal')]] : [])];
+  // ── Aspecto de Social (rojo, claro u oscuro), buscador y "Seguir" de los canales ──
+  const S = useSocialTheme();
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery]         = useState('');
+  const q = query.trim().toLowerCase();
+  const match = (d) => !q || `${d.title} ${d.creatorName || ''} ${d.description || ''}`.toLowerCase().includes(q);
+  const liveNow = directos.filter(d => d.status === 'live' && match(d));
+  // Los que no están en vivo: programados de otros y todos los míos (los terminados de otros ya están en Grabaciones)
+  const others = directos.filter(d => d.status !== 'live' && match(d) && (d.status === 'scheduled' || d.creatorId === user?.id));
+  const [channels, setChannels] = useState({});   // creatorId → canal de Social (o null si no tiene)
+  useEffect(() => {
+    const missing = [...new Set(directos.filter(d => d.status === 'live').map(d => d.creatorId))].filter(id => !(id in channels));
+    if (!missing.length) return;
+    Promise.all(missing.map(id => social.getChannel(id).then(c => [id, c]).catch(() => [id, null])))
+      .then(list => setChannels(c => ({ ...c, ...Object.fromEntries(list) })));
+  }, [directos]); // eslint-disable-line
+  const followCreator = async (id) => {
+    try { await social.follow(id); setChannels(c => ({ ...c, [id]: { ...c[id], followed: true } })); }
+    catch (e) { setError(e.message); }
+  };
+
+  const tabs = [['live', tr('En vivo ahora')], ['recordings', tr('Grabaciones')], ...(canCreate ? [['mine', tr('Mi canal')]] : [])];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg-section)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: S.bg, color: S.text }}>
 
-      {/* Header */}
-      <div style={{
-        background: RED, color: 'white', flexShrink: 0,
-        paddingTop: 'var(--sat)',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px 10px' }}>
-          <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 19l-7-7 7-7"/>
-            </svg>
+      {/* Cabecera: OldFace DIRECTO, buscador y pestañas */}
+      <div style={{ background: S.surface, flexShrink: 0, paddingTop: 'var(--sat)', borderBottom: `1px solid ${S.border}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px 6px' }}>
+          <button onClick={() => navigate(-1)} aria-label={tr('Atrás')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: S.text }}>
+            <Icon name="back" size={24} />
           </button>
-
-          {/* Antena pulsante */}
-          <div style={{ position: 'relative', width: 36, height: 36 }}>
-            <div style={{
-              position: 'absolute', inset: 0, borderRadius: '50%',
-              background: 'rgba(255,255,255,0.3)',
-              animation: 'pulse 1.8s ease-in-out infinite',
-            }}/>
-            <div style={{
-              position: 'relative', width: 36, height: 36, borderRadius: '50%',
-              background: 'white',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <img src="/emblema-directos.png" alt="" style={{ width: 26, height: 26, objectFit: 'contain' }} />
-            </div>
-          </div>
-
-          <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 18, fontWeight: 900, margin: 0, lineHeight: 1.1 }}>{tr('DIRECTO')}</h1>
-            <p style={{ fontSize: 11, margin: 0, opacity: 0.8 }}>
-              {canCreate ? tr('Crea y gestiona tus directos') : tr('Directos disponibles')}
-            </p>
-          </div>
-
+          <DirectoBrand color={S.text} />
+          <div style={{ flex: 1 }} />
           {canCreate && tab === 'live' && (
-            <button
-              onClick={() => { setEditing(null); setShowForm(true); }}
-              style={{
-                background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 20,
-                padding: '6px 14px', color: 'white', fontWeight: 800, fontSize: 13, cursor: 'pointer',
-              }}
-            >{tr('+ Nuevo')}</button>
+            <button onClick={() => { setEditing(null); setShowForm(true); }} style={{ ...chip(S, false), padding: '8px 13px' }}>{tr('+ Nuevo')}</button>
           )}
+          <button onClick={() => { setSearching(s => !s); setQuery(''); }} aria-label={tr('Buscar')}
+                  style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', background: S.chip, color: S.text, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Icon name={searching ? 'close' : 'search'} size={20} />
+          </button>
         </div>
-
-        {/* Pestañas */}
-        <div style={{ display: 'flex', gap: 4, padding: '0 10px' }}>
-          {tabs.map(([key, label]) => (
-            <button key={key} onClick={() => setTab(key)} style={{
-              flex: 1, background: 'none', border: 'none', color: 'white', cursor: 'pointer',
-              padding: '8px 4px 10px', fontSize: 13, fontWeight: tab === key ? 900 : 600, opacity: tab === key ? 1 : 0.75,
-              borderBottom: `3px solid ${tab === key ? 'white' : 'transparent'}`,
-            }}>{label}</button>
-          ))}
+        {searching && (
+          <div style={{ padding: '4px 14px 2px' }}>
+            <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder={tr('Buscar por nombre o título')}
+                   style={{ width: '100%', boxSizing: 'border-box', padding: '11px 16px', borderRadius: 999, border: 'none', background: S.chip, color: S.text, fontSize: 15, outline: 'none' }} />
+          </div>
+        )}
+        <div style={{ padding: '6px 14px 12px' }}>
+          <h1 style={{ margin: '0 0 10px', fontSize: 24, fontWeight: 900, letterSpacing: -0.4 }}>{tr('Todos los directos')}</h1>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {tabs.map(([key, label]) => (
+              <button key={key} onClick={() => setTab(key)} style={{
+                flex: 1, border: 'none', cursor: 'pointer', borderRadius: 999, padding: '10px 6px', fontSize: 14, fontWeight: 800,
+                background: tab === key ? RED : S.chip, color: tab === key ? 'white' : S.sub,
+                boxShadow: tab === key ? '0 6px 16px rgba(240,23,75,0.35)' : 'none',
+              }}>{label}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -192,7 +196,7 @@ export default function DirectoPage() {
         @keyframes spin { to { transform: rotate(360deg) } }
       `}</style>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 0 calc(84px + env(safe-area-inset-bottom, 0px))' }}>
         {error && (
           <p style={{ fontSize: 12, color: RED, background: 'rgba(239,68,68,0.14)', padding: '10px 14px', borderRadius: 10, margin: '0 12px 12px' }}>{error}</p>
         )}
@@ -222,19 +226,32 @@ export default function DirectoPage() {
               </div>
             )}
 
-            {!loading && directos.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '60px 24px', color: 'var(--text-muted)' }}>
-                <img src="/emblema-directos.png" alt="" style={{ width: 64, height: 64, objectFit: 'contain', margin: '0 auto 16px', display: 'block', opacity: 0.45 }} />
-                <p style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-secondary)', margin: '0 0 6px' }}>
-                  {canCreate ? tr('Ningún directo creado') : tr('No hay directos disponibles')}
+            {!loading && liveNow.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '36px 24px 24px', color: S.muted }}>
+                <img src="/emblema-directos.png" alt="" style={{ width: 64, height: 64, objectFit: 'contain', margin: '0 auto 14px', display: 'block', opacity: 0.45 }} />
+                <p style={{ fontWeight: 800, fontSize: 15, color: S.text, margin: '0 0 6px' }}>
+                  {q ? tr('Ningún directo coincide con «{q}»', { q: query.trim() }) : tr('Ahora mismo no hay nadie en directo')}
                 </p>
-                <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
-                  {canCreate ? tr('Pulsa "+ Nuevo" para crear tu primer directo') : tr('Mira las grabaciones de los directos anteriores en "Grabaciones"')}
-                </p>
+                <p style={{ fontSize: 13, margin: 0 }}>{tr('Mira las grabaciones de los directos anteriores en "Grabaciones"')}</p>
               </div>
             )}
 
-            {!loading && directos.map(d => (
+            {/* En vivo ahora: 2 columnas */}
+            {!loading && liveNow.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '16px 10px', padding: '0 14px' }}>
+                {liveNow.map(d => (
+                  <LiveCard key={d.id} S={S} d={d} ch={channels[d.creatorId]} mine={d.creatorId === user?.id}
+                    onWatch={() => watch(d)} onFollow={() => followCreator(d.creatorId)}
+                    onOpenChannel={channels[d.creatorId] ? () => navigate(`/social/canal/${encodeURIComponent(d.creatorId)}`) : () => setChannel(d.creatorId)} />
+                ))}
+              </div>
+            )}
+
+            {/* Programados y los míos (gestión) */}
+            {!loading && others.length > 0 && (
+              <p style={{ margin: '24px 14px 10px', fontSize: 17, fontWeight: 800 }}>{canCreate ? tr('Programados y mis directos') : tr('Programados')}</p>
+            )}
+            {!loading && others.map(d => (
               <DirectoCard
                 key={d.id}
                 directo={d}
@@ -261,6 +278,23 @@ export default function DirectoPage() {
 
         {/* ── Mi canal ── */}
         {tab === 'mine' && user?.id && <ChannelView ownerId={user.id} embedded />}
+      </div>
+
+      {/* Barra inferior: Explorar · Mi canal · Social · OldFace */}
+      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 40, background: S.surface, borderTop: `1px solid ${S.border}`, display: 'flex', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+        {[
+          ['explore', <Icon name="compass" size={25} stroke={1.9} />, tr('Explorar'), () => setTab('live'), tab !== 'mine'],
+          ['channel', <Icon name="user" size={25} stroke={1.9} />, tr('Mi canal'), () => (canCreate ? setTab('mine') : navigate(`/social/canal/${encodeURIComponent(user?.id || '')}`)), tab === 'mine'],
+          ['social', <img src="/logo-oldface.png" alt="" style={{ width: 26, height: 26, objectFit: 'contain', filter: 'hue-rotate(140deg) saturate(1.6)' }} />, tr('Social'), () => navigate('/social'), false],
+          ['oldface', <img src="/logo-oldface.png" alt="" style={{ width: 26, height: 26, objectFit: 'contain' }} />, 'OldFace', () => navigate('/'), false],
+        ].map(([id, icon, label, onClick, on]) => (
+          <button key={id} onClick={onClick} style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                   padding: '8px 0 6px', color: on ? RED : S.sub, position: 'relative' }}>
+            {icon}
+            <span style={{ fontSize: 11.5, fontWeight: on ? 800 : 600 }}>{label}</span>
+            {on && <span style={{ position: 'absolute', bottom: 0, width: 34, height: 3, borderRadius: 3, background: RED }} />}
+          </button>
+        ))}
       </div>
 
       {/* Modal crear/editar */}
@@ -292,11 +326,39 @@ export default function DirectoPage() {
   );
 }
 
-// ── "En directo ahora": ¿gratis o de pago? (siempre solo para mis contactos) ──
+// ── Tarjeta de un directo en vivo (2 columnas): EN VIVO, quién emite, título y Seguir ──
+function LiveCard({ S, d, ch, mine, onWatch, onFollow, onOpenChannel }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div onClick={onWatch} style={{ position: 'relative', aspectRatio: '4 / 3', borderRadius: 14, overflow: 'hidden', cursor: 'pointer', background: gradientFor(d.creatorName),
+           display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 44, fontWeight: 900 }}>
+        {ch?.cover ? <img src={ch.cover} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} /> : (d.creatorName || '?')[0].toUpperCase()}
+        <span style={{ position: 'absolute', left: 8, top: 8, background: RED, fontSize: 11, fontWeight: 900, padding: '3px 8px', borderRadius: 6 }}>{tr('EN VIVO')}</span>
+        {d.locked && <span style={{ position: 'absolute', right: 8, top: 8, background: 'rgba(0,0,0,0.6)', fontSize: 11, fontWeight: 800, padding: '3px 7px', borderRadius: 6 }}>🔒 {formatMoney(d.price)}</span>}
+        {d.visibility !== 'public' && !d.locked && <span style={{ position: 'absolute', right: 8, top: 8, background: 'rgba(0,0,0,0.55)', fontSize: 10.5, fontWeight: 800, padding: '3px 7px', borderRadius: 6 }}>👥</span>}
+        <span style={{ position: 'absolute', left: 8, bottom: 8 }}>
+          <ChannelAvatar author={{ name: ch?.name || d.creatorName, avatar: ch?.avatar }} size={34} ring ringBg="#fff" />
+        </span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 7 }}>
+        <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={onOpenChannel}>
+          <p style={{ margin: 0, fontWeight: 800, fontSize: 14.5, color: S.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ch?.name || d.creatorName}</p>
+          <p style={{ margin: 0, fontSize: 12.5, color: S.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.title}</p>
+        </div>
+        {!mine && ch && !ch.followed && (
+          <button onClick={onFollow} style={{ background: RED, color: 'white', border: 'none', borderRadius: 999, padding: '6px 12px', fontWeight: 800, fontSize: 12.5, cursor: 'pointer', flexShrink: 0 }}>{tr('Seguir')}</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── "En directo ahora": ¿para quién (público o mis contactos)? ¿gratis o de pago? ──
 function QuickLiveSheet({ busy, onClose, onChoose }) {
   useBackClose(true, onClose);
   const [paid, setPaid]   = useState(false);
   const [price, setPrice] = useState('3');
+  const [visibility, setVisibility] = useState('contacts');
   const option = (isPaid, title, sub) => (
     <button onClick={() => setPaid(isPaid)} disabled={busy} style={{
       display: 'block', width: '100%', textAlign: 'left', padding: '14px 16px', marginBottom: 10,
@@ -310,21 +372,41 @@ function QuickLiveSheet({ busy, onClose, onChoose }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end' }}>
       <div onClick={e => e.stopPropagation()} style={{ width: '100%', background: 'var(--bg-surface)', borderRadius: '24px 24px 0 0', padding: '18px 16px calc(18px + env(safe-area-inset-bottom, 0px))', boxSizing: 'border-box' }}>
-        <h2 style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 4px' }}>{tr('Tu directo para tus contactos')}</h2>
-        <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 14px' }}>{tr('Solo lo ven tus contactos. Se graba solo y al terminar queda en tu canal con las mismas condiciones.')}</p>
-        {option(false, tr('Gratis'), tr('Todos tus contactos pueden verlo y reciben el aviso'))}
-        {option(true, tr('De pago'), tr('Tus contactos pagan para verlo (o usan un código que les envíes)'))}
+        <h2 style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 4px' }}>{tr('Tu directo')}</h2>
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 12px' }}>{tr('Se graba solo y al terminar queda en tu canal con las mismas condiciones.')}</p>
+        <VisibilityPicker value={visibility} onChange={setVisibility} disabled={busy} />
+        {option(false, tr('Gratis'), visibility === 'public' ? tr('Cualquiera puede verlo; avisamos a tus contactos y seguidores') : tr('Todos tus contactos pueden verlo y reciben el aviso'))}
+        {option(true, tr('De pago'), visibility === 'public' ? tr('Cualquiera paga para verlo (o usa un código que le envíes)') : tr('Tus contactos pagan para verlo (o usan un código que les envíes)'))}
         {paid && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0 12px' }}>
             <input value={price} onChange={e => setPrice(e.target.value)} inputMode="decimal" style={{ ...inputStyle, width: 100 }} />
             <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{tr('€ por persona (de 1 a 200 €)')}</span>
           </div>
         )}
-        <button onClick={() => onChoose(paid ? value : 0)} disabled={busy || (paid && !(value >= 1 && value <= 200))} style={{
+        <button onClick={() => onChoose(paid ? value : 0, visibility)} disabled={busy || (paid && !(value >= 1 && value <= 200))} style={{
           width: '100%', padding: 15, border: 'none', borderRadius: 14, background: RED, color: 'white', fontSize: 15, fontWeight: 900, cursor: 'pointer',
           opacity: busy || (paid && !(value >= 1 && value <= 200)) ? 0.6 : 1,
         }}>{busy ? tr('Preparando…') : paid ? tr('Empezar directo · {p0}', { p0: formatMoney(value) }) : tr('Empezar directo gratis')}</button>
       </div>
+    </div>
+  );
+}
+
+/** Público (cualquier usuario de OldFace) o Solo mis contactos */
+function VisibilityPicker({ value, onChange, disabled }) {
+  const opt = (id, title, sub) => (
+    <button key={id} type="button" onClick={() => onChange(id)} disabled={disabled} style={{
+      flex: 1, textAlign: 'left', padding: '11px 12px', borderRadius: 14, cursor: 'pointer',
+      background: value === id ? 'rgba(239,68,68,0.14)' : 'var(--bg-section)', border: `1.5px solid ${value === id ? RED : 'var(--border-strong)'}`,
+    }}>
+      <span style={{ display: 'block', fontSize: 14, fontWeight: 900, color: value === id ? RED : 'var(--text-primary)' }}>{title}</span>
+      <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>{sub}</span>
+    </button>
+  );
+  return (
+    <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+      {opt('public', `🌐 ${tr('Público')}`, tr('Cualquier usuario de OldFace'))}
+      {opt('contacts', `👥 ${tr('Solo mis contactos')}`, tr('Todos o los que elijas'))}
     </div>
   );
 }
@@ -447,8 +529,8 @@ function DirectoForm({ initial, onClose, onSaved }) {
     initial?.scheduledAt ? new Date(initial.scheduledAt).toISOString().slice(0, 16) : ''
   );
   const [price,       setPrice]       = useState(initial?.price       ?? 0);
-  // Siempre solo para mis contactos (todos o los que elija)
-  const visibility = 'contacts';
+  // Público (cualquier usuario de OldFace) o solo mis contactos (todos o los que elija)
+  const [visibility, setVisibility] = useState(initial?.visibility === 'public' ? 'public' : 'contacts');
   const [selected,    setSelected]    = useState(new Set(initial?.contacts || []));
   // Sin contactos elegidos = lo ven todos mis contactos (nunca nadie más)
   const [shareAll,    setShareAll]    = useState(!initial?.contacts?.length);
@@ -467,7 +549,7 @@ function DirectoForm({ initial, onClose, onSaved }) {
 
   const handleSave = async () => {
     if (!title.trim()) { setError(tr('El nombre del directo es obligatorio')); return; }
-    if (!shareAll && selected.size === 0) { setError(tr('Elige al menos un contacto')); return; }
+    if (visibility === 'contacts' && !shareAll && selected.size === 0) { setError(tr('Elige al menos un contacto')); return; }
     const p = Number(String(price).replace(',', '.')) || 0;
     if (p < 0 || (p > 0 && (p < 1 || p > 200))) { setError(tr('El precio debe ser 0 (gratis) o de 1 a 200 €')); return; }
     setSaving(true);
@@ -478,7 +560,7 @@ function DirectoForm({ initial, onClose, onSaved }) {
         description: description.trim(),
         scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
         visibility,
-        contacts:    !shareAll ? [...selected] : [],
+        contacts:    visibility === 'contacts' && !shareAll ? [...selected] : [],
         price:       Number(String(price).replace(',', '.')) || 0,
       }));
     } catch (e) {
@@ -566,7 +648,7 @@ function DirectoForm({ initial, onClose, onSaved }) {
                 style={{ ...inputStyle, width: 100 }}
               />
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                {!(Number(String(price).replace(',', '.')) > 0) ? tr('Gratis para tus contactos')
+                {!(Number(String(price).replace(',', '.')) > 0) ? (visibility === 'public' ? tr('Gratis') : tr('Gratis para tus contactos'))
                   : tr('{p0} por persona · mínimo 1 €', { p0: formatMoney(Number(String(price).replace(',', '.'))) })}
               </span>
             </div>
@@ -577,9 +659,12 @@ function DirectoForm({ initial, onClose, onSaved }) {
             )}
           </Field>
 
-          {/* Quién puede verlo: solo contactos */}
+          {/* Quién puede verlo: público o mis contactos */}
           <Field label={tr('Quién puede verlo')}>
-            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 4px' }}>{tr('Solo tus contactos lo verán y recibirán el aviso.')}</p>
+            <VisibilityPicker value={visibility} onChange={setVisibility} disabled={saving} />
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 4px' }}>
+              {visibility === 'public' ? tr('Cualquier usuario de OldFace podrá verlo. Avisamos a tus contactos y a tus seguidores de Social.') : tr('Solo tus contactos lo verán y recibirán el aviso.')}
+            </p>
 
             {visibility === 'contacts' && (
               <>

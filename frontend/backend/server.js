@@ -1992,6 +1992,7 @@ function deleteAccount(userId) {
   saveContacts(); saveStoryPrivacy();
   muteStore.delete(userId); reminderStore.delete(userId); saveMutes(); saveReminders();   // silencios y recordatorios
   ai.forgetUser(userId);   // contador de uso y acciones pendientes de Willy
+  social.forgetUser(userId);   // canal, publicaciones, comentarios, seguidores y avisos de Social
   rtcEmit(userId, 'device:revoked', { deviceId: '*' });   // cierra la sesión en sus otros dispositivos abiertos
 }
 
@@ -2403,12 +2404,13 @@ let liveSettings = loadJSON('live_settings.json', { mode: 'admin', broadcasters:
 const saveLiveSettings = () => saveJSON('live_settings.json', liveSettings);
 const liveRecStore = new Map(Object.entries(loadJSON('live_recordings.json', {})));   // id → grabación
 const saveLiveRecs = () => saveJSON('live_recordings.json', Object.fromEntries(liveRecStore));
-const LIVE_VISIBILITY = ['contacts'];
-// Los directos y grabaciones que eran públicos pasan a ser solo para contactos (una vez)
+// Público (cualquier usuario con sesión, decidido 2026-11-10 con Social) o solo contactos
+const LIVE_VISIBILITY = ['contacts', 'public'];
+// Los directos y grabaciones con una visibilidad desconocida pasan a ser solo para contactos
 (function contactsOnly() {
   let d = 0, r = 0;
-  for (const x of directoStore.values()) if (x.visibility !== 'contacts') { x.visibility = 'contacts'; d++; }
-  for (const x of liveRecStore.values()) if (x.visibility !== 'contacts') { x.visibility = 'contacts'; r++; }
+  for (const x of directoStore.values()) if (!LIVE_VISIBILITY.includes(x.visibility)) { x.visibility = 'contacts'; d++; }
+  for (const x of liveRecStore.values()) if (!LIVE_VISIBILITY.includes(x.visibility)) { x.visibility = 'contacts'; r++; }
   if (d) saveDirectos();
   if (r) saveLiveRecs();
   if (d || r) console.log(`[directos] ${d} directos y ${r} grabaciones pasan a "solo contactos"`);
@@ -2434,8 +2436,12 @@ function requireSession(req, res) {
 const pickedUserIds = (list) => (Array.isArray(list) ? list : [])
   .map(c => findUserById(c)?.userId || userStore.get(normalizePhone(String(c)))?.userId).filter(Boolean);
 
-/** Quién puede ver algo de `ownerId` compartido con `contacts`: los elegidos o, si no eligió, todos sus contactos */
-function audienceOf(ownerId, _visibility, contacts) {
+/**
+ * Quién puede ver algo de `ownerId` compartido con `contacts`: los elegidos o, si no eligió, todos sus contactos.
+ * Público → null (cualquier usuario con sesión).
+ */
+function audienceOf(ownerId, visibility, contacts) {
+  if (visibility === 'public') return null;
   const set = contacts?.length ? new Set(pickedUserIds(contacts)) : contactsOf(ownerId);
   set.delete(ownerId);
   return set;
@@ -2444,7 +2450,9 @@ const directoAudience = (d) => audienceOf(d.creatorId, d.visibility, d.contacts)
 function canSeeShared(ownerId, visibility, contacts, viewerId) {
   if (!viewerId || !findUserById(viewerId)) return false;
   if (ownerId === viewerId) return true;
-  return audienceOf(ownerId, visibility, contacts).has(viewerId);
+  const aud = audienceOf(ownerId, visibility, contacts);
+  // Lo público tampoco lo ve quien ha bloqueado al emisor (o al que ha bloqueado) en Social
+  return aud === null ? !social.blockedEither(ownerId, viewerId) : aud.has(viewerId);
 }
 const canSeeDirecto = (d, viewerId) => canSeeShared(d.creatorId, d.visibility, d.contacts, viewerId);
 
@@ -2465,7 +2473,7 @@ const canWatchDirecto = (d, viewerId) => canSeeDirecto(d, viewerId)
 /** A los demás no se les enseña con quién lo compartió el anfitrión */
 const directoFor = (d, viewerId) => {
   const creator = findUserById(d.creatorId);
-  const base = { ...d, visibility: 'contacts', creatorName: creator?.name || null, price: livePrice(d),
+  const base = { ...d, visibility: cleanVisibility(d.visibility), creatorName: creator?.name || null, price: livePrice(d),
                  locked: !canWatchDirecto(d, viewerId) };
   return d.creatorId === viewerId ? base : { ...base, contacts: [] };
 };
@@ -2544,16 +2552,20 @@ router.get('/directos/:id', (req, res, next) => {
                     hostCanBroadcast: canBroadcast(d.creatorId), canWatch: canWatchDirecto(d, viewerId) });
 });
 
-/** Avisa a su público de que un directo ha empezado (si es público, a todo OldFace) */
+/**
+ * Avisa a su público de que un directo ha empezado. Si es público: a sus contactos y, en Social, a sus seguidores
+ * (notificación solo a los que tienen la campana activada); nunca a todo OldFace.
+ */
 function notifyLiveStarted(d) {
   const hostName = findUserById(d.creatorId)?.name || 'Alguien';
   const aud = directoAudience(d);
-  const to = aud === null ? [...userStore.values()].map(u => u.userId).filter(id => id !== d.creatorId) : [...aud];
+  const to = aud === null ? [...contactsOf(d.creatorId)].filter(id => !social.blockedEither(d.creatorId, id)) : [...aud];
   for (const userId of to) {
     rtcEmit(userId, 'live:started', { directoId: d.id, title: d.title, hostName });
     const T = pushText(userId);
     pushToUser(userId, T.isLive(hostName), d.title || T.tapToWatch, { type: 'live', directoId: d.id });
   }
+  if (aud === null) social.notifyLive(d, new Set(to));
 }
 
 /** PUT /directos/:id — { userId, …campos, status } solo el anfitrión (Bearer) */
@@ -2721,6 +2733,28 @@ router.delete('/directos/recordings/:id', (req, res) => {
   if (!r || r.ownerId !== userId) return res.status(404).json({ error: 'Grabación no encontrada' });
   deleteLiveRecording(r);
   res.json({ success: true });
+});
+
+// ════════════════════════════════════════════════════════════════
+//  SOCIAL — canales, seguir, publicaciones, comentarios y moderación (social/index.js)
+// ════════════════════════════════════════════════════════════════
+/** ¿Algún mensaje o estado usa este archivo de /uploads? (entonces no se borra con la publicación) */
+function fileInUse(name) {
+  const tail = `/files/${name}`;
+  if (storiesList.some(s => String(s.content || '').endsWith(tail) || String(s.thumb || '').endsWith(tail))) return true;
+  for (const list of messageStore.values()) {
+    for (const m of list) if (String(m.url || '').endsWith(tail) || String(m.replyTo?.url || '').endsWith(tail)) return true;
+  }
+  return false;
+}
+const social = require('./social')({
+  router, authUser, adminAuth: (req, res, next) => adminAuth(req, res, next), loadJSON, saveJSON, findUserById: (id) => findUserById(id),
+  isContactOf, contactsOf, pushToUser, userLang, rtcEmit, absFileUrl, uploadsDir: UPLOADS_DIR, ffmpeg: FFMPEG, fileInUse,
+  // Las grabaciones de directos que el visitante puede ver también cuentan como vídeos y visualizaciones del canal
+  channelExtras: (ownerId, viewerId) => {
+    const recs = [...liveRecStore.values()].filter(r => r.ownerId === ownerId && canSeeRecording(r, viewerId));
+    return { videos: recs.length, views: recs.reduce((n, r) => n + (r.views || 0), 0) };
+  },
 });
 
 // ════════════════════════════════════════════════════════════════

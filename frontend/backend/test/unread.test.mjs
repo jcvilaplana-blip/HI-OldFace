@@ -12,7 +12,7 @@ const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'oldface-unread-'));
 fs.mkdirSync(path.join(DIR, 'data'));
 fs.mkdirSync(path.join(DIR, 'uploads'));
-for (const d of ['ai', 'db', 'payments']) fs.cpSync(path.join(SRC, d), path.join(DIR, d), { recursive: true });
+for (const d of ['ai', 'db', 'payments', 'social']) fs.cpSync(path.join(SRC, d), path.join(DIR, d), { recursive: true });
 fs.copyFileSync(path.join(SRC, 'server.js'), path.join(DIR, 'server.js'));
 fs.copyFileSync(path.join(SRC, 'admin.html'), path.join(DIR, 'admin.html'));
 

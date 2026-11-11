@@ -1,7 +1,7 @@
 /**
  * PopupMenu — Menú emergente OldFace
  * Buscador, 4 acciones destacadas en tarjetas de color (Directo, Social, Taxi, Poll) y la sección "Comunicación"
- * en 2 columnas. Las acciones marcadas como 'soon' (Social, Archivos) se desarrollarán más adelante.
+ * en 2 columnas. Las acciones marcadas como 'soon' (Archivos) se desarrollarán más adelante.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -39,7 +39,7 @@ const ITEMS = {
   },
   social: {
     label: tr('Social'),
-    action: 'soon',
+    route: '/social',
     icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
       d="M4 5a2 2 0 012-2h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V5z
          M8 8h8M8 12h8M8 16h5"/>`

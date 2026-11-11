@@ -2,5 +2,6 @@
 import en1 from './en1.js';
 import en2 from './en2.js';
 import en3 from './en3.js';
+import en4 from './en4.js';
 
-export default { ...en1, ...en2, ...en3 };
+export default { ...en1, ...en2, ...en3, ...en4 };

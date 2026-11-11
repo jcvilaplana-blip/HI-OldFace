@@ -116,7 +116,7 @@ export function prefetchStories(userId) {
 }
 
 // ══ Lista ════════════════════════════════════════════════════════════════════
-export default function StatusList({ user, T, isDark, compact = false, onSeeAll, query = '' }) {
+export default function StatusList({ user, T, isDark, compact = false, onSeeAll, query = '', row = false, accent = BRAND }) {
   const cached = storyCache.get(user?.id);
   const [stories, setStories]   = useState(cached?.stories || []);
   const [authors, setAuthors]   = useState(cached?.authors || {});
@@ -180,6 +180,52 @@ export default function StatusList({ user, T, isDark, compact = false, onSeeAll,
   const shownRecent = compact ? [...recent, ...seen].slice(0, 3) : recent;
   const hidden = compact ? people.length - shownRecent.length : 0;
 
+  const modals = (
+    <>
+      {creating && (
+        <StatusCreator user={user} T={T} isDark={isDark} counts={counts} limits={limits}
+          onClose={() => setCreating(false)}
+          onPublished={() => { setCreating(false); fetchStories(); }} />
+      )}
+
+      {viewer && (
+        <StatusViewer user={user} viewer={viewer} setViewer={setViewer} storiesOf={storiesOf}
+          authors={authors} onChanged={fetchStories} onClose={() => { setViewer(null); fetchStories(); }} />
+      )}
+    </>
+  );
+
+  // En fila (Social): "Tu historia" y un círculo por persona, los no vistos primero
+  if (row) {
+    const ordered = [...recent, ...seen];
+    const bubble = (key, label, ringColor, onClick, avatar, plus) => (
+      <button key={key} onClick={onClick} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', width: 68, flexShrink: 0,
+               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+        <span style={{ position: 'relative', width: 62, height: 62, borderRadius: '50%', padding: 3, boxSizing: 'border-box',
+                       background: ringColor ? (ringColor === accent ? `linear-gradient(135deg, ${accent}, #FF7A59, #A855F7)` : ringColor) : 'transparent',
+                       border: plus ? `2px solid ${accent}` : 'none' }}>
+          <span style={{ display: 'flex', width: '100%', height: '100%', borderRadius: '50%', padding: ringColor ? 2 : 0, boxSizing: 'border-box',
+                         background: isDark ? '#111C31' : '#fff', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+            {plus ? <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg> : avatar}
+          </span>
+        </span>
+        <span style={{ fontSize: 11.5, color: T.textPrimary, maxWidth: 66, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      </button>
+    );
+    return (
+      <>
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '0 10px', scrollbarWidth: 'none' }}>
+          {bubble('me', tr('Tu historia'), mine.length ? accent : null,
+            () => (mine.length ? open(user.id, [{ userId: user.id }]) : setCreating(true)),
+            <Avatar name={user?.name} src={user?.avatar || null} size="lg" />, !mine.length)}
+          {ordered.map(p => bubble(p.userId, p.name.split(' ')[0], p.allSeen ? (isDark ? 'rgba(255,255,255,0.18)' : '#CBD5E1') : accent,
+            () => open(p.userId, ordered), <Thumb story={p.latest} name={p.name} avatar={p.avatar} />))}
+        </div>
+        {modals}
+      </>
+    );
+  }
+
   return (
     <>
       <div style={{ paddingBottom: 4 }}>
@@ -238,16 +284,7 @@ export default function StatusList({ user, T, isDark, compact = false, onSeeAll,
         )}
       </div>
 
-      {creating && (
-        <StatusCreator user={user} T={T} isDark={isDark} counts={counts} limits={limits}
-          onClose={() => setCreating(false)}
-          onPublished={() => { setCreating(false); fetchStories(); }} />
-      )}
-
-      {viewer && (
-        <StatusViewer user={user} viewer={viewer} setViewer={setViewer} storiesOf={storiesOf}
-          authors={authors} onChanged={fetchStories} onClose={() => { setViewer(null); fetchStories(); }} />
-      )}
+      {modals}
     </>
   );
 }

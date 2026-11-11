@@ -1,4 +1,4 @@
-// Directos solo para contactos y de pago: acceso (contactos, pase), enlaces firmados de las grabaciones, pagos con
+// Directos públicos o solo para contactos y de pago: acceso (contactos, público, bloqueos, pase), enlaces firmados de las grabaciones, pagos con
 // tarjeta (Stripe simulado + aviso firmado), códigos de un uso, ganancias, retiradas y devoluciones del administrador.
 // Uso: npm test (desde frontend/backend) · node test/directos.test.mjs
 import fs from 'node:fs';
@@ -13,7 +13,7 @@ const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'oldface-directos-'));
 fs.mkdirSync(path.join(DIR, 'data'));
 fs.mkdirSync(path.join(DIR, 'uploads'));
-for (const d of ['ai', 'db', 'payments']) fs.cpSync(path.join(SRC, d), path.join(DIR, d), { recursive: true });
+for (const d of ['ai', 'db', 'payments', 'social']) fs.cpSync(path.join(SRC, d), path.join(DIR, d), { recursive: true });
 fs.copyFileSync(path.join(SRC, 'server.js'), path.join(DIR, 'server.js'));
 fs.copyFileSync(path.join(SRC, 'admin.html'), path.join(DIR, 'admin.html'));
 
@@ -25,11 +25,11 @@ write('users.json', Object.fromEntries([1, 2, 3, 4, 5].map(n => [ph(n), { userId
 write('user_contacts.json', { [H]: [C1, C2, C3] });
 write('live_settings.json', { mode: 'admin', broadcasters: [H.toLowerCase()] });
 write('directos.json', {
-  d1: { id: 'd1', creatorId: H, title: 'De pago', visibility: 'public', contacts: [], price: 3, status: 'live', createdAt: 2 },
+  d1: { id: 'd1', creatorId: H, title: 'De pago', visibility: 'raro', contacts: [], price: 3, status: 'live', createdAt: 2 },
   d0: { id: 'd0', creatorId: H, title: 'Gratis', visibility: 'contacts', contacts: [], price: 0, status: 'live', createdAt: 1 },
 });
 write('live_recordings.json', {
-  r1: { id: 'r1', directoId: 'd1', ownerId: H, file: 'live_d1.webm', title: 'De pago', visibility: 'public', contacts: [],
+  r1: { id: 'r1', directoId: 'd1', ownerId: H, file: 'live_d1.webm', title: 'De pago', visibility: 'raro', contacts: [],
         published: true, hiddenByAdmin: false, views: 0, createdAt: 2, duration: 10 },
 });
 write('live_earnings.json', { [H]: { balance: 50, earned: 50, withdrawn: 0, moves: [] } });
@@ -92,12 +92,25 @@ try {
 
   // ── Solo contactos ──
   const dirH = (await call('GET', `/directos?userId=${H}`, null, as(H))).body.directos || [];
-  check('los directos públicos pasan a "solo contactos"', dirH.every(d => d.visibility === 'contacts') && dirH.length === 2);
+  check('una visibilidad desconocida pasa a "solo contactos"', dirH.every(d => d.visibility === 'contacts') && dirH.length === 2);
   check('X (no contacto) no ve ningún directo', ((await call('GET', `/directos?userId=${X}`, null, as(X))).body.directos || []).length === 0);
   check('X: GET /directos/d1 → 404', (await call('GET', `/directos/d1?userId=${X}`, null, as(X))).status === 404);
   check('X: el servidor RTC tampoco lo obtiene (404)', (await call('GET', `/directos/d1?userId=${X}`, null, internal)).status === 404);
   check('X: no ve la grabación', (await recOf(X)).length === 0);
-  check('crear un directo "público" lo deja en contactos', (await call('POST', '/directos', { userId: H, title: 'P', visibility: 'public', price: 0 }, as(H))).body.visibility === 'contacts');
+  // ── Público (Social, 2026-11-10): lo ve cualquier usuario con sesión, salvo si hay un bloqueo ──
+  const pub = (await call('POST', '/directos', { userId: H, title: 'P', visibility: 'public', price: 0 }, as(H))).body;
+  check('crear un directo "público" lo deja público', pub.visibility === 'public', JSON.stringify(pub));
+  check('X (no contacto) ve el directo público', ((await call('GET', `/directos?userId=${X}`, null, as(X))).body.directos || []).map(d => d.id).join() === pub.id);
+  check('X: el servidor RTC le deja verlo (canWatch)', (await call('GET', `/directos/${pub.id}?userId=${X}`, null, internal)).body.canWatch === true);
+  check('X sigue sin ver d1 (solo contactos)', (await call('GET', `/directos/d1?userId=${X}`, null, internal)).status === 404);
+  check('sin sesión no se ve el directo público (401)', (await call('GET', `/directos/${pub.id}?userId=${X}`)).status === 401);
+  check('visibilidad desconocida al crear → contactos', (await call('POST', '/directos', { userId: H, title: 'Q', visibility: 'todos', price: 0 }, as(H))).body.visibility === 'contacts');
+  await call('POST', `/social/block/${H}`, { userId: X }, as(X));
+  check('X bloquea a H en Social → ya no ve su directo público', (await call('GET', `/directos/${pub.id}?userId=${X}`, null, internal)).status === 404);
+  await call('DELETE', `/social/block/${H}?userId=${X}`, null, as(X));
+  check('X desbloquea → lo vuelve a ver', (await call('GET', `/directos/${pub.id}?userId=${X}`, null, internal)).status === 200);
+  check('pasar un directo a público con PUT', (await call('PUT', '/directos/d0', { userId: H, visibility: 'public' }, as(H))).body.visibility === 'public'
+        && (await call('PUT', '/directos/d0', { userId: H, visibility: 'contacts' }, as(H))).body.visibility === 'contacts');
 
   // ── De pago sin pase ──
   const d1C1 = (await call('GET', `/directos/d1?userId=${C1}`, null, internal)).body;

@@ -39,7 +39,12 @@ los datos del propio usuario y propone acciones que el usuario confirma.
   Archivos: `db/storage.js` copia `uploads/` y los del taxi (`STORAGE_TAXI_DIR`) al bucket PRIVADO `oldface-files` cada
   30 s (clave secreta propia `oldface_files`); lo borrado se borra (nunca se resucita); sin registro
   `data/storage-manifest.json` restaura lo que falte. Se siguen sirviendo desde el servidor.
-- Directos (decidido 2026-10-21): solo para el emisor y sus contactos; con precio, el contacto necesita un pase (tarjeta
+- Social (decidido 2026-11-10): `frontend/backend/social/` (canales con foto/portada propias y públicas, seguir con
+  campana, publicaciones de hasta 10 fotos o 1 vídeo, me gusta, comentarios, guardados, avisos, bloqueos, denuncias y
+  moderación en `/admin` → Social). Cada publicación, directo o grabación es "Público" (cualquier usuario con sesión) o
+  "Solo mis contactos"; un bloqueo de Social esconde también lo público del otro. Publicar: cualquiera; emitir directos:
+  solo cuentas autorizadas. Datos `data/social_*.json` (tablas `social_*` en Supabase). Pruebas `test/social.test.mjs`.
+- Directos (decidido 2026-10-21, ampliado 2026-11-10 con "Público"): para el emisor y sus contactos o públicos; con precio, el contacto necesita un pase (tarjeta
   con Stripe en la app o código de un uso del emisor) que vale para el directo y su grabación. `frontend/backend/payments/`
   (`stripe.js` con claves `STRIPE_*` en el `.env`, `live.js`: pases, cobros, códigos, saldo del emisor −20 %
   `LIVE_FEE_PERCENT`, retiradas con IBAN cifrado; webhook `/api/payments/stripe/webhook`). Vídeos y portadas `live_*` solo

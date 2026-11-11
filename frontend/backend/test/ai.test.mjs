@@ -27,6 +27,7 @@ function makeServer(port, extraEnv, prepare) {
   fs.cpSync(path.join(SRC, 'ai'), path.join(dir, 'ai'), { recursive: true });
   fs.cpSync(path.join(SRC, 'db'), path.join(dir, 'db'), { recursive: true });
   fs.cpSync(path.join(SRC, 'payments'), path.join(dir, 'payments'), { recursive: true });
+  fs.cpSync(path.join(SRC, 'social'), path.join(dir, 'social'), { recursive: true });
   const w =(f, v) => fs.writeFileSync(path.join(dir, 'data', f), JSON.stringify(v));
   w('users.json', Object.fromEntries(Object.entries(NAMES).map(([n, name]) => [ph(n), { userId: id(n), name, phone: ph(n) }])));
   w('chats.json', {

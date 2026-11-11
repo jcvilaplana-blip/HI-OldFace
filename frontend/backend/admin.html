@@ -275,6 +275,9 @@
         <div class="nav-item" data-sec="directos" onclick="showSection('directos')">
           <span class="ico">🔴</span> Directos
         </div>
+        <div class="nav-item" data-sec="social" onclick="showSection('social')">
+          <span class="ico">✨</span> Social
+        </div>
       </nav>
       <div class="sb-footer">
         <div class="admin-info"><strong>williamduarte0412</strong><br>Administrador</div>
@@ -604,6 +607,54 @@
           </div>
         </div>
 
+        <!-- ── SOCIAL ── -->
+        <div class="section" id="s-social">
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-label">Canales</div><div class="stat-value" id="so-channels">—</div><div class="stat-icon">👤</div></div>
+            <div class="stat-card"><div class="stat-label">Publicaciones</div><div class="stat-value" id="so-posts">—</div><div class="stat-icon">🖼️</div><div class="stat-sub" id="so-posts-sub"></div></div>
+            <div class="stat-card"><div class="stat-label">Comentarios</div><div class="stat-value" id="so-comments">—</div><div class="stat-icon">💬</div></div>
+            <div class="stat-card"><div class="stat-label">Seguimientos</div><div class="stat-value" id="so-follows">—</div><div class="stat-icon">➕</div></div>
+            <div class="stat-card"><div class="stat-label">Me gusta</div><div class="stat-value" id="so-likes">—</div><div class="stat-icon">❤️</div></div>
+            <div class="stat-card"><div class="stat-label">Denuncias abiertas</div><div class="stat-value" id="so-reports">—</div><div class="stat-icon">🚩</div></div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-hdr">
+              <h3>Denuncias</h3>
+              <button class="btn-sec" onclick="loadSocial()">↻ Actualizar</button>
+            </div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>Fecha</th><th>Qué</th><th>De quién</th><th>Contenido</th><th>Denunciado por</th><th>Motivo</th><th>Estado</th><th></th></tr></thead>
+                <tbody id="so-rep-tbody"><tr><td colspan="8" class="empty"><div class="spinner"></div></td></tr></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-hdr">
+              <h3>Canales</h3>
+              <input class="search-input" type="text" id="so-ch-search" placeholder="🔍 Buscar..." oninput="renderSocialChannels()" />
+            </div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>Canal</th><th>Teléfono</th><th>Seguidores</th><th>Publicaciones</th><th>Desde</th><th>Estado</th><th></th></tr></thead>
+                <tbody id="so-ch-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-hdr"><h3>Publicaciones recientes</h3></div>
+            <div style="overflow-x:auto">
+              <table>
+                <thead><tr><th>Fecha</th><th>Canal</th><th>Contenido</th><th>Quién la ve</th><th>❤️</th><th>💬</th><th>👁️</th><th>Estado</th><th></th></tr></thead>
+                <tbody id="so-po-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
       </div><!-- /content -->
     </div><!-- /main -->
   </div><!-- /layout -->
@@ -807,7 +858,7 @@ async function loadChats()  { try { const d = await api('/api/admin/chats'); ren
 async function loadCalls()  { try { const d = await api('/api/admin/calls'); renderCalls(d.calls||[]); } catch(e){ renderCalls([]); } }
 
 // ── Navigation ───────────────────────────────────────────────
-const TITLES = { overview:'Resumen', users:'Usuarios', plans:'Planes', chats:'Chats', calls:'Llamadas', polls:'Encuestas', karaoke:'Karaoke', directos:'Directos' };
+const TITLES = { overview:'Resumen', users:'Usuarios', plans:'Planes', chats:'Chats', calls:'Llamadas', polls:'Encuestas', karaoke:'Karaoke', directos:'Directos', social:'Social' };
 
 function showSection(id) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -821,6 +872,98 @@ function showSection(id) {
   if (id === 'polls')  loadPollSection();
   if (id === 'karaoke') loadKaraokeSection();
   if (id === 'directos') { loadLiveSettings(); loadLiveRecs(); loadLivePay(); }
+  if (id === 'social') loadSocial();
+}
+
+// ── Social: denuncias, canales (verificado / suspendido) y publicaciones (retirar / borrar) ──
+let socialChannels = [];
+const REP_KIND = { post: 'Publicación', comment: 'Comentario', channel: 'Canal' };
+const REP_ST = { open: ['Abierta', 'var(--warn, #f59e0b)'], done: ['Resuelta', 'var(--ok)'], dismissed: ['Descartada', 'var(--text3)'] };
+const who = (u) => u ? `<div class="un">${esc(u.name)}</div><div class="up">${u.handle ? '@' + esc(u.handle) : esc(u.userId)}</div>` : '—';
+const thumbs = (media) => (media || []).slice(0, 3).map(m => `<a href="${esc(m.url)}" target="_blank" rel="noopener"><img src="${esc(m.thumb || (m.type === 'image' ? m.url : ''))}" alt="${m.type === 'video' ? '🎥' : '📷'}" style="width:38px;height:38px;object-fit:cover;border-radius:6px;margin-right:4px;background:#334155"></a>`).join('');
+async function loadSocial() {
+  try {
+    const [s, r, c, p] = await Promise.all([apiP('/api/admin/social/summary'), apiP('/api/admin/social/reports'),
+      apiP('/api/admin/social/channels'), apiP('/api/admin/social/posts')]);
+    set('so-channels', s.channels); set('so-posts', s.posts); set('so-posts-sub', `${s.videos} vídeos · ${s.hidden} retiradas`);
+    set('so-comments', s.comments); set('so-follows', s.follows); set('so-likes', s.likes); set('so-reports', s.openReports);
+    document.getElementById('so-rep-tbody').innerHTML = r.reports.length ? r.reports.map(x => {
+      const [label, color] = REP_ST[x.status] || [x.status, 'var(--text3)'];
+      const content = !x.exists ? '<span class="stat-sub">Ya no existe</span>'
+        : x.preview ? `${thumbs(x.preview.media)}<div class="up">${esc((x.preview.text || '').slice(0, 120))}</div>${x.preview.hiddenByAdmin ? '<div style="color:var(--err);font-size:11px">Retirada</div>' : ''}` : '—';
+      const actions = [
+        x.kind === 'post' && x.exists && x.preview ? `<button class="btn-ic" title="${x.preview.hiddenByAdmin ? 'Volver a mostrar' : 'Retirar (ocultar a todos)'}" onclick="hideSocialPost('${x.targetId}', ${!x.preview.hiddenByAdmin})">${x.preview.hiddenByAdmin ? '👁️' : '🚫'}</button>` : '',
+        x.kind === 'comment' && x.exists ? `<button class="btn-ic del" title="Borrar el comentario" onclick="deleteSocialComment('${x.targetId}')">🗑️</button>` : '',
+        x.owner ? `<button class="btn-ic" title="Suspender el canal" onclick="setSocialChannel('${x.owner.userId}', { banned: true })">⛔</button>` : '',
+        x.status === 'open' ? `<button class="btn-ic" title="Marcar como resuelta" onclick="setSocialReport('${x.id}', 'done')">✅</button><button class="btn-ic" title="Descartar" onclick="setSocialReport('${x.id}', 'dismissed')">✖️</button>`
+          : `<button class="btn-ic" title="Volver a abrir" onclick="setSocialReport('${x.id}', 'open')">↩️</button>`,
+      ].join('');
+      return `<tr>
+        <td style="font-size:11px;color:var(--text3)">${fmtD(x.createdAt)}</td>
+        <td>${REP_KIND[x.kind] || esc(x.kind)}</td>
+        <td>${who(x.owner)}</td>
+        <td style="min-width:200px">${content}</td>
+        <td>${who(x.reporter)}</td>
+        <td style="max-width:200px">${esc(x.reason || '—')}</td>
+        <td><span style="color:${color}">${label}</span></td>
+        <td style="white-space:nowrap">${actions}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="8" class="empty"><div class="eico">🚩</div>No hay denuncias</td></tr>';
+    socialChannels = c.channels || [];
+    renderSocialChannels();
+    document.getElementById('so-po-tbody').innerHTML = p.posts.length ? p.posts.map(x => `<tr>
+      <td style="font-size:11px;color:var(--text3)">${fmtD(x.createdAt)}</td>
+      <td>${who(x.author)}</td>
+      <td style="min-width:220px">${thumbs(x.media)}<div class="up">${esc((x.text || '').slice(0, 120))}</div></td>
+      <td>${x.visibility === 'public' ? '🌍 Público' : '👥 Contactos'}</td>
+      <td>${x.likes}</td><td>${x.comments}</td><td>${x.views}</td>
+      <td>${x.hiddenByAdmin ? '<span style="color:var(--err)">Retirada</span>' : '<span style="color:var(--ok)">Visible</span>'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-ic" title="${x.hiddenByAdmin ? 'Volver a mostrar' : 'Retirar (ocultar a todos)'}" onclick="hideSocialPost('${x.id}', ${!x.hiddenByAdmin})">${x.hiddenByAdmin ? '👁️' : '🚫'}</button>
+        <button class="btn-ic del" title="Eliminar para siempre" onclick="deleteSocialPost('${x.id}')">🗑️</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="9" class="empty"><div class="eico">🖼️</div>Todavía no hay publicaciones</td></tr>';
+  } catch (e) { toast(e.message, 'er'); }
+}
+function renderSocialChannels() {
+  const q = (document.getElementById('so-ch-search').value || '').toLowerCase();
+  const list = socialChannels.filter(c => !q || `${c.name} ${c.handle} ${c.phone || ''}`.toLowerCase().includes(q));
+  document.getElementById('so-ch-tbody').innerHTML = list.length ? list.map(c => `<tr>
+    <td><div class="un">${esc(c.name)} ${c.verified ? '✔️' : ''}</div><div class="up">@${esc(c.handle)}</div></td>
+    <td>${esc(c.phone || '—')}</td>
+    <td>${c.followers}</td><td>${c.posts}</td>
+    <td style="font-size:11px;color:var(--text3)">${fmtD(c.createdAt)}</td>
+    <td>${c.banned ? '<span style="color:var(--err)">Suspendido</span>' : '<span style="color:var(--ok)">Activo</span>'}</td>
+    <td style="white-space:nowrap">
+      <button class="btn-ic" title="${c.verified ? 'Quitar la insignia de verificado' : 'Dar la insignia de verificado'}" onclick="setSocialChannel('${c.userId}', { verified: ${!c.verified} })">${c.verified ? '✖️' : '✔️'}</button>
+      <button class="btn-ic" title="${c.banned ? 'Quitar la suspensión' : 'Suspender (no puede publicar ni comentar y su canal desaparece)'}" onclick="setSocialChannel('${c.userId}', { banned: ${!c.banned} })">${c.banned ? '♻️' : '⛔'}</button>
+    </td>
+  </tr>`).join('') : '<tr><td colspan="7" class="empty"><div class="eico">👤</div>Todavía no hay canales</td></tr>';
+}
+async function hideSocialPost(id, hidden) {
+  try { await apiP(`/api/admin/social/posts/${id}`, { method: 'PUT', body: JSON.stringify({ hidden }) });
+        toast(hidden ? 'Publicación retirada' : 'Publicación visible otra vez', 'ok'); loadSocial(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+async function deleteSocialPost(id) {
+  if (!confirm('¿Eliminar esta publicación para siempre? Se borrarán también sus fotos o su vídeo.')) return;
+  try { await apiP(`/api/admin/social/posts/${id}`, { method: 'DELETE' }); toast('Publicación eliminada', 'ok'); loadSocial(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+async function deleteSocialComment(id) {
+  if (!confirm('¿Borrar este comentario?')) return;
+  try { await apiP(`/api/admin/social/comments/${id}`, { method: 'DELETE' }); toast('Comentario borrado', 'ok'); loadSocial(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+async function setSocialChannel(userId, change) {
+  if (change.banned && !confirm('¿Suspender este canal? No podrá publicar ni comentar y su canal dejará de verse.')) return;
+  try { await apiP(`/api/admin/social/channels/${encodeURIComponent(userId)}`, { method: 'PUT', body: JSON.stringify(change) });
+        toast('Canal actualizado', 'ok'); loadSocial(); }
+  catch (e) { toast(e.message, 'er'); }
+}
+async function setSocialReport(id, status) {
+  try { await apiP(`/api/admin/social/reports/${id}`, { method: 'PUT', body: JSON.stringify({ status }) }); loadSocial(); }
+  catch (e) { toast(e.message, 'er'); }
 }
 
 // ── Directos: quién emite y grabaciones ──────────────────────

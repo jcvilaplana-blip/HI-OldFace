@@ -12,12 +12,15 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { RtcCall } from '../utils/rtcCall';
 import { ensureRtcConnected, rtcRequest, onRtc } from '../utils/rtcClient';
-import { saveDirecto, formatMoney } from '../utils/directos';
+import { saveDirecto, formatMoney, listDirectos } from '../utils/directos';
+import * as social from '../utils/social';
+import { useBackClose } from '../utils/backHandler';
 import { PaySheet } from '../components/LivePay';
+import { useSocialTheme, ChannelAvatar, Icon } from '../components/SocialUI.jsx';
 import { tr, LOCALE } from '../i18n';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-const RED     = '#ef4444';
+const RED     = '#F0174B';   // el rojo de Social y Directos
 const HEART_COLORS = ['#ef4444', '#ec4899', '#f97316', '#eab308', '#a855f7', '#3b82f6'];
 
 function fmtElapsed(ms) {
@@ -28,10 +31,17 @@ function fmtElapsed(ms) {
   return h > 0 ? `${h}:${m}:${sec}` : `${m}:${sec}`;
 }
 
+// Al pasar a otro directo desde "Más directos" la página se monta de nuevo (sale del anterior y entra en el nuevo)
 export default function DirectoLivePage() {
+  const { directoId } = useParams();
+  return <DirectoLive key={directoId} />;
+}
+
+function DirectoLive() {
   const { directoId } = useParams();
   const navigate      = useNavigate();
   const { user }      = useAuthStore();
+  const S             = useSocialTheme();
 
   const callRef     = useRef(null);
   const cleanedRef  = useRef(false);
@@ -64,9 +74,14 @@ export default function DirectoLivePage() {
   const [camOn,     setCamOn]     = useState(true);
   const [needsTap,  setNeedsTap]  = useState(false);    // el navegador bloqueó el audio automático
   const [toast,     setToast]     = useState('');
+  // Espectadores: primero el reproductor con "Más directos" debajo; pantalla completa al pulsar ⛶ (el anfitrión, siempre)
+  const [full,      setFull]      = useState(false);
+  const [others,    setOthers]    = useState([]);       // otros directos en vivo que puedo ver
+  const [creatorCh, setCreatorCh] = useState(null);     // canal de Social del anfitrión (para Seguir)
 
   const isHost = !!directo && directo.creatorId === user?.id;
   const hostId = directo?.creatorId;
+  useBackClose(status === 'live' && full && !!directo && !isHost, () => setFull(false));
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2800); };
 
@@ -111,6 +126,9 @@ export default function DirectoLivePage() {
       const d = await res.json();
       setDirecto(d);
       const amHost = d.creatorId === user?.id;
+      setFull(amHost);
+      if (!amHost) social.getChannel(d.creatorId).then(setCreatorCh).catch(() => setCreatorCh(null));
+      listDirectos().then(l => setOthers(l.filter(x => x.status === 'live' && x.id !== d.id))).catch(() => {});
       // De pago y sin pase: primero pagar o canjear un código (el servidor RTC tampoco dejaría entrar)
       if (!amHost && d.locked) { setStatus('locked'); setPaying(true); return; }
 
@@ -307,29 +325,135 @@ export default function DirectoLivePage() {
     );
   }
 
+  const follow = async () => {
+    try {
+      const r = await social.follow(creatorCh.userId);
+      setCreatorCh(c => ({ ...c, followed: true, followers: r.followers }));
+      showToast(tr('Ahora sigues a {name}', { name: creatorCh.name }));
+    } catch (err) { showToast(err.message); }
+  };
+  const canFollow = !isHost && !!creatorCh && !creatorCh.followed && !creatorCh.blockedByMe;
+  const hostName = creatorCh?.name || directo?.creatorName || tr('Directo');
+  const openHostChannel = creatorCh ? () => { cleanup(); navigate(`/social/canal/${encodeURIComponent(creatorCh.userId)}`); } : undefined;
+
+  const stageGrid = (
+    <div style={{
+      position: 'absolute', inset: 0, display: 'grid', gap: 3,
+      gridTemplateColumns: stage.length > 2 ? '1fr 1fr' : '1fr',
+      gridTemplateRows: stage.length >= 2 ? '1fr 1fr' : '1fr',
+    }}>
+      {stage.map(p => (
+        <StageTile key={p.id} {...p} showName={stage.length > 1}
+          onRemove={isHost && p.id !== hostId ? () => removeGuest({ userId: p.id }) : null}
+          onAutoplayBlocked={() => setNeedsTap(true)} />
+      ))}
+    </div>
+  );
+  const tapForSound = needsTap && (
+    <button onClick={() => { document.querySelectorAll('video[data-live]').forEach(v => { if (!v.dataset.local) { v.muted = false; v.play().catch(() => {}); } }); setNeedsTap(false); }}
+      style={{ position: 'absolute', top: '45%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 6, background: 'white', color: '#111', border: 'none', borderRadius: 24, padding: '12px 20px', fontWeight: 800, fontSize: 14 }}>{tr('🔊 Toca para activar el sonido')}</button>
+  );
+  const heartsLayer = (
+    <div style={{ position: 'absolute', right: 18, bottom: full ? 150 : 50, width: 60, height: full ? 320 : 200, pointerEvents: 'none', zIndex: 6 }}>
+      {hearts.map(h => (
+        <span key={h.id} style={{ position: 'absolute', bottom: 0, left: 18 + h.x, fontSize: 28, color: h.color, animation: 'liveHeart 2.5s ease-out forwards' }}>❤</span>
+      ))}
+    </div>
+  );
+  const awayNote = hostAway && !isHost && (
+    <div style={{ position: 'absolute', top: '40%', left: 0, right: 0, textAlign: 'center', zIndex: 4 }}>
+      <span style={{ background: 'rgba(0,0,0,0.6)', color: 'white', padding: '10px 16px', borderRadius: 14, fontSize: 13, fontWeight: 700 }}>{tr('El anfitrión se ha desconectado un momento…')}</span>
+    </div>
+  );
+  const toastEl = toast && (
+    <div style={{ position: 'fixed', top: 'calc(var(--sat, 0px) + 70px)', left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: 'rgba(17,24,39,0.92)', color: 'white', padding: '10px 16px', borderRadius: 20, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
+      {toast}
+    </div>
+  );
+  const keyframes = (
+    <style>{`
+      @keyframes liveHeart {
+        0%   { transform: translateY(0) scale(0.6); opacity: 0; }
+        10%  { opacity: 1; transform: translateY(-20px) scale(1.1); }
+        100% { transform: translateY(-300px) scale(0.9); opacity: 0; }
+      }
+    `}</style>
+  );
+
+  // ── Reproductor con "Más directos" debajo (espectadores) ──
+  if (!full) {
+    const chipBtn = { display: 'flex', alignItems: 'center', gap: 6, background: S.chip, color: S.text, border: `1px solid ${S.border}`, borderRadius: 999, padding: '8px 14px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer' };
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: S.bg, color: S.text, overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 'calc(var(--sat, 0px) + 10px) 14px 10px', background: S.surface, borderBottom: `1px solid ${S.border}` }}>
+          <button onClick={close} aria-label={tr('Atrás')} style={{ background: 'none', border: 'none', color: S.text, cursor: 'pointer', padding: 2 }}><Icon name="back" size={24} /></button>
+          <DirectoBrand color={S.text} />
+          <div style={{ flex: 1 }} />
+          <button onClick={share} aria-label={tr('Compartir')} style={{ background: 'none', border: 'none', color: S.text, cursor: 'pointer' }}><Icon name="share" size={22} /></button>
+        </div>
+        <div style={{ position: 'relative', width: '100%', aspectRatio: stage.length > 1 ? '1 / 1' : '16 / 10', background: '#000', overflow: 'hidden', color: 'white' }}>
+          {stageGrid}
+          <span style={{ position: 'absolute', left: 10, top: 10, background: RED, fontSize: 11, fontWeight: 900, padding: '4px 9px', borderRadius: 6, zIndex: 3 }}>{tr('EN VIVO')}</span>
+          <span style={{ position: 'absolute', right: 10, top: 10, background: 'rgba(0,0,0,0.55)', fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4, zIndex: 3 }}><EyeIcon /> {viewers}</span>
+          <span style={{ position: 'absolute', left: 10, bottom: 10, background: 'rgba(0,0,0,0.55)', fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 6, fontFamily: 'monospace', zIndex: 3 }}>{fmtElapsed(now - (startedAt || now))}</span>
+          <button onClick={() => setFull(true)} aria-label={tr('Pantalla completa')} style={{ ...iconBtn(38), position: 'absolute', right: 10, bottom: 10, zIndex: 3 }}><FullIcon /></button>
+          {awayNote}
+          {tapForSound}
+          {heartsLayer}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px' }}>
+          <ChannelAvatar author={{ name: hostName, avatar: creatorCh?.avatar || directo?.creatorAvatar }} size={48} ring ringBg={S.bg} onClick={openHostChannel} />
+          <div style={{ flex: 1, minWidth: 0, cursor: openHostChannel ? 'pointer' : 'default' }} onClick={openHostChannel}>
+            <p style={{ margin: 0, fontWeight: 800, fontSize: 16, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hostName}</p>
+            <p style={{ margin: 0, fontSize: 13, color: S.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{directo?.title}</p>
+          </div>
+          {canFollow && <button onClick={follow} style={{ background: RED, color: 'white', border: 'none', borderRadius: 999, padding: '9px 18px', fontWeight: 800, fontSize: 14, cursor: 'pointer', boxShadow: '0 6px 16px rgba(240,23,75,0.35)' }}>{tr('Seguir')}</button>}
+        </div>
+        <div style={{ display: 'flex', gap: 8, padding: '0 14px 4px', flexWrap: 'wrap' }}>
+          <button onClick={like} style={chipBtn}><span style={{ color: RED }}>❤</span> {social.compact(likes)}</button>
+          <button onClick={() => setFull(true)} style={chipBtn}><Icon name="comment" size={16} /> {chat.length}</button>
+          <button onClick={share} style={chipBtn}><Icon name="share" size={16} /> {tr('Compartir')}</button>
+          {!onStage && !approved && <button onClick={requested ? undefined : requestJoin} style={chipBtn}>🙋 {requested ? tr('Enviada') : tr('Unirse')}</button>}
+          {approved && !onStage && <button onClick={() => { setFull(true); goOnStage(); }} style={{ ...chipBtn, background: '#22c55e', color: 'white', border: 'none' }}>{tr('Subir al directo')}</button>}
+        </div>
+        <p style={{ margin: '18px 14px 8px', fontSize: 18, fontWeight: 800 }}>{tr('Más directos')}</p>
+        {!others.length && <p style={{ margin: '0 14px', color: S.muted, fontSize: 14 }}>{tr('Ahora mismo no hay más directos')}</p>}
+        {others.map(o => (
+          <button key={o.id} onClick={() => navigate(`/directo/${encodeURIComponent(o.id)}/live`, { replace: true })}
+                  style={{ display: 'flex', gap: 12, alignItems: 'center', width: '100%', padding: '8px 14px', background: 'none', border: 'none', color: S.text, cursor: 'pointer', textAlign: 'left' }}>
+            <span style={{ position: 'relative', width: 128, flexShrink: 0, aspectRatio: '16 / 10', borderRadius: 10, overflow: 'hidden', background: gradientFor(o.creatorName),
+                           display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 900, fontSize: 30 }}>
+              {(o.creatorName || '?')[0].toUpperCase()}
+              <span style={{ position: 'absolute', right: 6, top: 6, background: RED, fontSize: 10, fontWeight: 900, padding: '3px 6px', borderRadius: 5 }}>{tr('EN VIVO')}</span>
+              {o.locked && <span style={{ position: 'absolute', left: 6, bottom: 6, background: 'rgba(0,0,0,0.6)', fontSize: 11, fontWeight: 800, padding: '2px 6px', borderRadius: 5 }}>🔒 {formatMoney(o.price)}</span>}
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontWeight: 800 }}>{o.creatorName}</span>
+              <span style={{ display: 'block', fontSize: 13, color: S.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.title}</span>
+            </span>
+          </button>
+        ))}
+        <div style={{ height: 'calc(24px + env(safe-area-inset-bottom, 0px))' }} />
+        {toastEl}
+        {keyframes}
+      </div>
+    );
+  }
+
+  // ── Pantalla completa ──
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 50, overflow: 'hidden', color: 'white' }}>
 
-      {/* ── Escenario ── */}
-      <div style={{
-        position: 'absolute', inset: 0, display: 'grid', gap: 2,
-        gridTemplateColumns: stage.length > 2 ? '1fr 1fr' : '1fr',
-        gridTemplateRows: stage.length >= 2 ? '1fr 1fr' : '1fr',
-      }}>
-        {stage.map(p => (
-          <StageTile key={p.id} {...p} showName={stage.length > 1}
-            onRemove={isHost && p.id !== hostId ? () => removeGuest({ userId: p.id }) : null}
-            onAutoplayBlocked={() => setNeedsTap(true)} />
-        ))}
-      </div>
+      {stageGrid}
 
       {/* Degradados para legibilidad */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 140, background: 'linear-gradient(rgba(0,0,0,0.55), transparent)', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '45%', background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', pointerEvents: 'none' }} />
 
-      {/* ── Cabecera ── */}
+      {/* ── Cabecera: con invitados, el logo de OldFace Directo; si no, quién emite ── */}
       <div style={{ position: 'absolute', top: 'max(env(safe-area-inset-top, 12px), 12px)', left: 12, right: 12, display: 'flex', alignItems: 'center', gap: 8, zIndex: 5 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.35)', borderRadius: 30, padding: '4px 12px 4px 4px', minWidth: 0 }}>
+        {stage.length > 1 ? <DirectoBrand color="white" /> : (
+        <div onClick={openHostChannel} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.35)', borderRadius: 30, padding: '4px 12px 4px 4px', minWidth: 0, cursor: openHostChannel ? 'pointer' : 'default' }}>
           <div style={{ width: 34, height: 34, borderRadius: '50%', overflow: 'hidden', background: RED, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, flexShrink: 0, border: '2px solid ' + RED }}>
             {directo?.creatorAvatar
               ? <img src={directo.creatorAvatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -342,6 +466,10 @@ export default function DirectoLivePage() {
             <p style={{ margin: 0, fontSize: 10, opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>{directo?.title}</p>
           </div>
         </div>
+        )}
+        {canFollow && stage.length <= 1 && (
+          <button onClick={follow} style={{ background: RED, color: 'white', border: 'none', borderRadius: 999, padding: '6px 12px', fontWeight: 800, fontSize: 12, cursor: 'pointer', flexShrink: 0 }}>{tr('Seguir')}</button>
+        )}
         <span style={{ background: RED, fontSize: 11, fontWeight: 900, padding: '4px 9px', borderRadius: 6, letterSpacing: 0.5 }}>{tr('EN VIVO')}</span>
         <span style={{ background: 'rgba(0,0,0,0.4)', fontSize: 11, fontWeight: 700, padding: '4px 8px', borderRadius: 6, fontFamily: 'monospace' }}>{fmtElapsed(now - (startedAt || now))}</span>
         <div style={{ flex: 1 }} />
@@ -351,65 +479,59 @@ export default function DirectoLivePage() {
         <button onClick={close} aria-label={tr('Cerrar')} style={iconBtn(36)}>✕</button>
       </div>
 
-      {hostAway && !isHost && (
-        <div style={{ position: 'absolute', top: '40%', left: 0, right: 0, textAlign: 'center', zIndex: 4 }}>
-          <span style={{ background: 'rgba(0,0,0,0.6)', padding: '10px 16px', borderRadius: 14, fontSize: 13, fontWeight: 700 }}>{tr('El anfitrión se ha desconectado un momento…')}</span>
-        </div>
-      )}
+      {awayNote}
+      {tapForSound}
+      {heartsLayer}
 
-      {needsTap && (
-        <button onClick={() => { document.querySelectorAll('video[data-live]').forEach(v => { if (!v.dataset.local) { v.muted = false; v.play().catch(() => {}); } }); setNeedsTap(false); }}
-          style={{ position: 'absolute', top: '45%', left: '50%', transform: 'translateX(-50%)', zIndex: 6, background: 'white', color: '#111', border: 'none', borderRadius: 24, padding: '12px 20px', fontWeight: 800, fontSize: 14 }}>{tr('🔊 Toca para activar el sonido')}</button>
-      )}
-
-      {/* ── Corazones flotantes ── */}
-      <div style={{ position: 'absolute', right: 18, bottom: 150, width: 60, height: 320, pointerEvents: 'none', zIndex: 6 }}>
-        {hearts.map(h => (
-          <span key={h.id} style={{
-            position: 'absolute', bottom: 0, left: 18 + h.x, fontSize: 28, color: h.color,
-            animation: 'liveHeart 2.5s ease-out forwards',
-          }}>❤</span>
-        ))}
+      {/* ── Arriba a la derecha: micro, girar y cámara (quien emite) · salir de pantalla completa (espectador) ── */}
+      <div style={{ position: 'absolute', right: 12, top: 'calc(max(env(safe-area-inset-top, 12px), 12px) + 52px)', display: 'flex', flexDirection: 'column', gap: 12, zIndex: 7 }}>
+        {(isHost || onStage) && (
+          <>
+            <TopBtn label={micOn ? tr('Micro') : tr('Sin micro')} active={!micOn} onPress={toggleMic}>
+              {micOn
+                ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
+                : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23M12 19v4M8 23h8"/></svg>}
+            </TopBtn>
+            <TopBtn label={tr('Girar')} onPress={flipCam}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 7h-3l-2-3H9L7 7H4a2 2 0 00-2 2v9a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M9 13a3 3 0 015-2.2M15 13a3 3 0 01-5 2.2"/></svg>
+            </TopBtn>
+            <TopBtn label={camOn ? tr('Cámara') : tr('Sin cámara')} active={!camOn} onPress={toggleCam}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>{!camOn && <line x1="1" y1="1" x2="23" y2="23"/>}</svg>
+            </TopBtn>
+          </>
+        )}
+        {!isHost && (
+          <TopBtn label={tr('Salir de pantalla completa')} onPress={() => setFull(false)}><FullIcon exit /></TopBtn>
+        )}
       </div>
 
-      {/* ── Chat del directo ── */}
+      {/* ── Comentarios del directo (foto, nombre y texto) ── */}
       <div style={{
         position: 'absolute', left: 12, right: 84, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 74px)',
-        maxHeight: '34vh', overflowY: 'auto', zIndex: 5, scrollbarWidth: 'none',
-        WebkitMaskImage: 'linear-gradient(transparent, black 22%)', maskImage: 'linear-gradient(transparent, black 22%)',
+        maxHeight: '36vh', overflowY: 'auto', zIndex: 5, scrollbarWidth: 'none',
+        WebkitMaskImage: 'linear-gradient(transparent, black 18%)', maskImage: 'linear-gradient(transparent, black 18%)',
       }}>
         {chat.map(m => (
-          <div key={m.id} style={{ margin: '0 0 6px', fontSize: 13, lineHeight: 1.35, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-            <span style={{ fontWeight: 800, color: m.userId === hostId ? '#fca5a5' : '#D5E6F0', marginRight: 6 }}>
-              {m.userId === user?.id ? tr('Tú') : m.name}
+          <div key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 9, margin: '0 0 9px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+            <span style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: gradientFor(m.name), display: 'flex', alignItems: 'center', justifyContent: 'center',
+                           fontWeight: 900, fontSize: 14, border: '2px solid rgba(255,255,255,0.85)', textShadow: 'none' }}>{(m.name || '?')[0].toUpperCase()}</span>
+            <span style={{ minWidth: 0, lineHeight: 1.3 }}>
+              <span style={{ display: 'block', fontWeight: 800, fontSize: 13.5, color: m.userId === hostId ? '#fca5a5' : 'white' }}>
+                {m.userId === user?.id ? tr('Tú') : m.name}
+              </span>
+              <span style={{ fontSize: 14 }}>{m.text}</span>
             </span>
-            <span>{m.text}</span>
           </div>
         ))}
         <div ref={chatEndRef} />
       </div>
 
-      {/* ── Columna de acciones (derecha) ── */}
+      {/* ── Columna de acciones (derecha, abajo) ── */}
       <div style={{ position: 'absolute', right: 10, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, zIndex: 7 }}>
         {isHost && (
           <SideBtn label={tr('Solicitudes')} badge={requests.length} onPress={() => setShowRequests(true)}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
           </SideBtn>
-        )}
-        {(isHost || onStage) && (
-          <>
-            <SideBtn label={tr('Girar')} onPress={flipCam}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 7h-3l-2-3H9L7 7H4a2 2 0 00-2 2v9a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M9 13a3 3 0 015-2.2M15 13a3 3 0 01-5 2.2"/></svg>
-            </SideBtn>
-            <SideBtn label={micOn ? tr('Micro') : tr('Sin micro')} active={!micOn} onPress={toggleMic}>
-              {micOn
-                ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
-                : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23M12 19v4M8 23h8"/></svg>}
-            </SideBtn>
-            <SideBtn label={camOn ? tr('Cámara') : tr('Sin cámara')} active={!camOn} onPress={toggleCam}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>{!camOn && <line x1="1" y1="1" x2="23" y2="23"/>}</svg>
-            </SideBtn>
-          </>
         )}
         {!isHost && !onStage && !approved && (
           <SideBtn label={requested ? tr('Enviada') : tr('Unirse')} onPress={requested ? undefined : requestJoin} active={requested}>
@@ -417,22 +539,19 @@ export default function DirectoLivePage() {
           </SideBtn>
         )}
         <SideBtn label={tr('Compartir')} onPress={share}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-        </SideBtn>
-        <SideBtn label={likes > 999 ? `${(likes / 1000).toFixed(1)}K` : String(likes)} onPress={like} big>
-          <span style={{ fontSize: 26, color: RED, lineHeight: 1 }}>❤</span>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
         </SideBtn>
       </div>
 
-      {/* ── Barra inferior: comentar + acción principal ── */}
+      {/* ── Barra inferior: comentar + acción principal + me gusta ── */}
       <form onSubmit={sendChat} style={{
         position: 'absolute', left: 12, right: 12, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)',
         display: 'flex', gap: 8, alignItems: 'center', zIndex: 7,
       }}>
         <input
           value={text} onChange={e => setText(e.target.value)} maxLength={200}
-          placeholder={tr('Comenta…')} enterKeyHint="send"
-          style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.25)', color: 'white', borderRadius: 24, padding: '11px 16px', fontSize: 14, outline: 'none' }}
+          placeholder={tr('Comentar…')} enterKeyHint="send"
+          style={{ flex: 1, minWidth: 0, background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.35)', color: 'white', borderRadius: 24, padding: '12px 18px', fontSize: 15, outline: 'none' }}
         />
         {text.trim() && (
           <button type="submit" style={{ ...iconBtn(42), background: RED }} aria-label={tr('Enviar')}>
@@ -448,6 +567,10 @@ export default function DirectoLivePage() {
         {!text.trim() && onStage && (
           <button type="button" onClick={() => leaveStage(false)} style={{ background: 'rgba(255,255,255,0.2)', color: 'white', border: '1px solid rgba(255,255,255,0.35)', borderRadius: 22, padding: '11px 16px', fontWeight: 800, fontSize: 13, whiteSpace: 'nowrap' }}>{tr('Bajar')}</button>
         )}
+        <button type="button" onClick={like} aria-label={tr('Me gusta')} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 0, flexShrink: 0 }}>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 00-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 000-7.8z"/></svg>
+          <span style={{ fontSize: 10, fontWeight: 800, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{social.compact(likes)}</span>
+        </button>
       </form>
 
       {/* ── Solicitudes (anfitrión) ── */}
@@ -479,20 +602,42 @@ export default function DirectoLivePage() {
         </div>
       )}
 
-      {toast && (
-        <div style={{ position: 'absolute', top: 'calc(max(env(safe-area-inset-top, 12px), 12px) + 56px)', left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: 'rgba(17,24,39,0.92)', padding: '10px 16px', borderRadius: 20, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
-          {toast}
-        </div>
-      )}
-
-      <style>{`
-        @keyframes liveHeart {
-          0%   { transform: translateY(0) scale(0.6); opacity: 0; }
-          10%  { opacity: 1; transform: translateY(-20px) scale(1.1); }
-          100% { transform: translateY(-300px) scale(0.9); opacity: 0; }
-        }
-      `}</style>
+      {toastEl}
+      {keyframes}
     </div>
+  );
+}
+
+/** Logo "OldFace · DIRECTO" (cabecera de la lista y de la pantalla completa con invitados) */
+export function DirectoBrand({ color = 'white', size = 44 }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+      <span style={{ width: size, height: size, borderRadius: '50%', background: 'white', boxShadow: '0 2px 10px rgba(0,0,0,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <img src="/emblema-directos.png" alt="" style={{ width: size * 0.7, height: size * 0.7, objectFit: 'contain' }} />
+      </span>
+      <span style={{ lineHeight: 1.05, color, textShadow: color === 'white' ? '0 1px 4px rgba(0,0,0,0.5)' : 'none' }}>
+        <span style={{ display: 'block', fontSize: 19, fontWeight: 900, letterSpacing: -0.3 }}>OldFace</span>
+        <span style={{ display: 'block', fontSize: 11.5, fontWeight: 800, letterSpacing: 1.2 }}>{tr('DIRECTO')}</span>
+      </span>
+    </div>
+  );
+}
+
+const GRADS = ['#F0174B,#FF7A59', '#7C3AED,#EC4899', '#0EA5E9,#6366F1', '#10B981,#0EA5E9', '#F59E0B,#EF4444'];
+export const gradientFor = (name = '') => `linear-gradient(135deg, ${GRADS[[...String(name || '?')].reduce((n, ch) => n + ch.charCodeAt(0), 0) % GRADS.length]})`;
+
+function TopBtn({ children, label, onPress, active }) {
+  return (
+    <button onClick={onPress} aria-label={label} title={label} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', cursor: 'pointer',
+             background: active ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{children}</button>
+  );
+}
+
+function FullIcon({ exit = false }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d={exit ? 'M8 3v3a2 2 0 01-2 2H3M21 8h-3a2 2 0 01-2-2V3M3 16h3a2 2 0 012 2v3M16 21v-3a2 2 0 012-2h3' : 'M3 8V5a2 2 0 012-2h3M16 3h3a2 2 0 012 2v3M21 16v3a2 2 0 01-2 2h-3M8 21H5a2 2 0 01-2-2v-3'} />
+    </svg>
   );
 }
 
@@ -523,7 +668,11 @@ function StageTile({ stream, name, local, videoOff, showName, onRemove, onAutopl
         </div>
       )}
       {showName && (
-        <span style={{ position: 'absolute', left: 10, bottom: 10, background: 'rgba(0,0,0,0.5)', padding: '3px 9px', borderRadius: 10, fontSize: 12, fontWeight: 700 }}>{name}</span>
+        <span style={{ position: 'absolute', left: 10, bottom: 10, background: 'rgba(0,0,0,0.55)', padding: '5px 12px 5px 9px', borderRadius: 999, fontSize: 13.5, fontWeight: 800,
+                       display: 'flex', alignItems: 'center', gap: 5 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4"/></svg>
+          {name}
+        </span>
       )}
       {onRemove && (
         <button onClick={onRemove} style={{ position: 'absolute', right: 10, top: 10, ...pill('rgba(239,68,68,0.85)') }}>{tr('Quitar')}</button>
