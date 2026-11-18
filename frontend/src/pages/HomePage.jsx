@@ -10,6 +10,7 @@ import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 import { useCallStore } from '../store/callStore';
 import PopupMenu from '../components/PopupMenu.jsx';
 import ChatList from '../components/ChatList.jsx';
+import { openSelfChat } from '../utils/chatOptions';
 import BottomNav from '../components/BottomNav.jsx';
 import NeonAvatar, { cardStyle, ringColorOf, RoundBtn, SectionLabel } from '../components/NeonAvatar.jsx';
 import GroupsSheet from '../components/GroupsSheet.jsx';
@@ -66,6 +67,8 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!user?.id) return;
+    // El chat "Tú" (contigo mismo) existe siempre: se crea la primera vez y luego sale en la lista
+    openSelfChat().then(() => fetchChats(user.id)).catch(() => {});
     fetchChats(user.id);
     // Polling cada 5s para detectar chats y mensajes nuevos aunque se pierda la conexión en tiempo real
     const interval = setInterval(() => fetchChats(user.id), 5000);
@@ -604,7 +607,10 @@ function CallsTab({ T, user, isDark, query = '' }) {
   const [calls,        setCalls]        = React.useState([]);
   const [loading,      setLoading]      = React.useState(true);
   const [pressedId,    setPressedId]    = React.useState(null); // long-press para mostrar delete
+  const [callMenu,     setCallMenu]     = React.useState(null); // llamada con la ventana de opciones abierta
   const pressTimerRef = React.useRef(null);
+  useBackClose(!!callMenu, () => setCallMenu(null));
+  const openChatWith = (call) => navigate(`/chat/${call.contactId}`, { state: { chat: { id: call.contactId, name: call.contactName } } });
 
   const fetchLog = React.useCallback(() => {
     if (!user?.id) return;
@@ -712,8 +718,10 @@ function CallsTab({ T, user, isDark, query = '' }) {
               display: 'flex', alignItems: 'center', gap: 14,
               padding: '11px 14px', margin: '0 12px 8px',
               ...(isPressed ? { background: isDark ? 'rgba(239,68,68,0.1)' : '#fff5f5' } : {}),
-              position: 'relative', transition: 'background 0.15s',
+              position: 'relative', transition: 'background 0.15s', cursor: 'pointer',
             }}
+            // Tocar la fila → ventana con enviar mensaje, llamar, videollamada y borrar
+            onClick={(e) => { e.stopPropagation(); if (pressedId) { setPressedId(null); return; } setCallMenu(call); }}
             onTouchStart={() => { pressTimerRef.current = setTimeout(() => setPressedId(call.id), 500); }}
             onTouchEnd={() => clearTimeout(pressTimerRef.current)}
             onMouseDown={() => { pressTimerRef.current = setTimeout(() => setPressedId(call.id), 500); }}
@@ -721,8 +729,9 @@ function CallsTab({ T, user, isDark, query = '' }) {
             onMouseLeave={() => clearTimeout(pressTimerRef.current)}
           >
             {/* Avatar: con foto, pulsar la amplía; sin foto, abre el chat */}
-            <CallAvatar call={call} isDark={isDark}
-              onChat={() => navigate(`/chat/${call.contactId}`, { state: { chat: { id: call.contactId, name: call.contactName } } })} />
+            <div onClick={e => e.stopPropagation()} style={{ flexShrink: 0 }}>
+              <CallAvatar call={call} isDark={isDark} onChat={() => openChatWith(call)} />
+            </div>
 
             {/* Info */}
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -749,7 +758,7 @@ function CallsTab({ T, user, isDark, query = '' }) {
             {/* Hora + acciones */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
               <span style={{ fontSize: 11, color: T.textMuted }}>{fmtTime(call.timestamp)}</span>
-              <div style={{ display: 'flex', gap: 5 }}>
+              <div style={{ display: 'flex', gap: 5 }} onClick={e => e.stopPropagation()}>
                 {/* Botón eliminar (aparece con long-press) */}
                 {isPressed && (
                   <button onClick={(e) => { e.stopPropagation(); deleteCall(call.id); }}
@@ -777,6 +786,64 @@ function CallsTab({ T, user, isDark, query = '' }) {
           </div>
         );
       })}
+
+      {callMenu && (
+        <CallActionsSheet call={callMenu} T={T} isDark={isDark} onClose={() => setCallMenu(null)}
+          onMessage={() => openChatWith(callMenu)}
+          onVoice={() => sendVoiceCall(callMenu.contactId, callMenu.contactName)}
+          onVideo={() => sendVideoCall(callMenu.contactId, callMenu.contactName)}
+          onDelete={() => deleteCall(callMenu.id)}
+          fmtDuration={fmtDuration} fmtTime={fmtTime} />
+      )}
+    </div>
+  );
+}
+
+/** Ventana de una llamada del registro: enviar mensaje, llamar, videollamada, borrar */
+function CallActionsSheet({ call, T, isDark, onClose, onMessage, onVoice, onVideo, onDelete, fmtDuration, fmtTime }) {
+  const accent = isDark ? '#9FC0E6' : BRAND;
+  const missed = !call.duration || call.duration < 1;
+  const incoming = call.direction === 'incoming';
+  const what = missed ? (incoming ? tr('Llamada perdida') : tr('No contestada'))
+    : `${incoming ? tr('Entrante') : tr('Saliente')} · ${fmtDuration(call.duration)}`;
+  const kind = call.type === 'video' ? tr('Videollamada') : tr('Llamada');
+  const rows = [
+    ['msg', tr('Enviar mensaje'), onMessage, accent],
+    ['voice', tr('Llamar'), onVoice, '#16A34A'],
+    ['video', tr('Videollamada'), onVideo, accent],
+    ['delete', tr('Borrar del registro'), onDelete, '#ef4444'],
+  ];
+  const ICON = {
+    msg: <path d="M21 12c0 4.4-4 8-9 8a9.9 9.9 0 01-4.3-.9L3 20l1.4-3.7A7.6 7.6 0 013 12c0-4.4 4-8 9-8s9 3.6 9 8z"/>,
+    voice: <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z"/>,
+    video: <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>,
+    delete: <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/>,
+  };
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 520, background: T.bgSurface, borderRadius: '22px 22px 0 0',
+                                                       padding: '10px 14px calc(var(--sab, 0px) + 18px)', boxSizing: 'border-box', boxShadow: '0 -6px 32px rgba(0,0,0,0.25)' }}>
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: T.border, margin: '2px auto 12px' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 4px 10px' }}>
+          <NeonAvatar name={call.contactName} src={call.contactAvatar || null} size={46} color={ringColorOf(call.contactId || call.id)} T={T} />
+          <div style={{ minWidth: 0 }}>
+            <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: T.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{call.contactName}</p>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: missed ? '#ef4444' : T.textMuted, fontWeight: missed ? 700 : 500 }}>
+              {kind} · {what} · {fmtTime(call.timestamp)}
+            </p>
+          </div>
+        </div>
+        {rows.map(([k, label, fn, color]) => (
+          <button key={k} onClick={() => { onClose(); fn(); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', background: 'none', border: 'none', padding: '12px 6px', borderRadius: 12, cursor: 'pointer',
+                     textAlign: 'left', color: k === 'delete' ? '#ef4444' : T.textPrimary, fontSize: 15, fontWeight: 700 }}>
+            <span style={{ width: 38, height: 38, borderRadius: 12, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${color}1A` }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{ICON[k]}</svg>
+            </span>
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

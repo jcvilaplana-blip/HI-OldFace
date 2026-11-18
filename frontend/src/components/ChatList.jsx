@@ -1,15 +1,22 @@
 /**
  * ChatList - Lista de conversaciones con dark mode
  * Feature: click en avatar para ver foto ampliada
- * Feature: long-press 3s → opción "Eliminar chat"
+ * Feature: pulsación larga → ventana con las opciones del chat (ChatOptionsSheet: archivos, silenciar, guardar
+ *          fotos, compartir contacto, vaciar, bloquear, eliminar)
+ * El chat "Tú" (contigo mismo) va siempre el primero.
  */
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 import { useChatStore } from '../store/chatStore';
-import Avatar from './Avatar.jsx';
+import { useAuthStore } from '../store/authStore';
 import NeonAvatar, { BRAND, BRAND_LIGHT, cardStyle, ringColorOf } from './NeonAvatar.jsx';
+import ChatOptionsSheet from './ChatOptionsSheet.jsx';
+import { isSelfChatId } from '../utils/chatOptions';
 import { tr } from '../i18n';
+
+/** Nombre que se ve del chat: el chat contigo mismo se llama "Tú" en el idioma de la app */
+export const chatDisplayName = (chat, myId) => (chat?.self || isSelfChatId(chat?.id, myId) ? tr('Tú (mensajes para ti)') : chat?.name);
 
 // Último mensaje de foto, vídeo, audio…: icono en vez del emoji que pone el servidor ("📷 Foto" → [cámara] Foto)
 const MEDIA_LABEL = {
@@ -53,11 +60,11 @@ export default function ChatList({ chats }) {
   const navigate = useNavigate();
   const { isDark } = useThemeStore();
   const T = isDark ? DARK : LIGHT;
-  const { deleteChat } = useChatStore();
+  const myId = useAuthStore(s => s.user?.id);
+  const fetchChats = useChatStore(s => s.fetchChats);
 
   const [expandedPhoto, setExpandedPhoto]   = useState(null);
-  const [selectedChat,  setSelectedChat]    = useState(null); // chat a eliminar
-  const [deleting,      setDeleting]        = useState(false);
+  const [selectedChat,  setSelectedChat]    = useState(null); // chat con la ventana de opciones abierta
   const [lit,           setLit]             = useState(null);   // chat pulsado: su aro se enciende
 
   const longPressRef  = useRef(null);
@@ -71,21 +78,12 @@ export default function ChatList({ chats }) {
         setLit(null);
         setSelectedChat(chat);
       }
-    }, 1500);
+    }, 600);
   };
 
   const cancelPress = () => {
     clearTimeout(longPressRef.current);
     pressingIdRef.current = null;
-  };
-
-  // ── Confirmar eliminación ─────────────────────────────────────────
-  const handleDelete = async () => {
-    if (!selectedChat) return;
-    setDeleting(true);
-    await deleteChat(selectedChat.id);
-    setDeleting(false);
-    setSelectedChat(null);
   };
 
   if (!chats?.length) {
@@ -101,15 +99,18 @@ export default function ChatList({ chats }) {
 
   // Al pulsar: el aro del contacto se enciende (neón) y se abre el chat un instante después para que se vea
   const openChat = (chat) => {
-    if (selectedChat) return;   // la pulsación larga ya abrió "Eliminar chat"
+    if (selectedChat) return;   // la pulsación larga ya abrió la ventana de opciones
     setLit(chat.id);
-    setTimeout(() => { setLit(null); navigate(`/chat/${chat.id}`, { state: { chat } }); }, 180);
+    setTimeout(() => { setLit(null); navigate(`/chat/${chat.id}`, { state: { chat: { ...chat, name: chatDisplayName(chat, myId) } } }); }, 180);
   };
+
+  // El chat "Tú" siempre arriba
+  const ordered = [...chats.filter(c => c.self || isSelfChatId(c.id, myId)), ...chats.filter(c => !(c.self || isSelfChatId(c.id, myId)))];
 
   return (
     <>
       <div style={{ padding: '4px 12px 0' }}>
-        {chats.map((chat) => {
+        {ordered.map((chat) => {
           const unread = chat.unread > 0;
           const timeColor = unread ? (isDark ? BRAND_LIGHT : BRAND) : T.textMuted;
           return (
@@ -154,7 +155,7 @@ export default function ChatList({ chats }) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                 <p style={{ fontWeight: 600, fontSize: 16, color: T.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0, paddingRight: 8 }}>
-                  {chat.name}
+                  {chatDisplayName(chat, myId)}
                 </p>
                 <span style={{ fontSize: 12, color: timeColor, flexShrink: 0, fontWeight: unread ? 800 : 600 }}>{chat.lastTime}</span>
               </div>
@@ -175,79 +176,11 @@ export default function ChatList({ chats }) {
         })}
       </div>
 
-      {/* ── Modal de confirmación: eliminar chat ── */}
+      {/* ── Ventana de opciones del chat (pulsación larga) ── */}
       {selectedChat && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 1100,
-            background: 'rgba(0,0,0,0.55)',
-            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-          }}
-          onClick={() => setSelectedChat(null)}
-        >
-          <div
-            style={{
-              width: '100%', maxWidth: 480,
-              background: isDark ? '#0f1f3a' : 'white',
-              borderRadius: '20px 20px 0 0',
-              padding: '20px 20px 36px',
-              boxShadow: '0 -4px 32px rgba(0,0,0,0.25)',
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Tirador */}
-            <div style={{ width: 40, height: 4, borderRadius: 2, background: isDark ? 'rgba(255,255,255,0.2)' : '#d1d5db', margin: '0 auto 20px' }} />
-
-            {/* Avatar + nombre del chat */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-              <Avatar name={selectedChat.name} src={selectedChat.avatar || null} size="lg" />
-              <div>
-                <p style={{ fontWeight: 800, fontSize: 16, color: isDark ? '#E0FBFC' : '#111827', margin: 0 }}>
-                  {selectedChat.name}
-                </p>
-                <p style={{ fontSize: 12, color: isDark ? '#6b8ab0' : '#6b7280', margin: '2px 0 0' }}>
-                  {selectedChat.lastMessage
-                    ? (selectedChat.lastMessage.length > 40 ? selectedChat.lastMessage.slice(0, 40) + '…' : selectedChat.lastMessage)
-                    : tr('Sin mensajes')}
-                </p>
-              </div>
-            </div>
-
-            {/* Botón eliminar */}
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              style={{
-                width: '100%', padding: '14px 0',
-                background: deleting ? '#fca5a5' : '#ef4444',
-                color: 'white', border: 'none', borderRadius: 14,
-                fontSize: 15, fontWeight: 800, cursor: deleting ? 'default' : 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                marginBottom: 10,
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
-                <path d="M10 11v6M14 11v6"/>
-                <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-              </svg>
-              {deleting ? tr('Eliminando…') : tr('Eliminar chat')}
-            </button>
-
-            {/* Botón cancelar */}
-            <button
-              onClick={() => setSelectedChat(null)}
-              style={{
-                width: '100%', padding: '13px 0',
-                background: 'none',
-                color: isDark ? '#6b8ab0' : '#6b7280',
-                border: `1.5px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#e5e7eb'}`,
-                borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer',
-              }}
-            >{tr('Cancelar')}</button>
-          </div>
-        </div>
+        <ChatOptionsSheet chat={selectedChat} showDelete
+          onClose={() => setSelectedChat(null)}
+          onChanged={() => { if (myId) fetchChats(myId); }} />
       )}
 
       {/* Visor de foto ampliada */}

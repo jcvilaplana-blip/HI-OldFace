@@ -27,6 +27,10 @@ import { tr, LOCALE } from '../i18n';
 import ZoomImage from '../components/ZoomImage.jsx';
 import { useBackClose } from '../utils/backHandler';
 import { getMutes, isMutedNow, setMute } from '../utils/mutesReminders';
+import ChatOptionsSheet from '../components/ChatOptionsSheet.jsx';
+import MediaEditor from '../components/MediaEditor.jsx';
+import { editVideo, editedFile, replaceMessageMedia } from '../utils/mediaEdit';
+import { getBlocks, isBlockedNow, setBlocked, isSelfChatId, getAutoSave, autoSavedState, markAutoSaved } from '../utils/chatOptions';
 
 const CHAT_BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const EMPTY = [];   // misma lista vacía en cada render (no dispara efectos que dependen de los mensajes)
@@ -177,7 +181,19 @@ export default function ChatPage() {
   // Hasta que conteste el servidor se ven los últimos mensajes guardados en el móvil (el chat abre al instante)
   const chatMessages = messages[msgChatId] || cachedMessages(msgChatId) || EMPTY;
   const groupId = isGroup ? (state?.chat?.groupId || groupIdFromChatId(msgChatId)) : null;
-  const headerName   = groupMeta?.name || chat.name;
+  // Chat "Tú" (contigo mismo): sin llamadas ni presencia
+  const isSelf = isSelfChatId(msgChatId, user?.id);
+  const headerName   = isSelf ? tr('Tú (mensajes para ti)') : (groupMeta?.name || chat.name);
+
+  // ¿He bloqueado al otro? → no se puede escribir ni llamar hasta desbloquear
+  const [iBlocked, setIBlocked] = useState(false);
+  useEffect(() => {
+    if (!user?.id || isGroup || isSelf || !participantId) return;
+    getBlocks().then(b => setIBlocked(isBlockedNow(b, participantId))).catch(() => {});
+  }, [participantId, user?.id, isGroup, isSelf]);
+  const unblock = async () => {
+    try { await setBlocked(participantId, false); setIBlocked(false); } catch (e) { alert(e.message); }
+  };
   const headerAvatar = groupMeta ? groupMeta.avatar : chat.avatar;
 
   // Grupo: ¿hay una llamada en curso? → barra "Unirse"
@@ -455,6 +471,16 @@ export default function ChatPage() {
   const [toast, setToast] = useState(null);
   const showToast = (t) => { setToast(t); setTimeout(() => setToast(x => (x === t ? null : x)), 2200); };
 
+  // "Guardar fotos en el móvil: Siempre" (opciones del chat): las fotos y vídeos que llegan desde que se activó se
+  // guardan solos en la galería al abrir el chat (una vez cada uno; nunca los "ver una vez" ni los míos)
+  useEffect(() => {
+    if (!user?.id || getAutoSave(msgChatId) !== 'always') return;
+    const st = autoSavedState(msgChatId);
+    const pending = chatMessages.filter(m => (m.type === 'image' || m.type === 'video') && m.url && !m.viewOnce && !m.isMine
+      && m.senderId !== user.id && m.status !== 'sending' && (m.createdAt || 0) >= st.since && !st.ids.includes(m.id)).slice(-10);
+    for (const m of pending) { markAutoSaved(msgChatId, m.id); saveMediaToPhone(m); }
+  }, [chatMessages, msgChatId, user?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   const removeSticker = async (url) => {
     if (!window.confirm(tr('¿Quitar este sticker de tu colección?'))) return;
     setStickers(list => (list || []).filter(u => u !== url));
@@ -547,6 +573,35 @@ export default function ChatPage() {
   };
   const closePendingMedia = () => { if (pendingMedia) URL.revokeObjectURL(pendingMedia.src); setPendingMedia(null); };
 
+  // ── Editor de fotos y vídeos: antes de enviar (target 'pending') o ya enviados (target 'sent', mensaje mío) ──
+  const [mediaEditor, setMediaEditor] = useState(null);   // { kind, src, target, msg? }
+  const [editBusy, setEditBusy] = useState('');
+  const onEditorDone = async (result) => {
+    const ed = mediaEditor;
+    if (ed.target === 'pending') {
+      // Foto: el JPEG editado sustituye al elegido · Vídeo: se guardan las instrucciones y se aplican al enviarlo
+      if (ed.kind === 'image' && result.blob) {
+        URL.revokeObjectURL(pendingMedia.src);
+        const file = new File([result.blob], `foto_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        setPendingMedia({ file, src: URL.createObjectURL(file), isVideo: false });
+      } else if (ed.kind === 'video') setPendingMedia(p => ({ ...p, edits: result.edits }));
+      setMediaEditor(null);
+      return;
+    }
+    // Ya enviado: archivo nuevo → el mensaje lo usa para los dos (sin marca de "editado")
+    setEditBusy(ed.kind === 'video' ? tr('Editando el vídeo…') : tr('Guardando…'));
+    try {
+      const url = await editedFile(ed.kind, result, ed.msg.url);
+      if (url) {
+        await replaceMessageMedia(msgChatId, ed.msg.id, url);
+        patchLocal(ed.msg.id, { url });
+        loadMessages(msgChatId, user.id, participantId);
+      }
+      setMediaEditor(null);
+    } catch (e) { showToast(e.message || tr('No se pudo guardar')); }
+    setEditBusy('');
+  };
+
   // Mientras se ve algo de "ver una vez", el móvil no deja hacer capturas ni grabar la pantalla (Android)
   useEffect(() => {
     if (!expandedPhoto?.viewOnce) return;
@@ -576,11 +631,17 @@ export default function ChatPage() {
   };
 
   // ── Enviar imagen o video ─────────────────────────────────────────────────
-  const sendMediaFile = async (file, { viewOnce = false } = {}) => {
+  const sendMediaFile = async (file, { viewOnce = false, edits = null } = {}) => {
     if (!file) return;
     setShowAttachMenu(false);
     const isVideo = file.type.startsWith('video/');
     const currentReply = replyTo;
+    // Vídeo editado antes de enviarlo: se sube el original y el servidor crea el editado (el original se descarta)
+    const uploadVideo = async (f) => {
+      const raw = await uploadChatFile(f, user.id);
+      if (!raw || !edits) return raw;
+      try { return await editVideo(raw, edits, { discardSource: true }); } catch { return null; }
+    };
 
     // Comprimir imagen si es grande
     const processFile = () => new Promise((resolve) => {
@@ -620,7 +681,7 @@ export default function ChatPage() {
                               time: nowTime(), createdAt: Date.now(), status: 'sending', isMine: true, replyTo: currentReply || null });
       setReplyTo(null);
       const blob = isVideo ? file : await fetch(await processFile()).then(r => r.blob());
-      const url = await uploadChatFile(blob, user.id);
+      const url = isVideo ? await uploadVideo(blob) : await uploadChatFile(blob, user.id);
       if (!url) { updateMessageStatus(msgChatId, localId, 'error'); alert(tr('No se pudo enviar {p0}. Inténtalo de nuevo.', { p0: isVideo ? 'el vídeo' : 'la foto' })); return; }
       await persistMessage(msgChatId, user.id, text, type, url, currentReply, null, { viewOnce: true });
       return;
@@ -632,7 +693,7 @@ export default function ChatPage() {
       addMessage(msgChatId, { id: localId, type: 'video', text: '[Video]', url: URL.createObjectURL(file), sender: user.id,
                               time: nowTime(), status: 'sending', isMine: true, replyTo: currentReply || null });
       setReplyTo(null);
-      const url = await uploadChatFile(file, user.id);
+      const url = await uploadVideo(file);
       if (!url) { updateMessageStatus(msgChatId, localId, 'error'); alert(tr('No se pudo enviar el vídeo. Inténtalo de nuevo.')); return; }
       patchLocal(localId, { url });
       await persistMessage(msgChatId, user.id, '[Video]', 'video', url, currentReply);
@@ -798,7 +859,9 @@ export default function ChatPage() {
         <div style={{ flex: 1, minWidth: 0, cursor: isGroup ? 'pointer' : 'default' }} onClick={() => isGroup && setShowGroupInfo(true)}>
           <p style={{ fontWeight: 700, fontSize: 18, color: T.textPrimary, margin: 0, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{headerName}</p>
           <p style={{ fontSize: 12, color: isGroup ? T.textMuted : (presenceInfo.online ? (isDark ? '#7FA3D1' : BRAND) : T.textMuted), margin: '2px 0 0', lineHeight: 1.25, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-            {isGroup
+            {isSelf ? tr('Notas, archivos y recordatorios')
+              : iBlocked ? tr('Bloqueado')
+              : isGroup
               ? (Object.keys(memberNames).length ? tr('Grupo · {length} miembros', { length: Object.keys(memberNames).length }) : tr('Grupo'))
               : presenceInfo.online
                 ? tr('● en línea')
@@ -808,40 +871,43 @@ export default function ChatPage() {
           </p>
         </div>
 
-        {/* Vídeo (aro azul) · llamada (aro verde) · más opciones (azul de marca) */}
-        <button onClick={() => (isGroup ? groupId && startGroupCall(groupId, headerName, 'video') : sendVideoCall(participantId, chat.name))}
+        {/* Vídeo (aro azul) · llamada (aro verde) · más opciones (azul de marca). En el chat "Tú" no hay llamadas */}
+        {!isSelf && <>
+        <button onClick={() => (iBlocked ? showToast(tr('Has bloqueado a {name}.', { name: headerName })) : isGroup ? groupId && startGroupCall(groupId, headerName, 'video') : sendVideoCall(participantId, chat.name))}
           aria-label={isGroup ? tr('Videollamada de grupo') : tr('Videollamada')}
           style={headCallBtn('#5B8DEF')}>
           <svg width="19" height="19" fill="none" stroke={isDark ? '#E0FBFC' : BRAND} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
             <path d="M15 10l4.553-2.069A1 1 0 0121 8.868v6.264a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
           </svg>
         </button>
-        <button onClick={() => (isGroup ? groupId && startGroupCall(groupId, headerName, 'voice') : sendVoiceCall(participantId, chat.name))}
+        <button onClick={() => (iBlocked ? showToast(tr('Has bloqueado a {name}.', { name: headerName })) : isGroup ? groupId && startGroupCall(groupId, headerName, 'voice') : sendVoiceCall(participantId, chat.name))}
           aria-label={isGroup ? tr('Llamada de grupo') : tr('Llamar')}
           style={headCallBtn('#22C55E')}>
           <svg width="19" height="19" fill="none" stroke={isDark ? '#BBF7D0' : '#15803D'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
             <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z" />
           </svg>
         </button>
+        </>}
         <div style={{ position: 'relative' }}>
           <button onClick={(e) => { e.stopPropagation(); setShowChatMenu(v => !v); }} aria-label={tr('Más opciones')}
             style={{ width: 42, height: 42, borderRadius: '50%', background: isDark ? '#2F3A4D' : BRAND, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                      boxShadow: isDark ? '0 0 10px rgba(0,0,0,0.4)' : '0 4px 12px rgba(61,90,128,0.4)' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
           </button>
+          {/* ⋮ → ventana con las opciones del chat (las de esta pantalla van arriba) */}
           {showChatMenu && (
-            <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 0, top: 42, zIndex: 60, background: T.bgSurface, border: `1px solid ${T.border}`,
-                                                          borderRadius: 14, boxShadow: '0 6px 24px rgba(0,0,0,0.2)', padding: 6, minWidth: 210 }}>
-              {[...(isGroup && groupId ? [[tr('Info del grupo'), () => setShowGroupInfo(true)]] : []),
-                [tr('Mensajes destacados{p0}', { p0: starredMsgs.length ? ` (${starredMsgs.length})` : '' }), () => setShowStarred(true)],
-                [muted ? `🔔 ${tr('Activar avisos')}` : `🔕 ${tr('Silenciar avisos')}`, () => (muted ? applyMute(null) : setShowMuteSheet(true))],
-                [tr('Fondo del chat'), () => setShowBgSheet(true)]].map(([label, fn]) => (
-                <button key={label} onClick={() => { setShowChatMenu(false); fn(); }}
-                  style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '11px 14px', borderRadius: 10, cursor: 'pointer', color: T.textPrimary, fontSize: 14, fontWeight: 600, textAlign: 'left' }}>
-                  {label}
-                </button>
-              ))}
-            </div>
+            <ChatOptionsSheet
+              chat={{ id: msgChatId, name: headerName, avatar: headerAvatar, isGroup, self: isSelf }}
+              extra={[...(isGroup && groupId ? [[tr('Info del grupo'), () => setShowGroupInfo(true), 'info']] : []),
+                      [tr('Mensajes destacados{p0}', { p0: starredMsgs.length ? ` (${starredMsgs.length})` : '' }), () => setShowStarred(true), 'star'],
+                      [tr('Fondo del chat'), () => setShowBgSheet(true), 'image']]}
+              onClose={() => setShowChatMenu(false)}
+              onChanged={(kind) => {
+                if (kind === 'muted' || kind === 'unmuted') getMutes().then(m => setMuteUntil(isMutedNow(m, msgChatId) ? m[msgChatId] : null)).catch(() => {});
+                if (kind === 'blocked') setIBlocked(true);
+                if (kind === 'unblocked') setIBlocked(false);
+                if (kind === 'cleared') { useChatStore.getState().setMessages(msgChatId, []); loadMessages(msgChatId, user.id, participantId); }
+              }} />
           )}
           {showMuteSheet && (
             <div onClick={() => setShowMuteSheet(false)} style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
@@ -1067,6 +1133,18 @@ export default function ChatPage() {
         display: 'flex', alignItems: 'flex-end', gap: 10, flexShrink: 0,
         position: 'relative',
       }}>
+
+        {/* Contacto bloqueado: no se puede escribir hasta desbloquear */}
+        {iBlocked && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 45, background: T.bgMain, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                        padding: '8px 14px', paddingBottom: 'max(10px, env(safe-area-inset-bottom, 10px))' }}>
+            <span style={{ fontSize: 13, color: T.textSecondary, textAlign: 'center' }}>{tr('Has bloqueado a {name}.', { name: headerName })}</span>
+            <button onClick={unblock}
+              style={{ background: '#ef4444', color: 'white', border: 'none', borderRadius: 18, padding: '8px 16px', fontSize: 13, fontWeight: 800, cursor: 'pointer', flexShrink: 0 }}>
+              {tr('Desbloquear')}
+            </button>
+          </div>
+        )}
 
         {/* Menú adjuntos */}
         {showAttachMenu && (
@@ -1334,7 +1412,9 @@ export default function ChatPage() {
           onSelect={() => toggleSelect(actionMsg.id)}
           onDelete={() => setDeleteTarget([actionMsg])}
           onAddSticker={() => addToMyStickers(actionMsg.url)}
-          onSaveMedia={() => saveMediaToPhone(actionMsg)} />
+          onSaveMedia={() => saveMediaToPhone(actionMsg)}
+          onEditMedia={() => setMediaEditor({ kind: actionMsg.type === 'video' ? 'video' : 'image', target: 'sent', msg: actionMsg,
+            src: /^(https?|blob|data):/.test(actionMsg.url) ? actionMsg.url : new URL(actionMsg.url, CHAT_BACKEND).href })} />
       )}
 
       {toast && (
@@ -1611,7 +1691,14 @@ export default function ChatPage() {
       {/* Vista previa antes de enviar una foto o un vídeo */}
       {pendingMedia && (
         <MediaPreview media={pendingMedia} onCancel={closePendingMedia}
-          onSend={(viewOnce) => { const f = pendingMedia.file; closePendingMedia(); sendMediaFile(f, { viewOnce }); }} />
+          onEdit={() => setMediaEditor({ kind: pendingMedia.isVideo ? 'video' : 'image', src: pendingMedia.src, target: 'pending' })}
+          onSend={(viewOnce) => { const { file: f, edits } = pendingMedia; closePendingMedia(); sendMediaFile(f, { viewOnce, edits }); }} />
+      )}
+
+      {/* Editor de fotos y vídeos */}
+      {mediaEditor && (
+        <MediaEditor kind={mediaEditor.kind} src={mediaEditor.src} busy={editBusy}
+          onCancel={() => { if (!editBusy) setMediaEditor(null); }} onDone={onEditorDone} />
       )}
     </div>
   );
@@ -1663,14 +1750,22 @@ function ViewOnceChip({ msg, isDark, onOpen }) {
 }
 
 // ── Vista previa de la foto o vídeo a enviar, con "ver una vez" ────────────
-function MediaPreview({ media, onCancel, onSend }) {
+function MediaPreview({ media, onCancel, onSend, onEdit }) {
   const [once, setOnce] = useState(false);
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#0A0D25', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', alignItems: 'center', padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 14px 8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 14px 8px' }}>
         <button onClick={onCancel} aria-label={tr('Cancelar')}
           style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+        <span style={{ flex: 1 }} />
+        {media.edits && <span style={{ color: '#98C1D9', fontSize: 13, fontWeight: 800 }}>{tr('Vídeo editado ✓')}</span>}
+        {/* Editar antes de enviar: recortar, girar, dibujar, texto, filtros (foto) · recortar, girar, sonido (vídeo) */}
+        <button onClick={onEdit}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 16px', borderRadius: 20, background: 'rgba(255,255,255,0.12)', border: 'none', cursor: 'pointer', color: 'white', fontSize: 14, fontWeight: 800 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>
+          {tr('Editar')}
         </button>
       </div>
       <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 8px' }}>
@@ -1922,6 +2017,7 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
   const isDeleted  = msg.deleted || msg.type === 'deleted';
   const isSticker  = msg.type === 'sticker' && !isDeleted;
   const longPressRef = useRef(null);
+  const navigate = useNavigate();   // tarjeta de contacto de OldFace → abrir su chat
 
   // Enviados: azul de marca con brillo (en claro y en oscuro) y texto blanco · recibidos: tarjeta del tema
   const sentBg   = 'linear-gradient(135deg, #34507A 0%, #3D5A80 55%, #4A6B95 100%)';
@@ -2060,10 +2156,12 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
           );
         })()
         : isContact ? (() => {
-          let cName = '—', cPhone = '—';
-          try { const d = JSON.parse(msg.url || '{}'); cName = d.name || '—'; cPhone = d.phone || '—'; } catch {}
+          let cName = '—', cPhone = '—', cUser = null;
+          try { const d = JSON.parse(msg.url || '{}'); cName = d.name || '—'; cPhone = d.phone || '—'; cUser = typeof d.userId === 'string' ? d.userId : null; } catch {}
+          // Contacto de OldFace (compartido desde las opciones del chat): tocar abre su chat
+          const openUser = cUser ? (e) => { e.preventDefault(); e.stopPropagation(); navigate(`/chat/${cUser}`, { state: { chat: { id: cUser, name: cName } } }); } : undefined;
           return (
-            <a href={`tel:${cPhone}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', padding: '4px 2px' }}>
+            <a href={cUser ? '#' : `tel:${cPhone}`} onClick={openUser} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', padding: '4px 2px' }}>
               <span style={{ width: 40, height: 40, borderRadius: '50%', background: '#e11d48', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg width="20" height="20" fill="white" viewBox="0 0 24 24">
                   <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
@@ -2071,7 +2169,7 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
               </span>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: msg.isMine ? sentText : recvText }}>{cName}</div>
-                <div style={{ fontSize: 12, color: msg.isMine ? timeColor : recvTime }}>{cPhone}</div>
+                <div style={{ fontSize: 12, color: msg.isMine ? timeColor : recvTime }}>{cUser ? tr('Enviar mensaje') : cPhone}</div>
               </div>
             </a>
           );
@@ -2441,7 +2539,7 @@ function BackgroundSheet({ T, current, onClose, onApply }) {
 }
 
 // ── Menú de un mensaje (pulsación larga) ───────────────────────────────────
-function MessageActions({ T, msg, canEdit, onClose, onReply, onCopy, onEdit, onPin, onStar, onForward, onSelect, onDelete, onAddSticker, onSaveMedia }) {
+function MessageActions({ T, msg, canEdit, onClose, onReply, onCopy, onEdit, onPin, onStar, onForward, onSelect, onDelete, onAddSticker, onSaveMedia, onEditMedia }) {
   const deleted = msg.deleted || msg.type === 'deleted';
   const local = msg.status === 'sending' || msg.status === 'error';
   const sticker = msg.type === 'sticker' && !deleted && !local && /^https?:/.test(msg.url || '');
@@ -2453,6 +2551,8 @@ function MessageActions({ T, msg, canEdit, onClose, onReply, onCopy, onEdit, onP
     media && [msg.type === 'video' ? tr('Descargar vídeo') : msg.type === 'sticker' ? tr('Guardar en el móvil') : tr('Descargar foto'), onSaveMedia, 'download', '#16A34A'],
     !deleted && (msg.type || 'text') === 'text' && [tr('Copiar'), onCopy, 'copy', '#0284C7'],
     canEdit && [tr('Editar'), onEdit, 'edit', '#4F46E5'],
+    // Mi foto o vídeo ya enviado: editar (lo nuevo sustituye al original para los dos)
+    media && msg.isMine && msg.type !== 'sticker' && /^https?:/.test(msg.url || '') && [msg.type === 'video' ? tr('Editar vídeo') : tr('Editar foto'), onEditMedia, 'edit', '#4F46E5'],
     !deleted && !local && [msg.pinned ? tr('Dejar de fijar') : tr('Fijar'), onPin, 'pin', '#EA580C'],
     !deleted && !local && [msg.starred ? tr('Quitar destacado') : tr('Destacar'), onStar, 'star', '#EAB308'],
     !deleted && !local && !msg.viewOnce && [tr('Reenviar'), onForward, 'forward', '#7C3AED'],

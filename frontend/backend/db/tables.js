@@ -40,6 +40,7 @@ const TABLES = [
   { file: 'devices.json',            table: 'revoked_devices',    kind: 'map',  part: 'revoked' },
   { file: 'muted_chats.json',        table: 'muted_chats',        kind: 'map' },
   { file: 'reminders.json',          table: 'reminders',          kind: 'map' },
+  { file: 'user_blocks.json',        table: 'user_blocks',        kind: 'map' },
   { file: 'ai_media.json',           table: 'ai_media',           kind: 'map',  cols: { kind: 'kind' } },
   { file: 'live_passes.json',        table: 'live_passes',        kind: 'map',  cols: { directo_id: 'directoId', user_id: 'userId', via: 'via' } },
   { file: 'live_payments.json',      table: 'live_payments',      kind: 'map',  cols: { owner_id: 'ownerId', buyer_id: 'buyerId', status: 'status' } },

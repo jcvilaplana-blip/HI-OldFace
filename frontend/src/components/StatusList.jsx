@@ -17,6 +17,8 @@ import { cardStyle } from './NeonAvatar.jsx';
 import { matches } from './SearchBox.jsx';
 import { useCandidates, PeoplePicker, Sheet, PrimaryBtn } from './GroupSheets.jsx';
 import { tr, LOCALE } from '../i18n';
+import MediaEditor from './MediaEditor.jsx';
+import { editVideo, editedFile, replaceStoryMedia } from '../utils/mediaEdit';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const BRAND = '#3D5A80';
@@ -374,6 +376,9 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
   const [error, setError]       = useState('');
   const photoRef = useRef(null);
   const videoRef = useRef(null);
+  const camPhotoRef = useRef(null);   // hacer la foto / grabar el vídeo con la cámara
+  const camVideoRef = useRef(null);
+  const [editIdx, setEditIdx] = useState(null);   // elemento de la lista que se está editando
   const queueRef = useRef(queue);
   queueRef.current = queue;
 
@@ -418,6 +423,18 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
 
   const removeItem = (i) => setQueue(q => { URL.revokeObjectURL(q[i].preview); return q.filter((_, k) => k !== i); });
 
+  // Editar antes de publicar: foto → el JPEG editado sustituye al elegido · vídeo → instrucciones para el servidor
+  const applyEdit = (result) => {
+    const i = editIdx;
+    setQueue(q => q.map((item, k) => {
+      if (k !== i) return item;
+      if (item.type === 'image' && result.blob) { URL.revokeObjectURL(item.preview); return { ...item, blob: result.blob, preview: URL.createObjectURL(result.blob) }; }
+      if (item.type === 'video') return { ...item, edits: result.edits };
+      return item;
+    }));
+    setEditIdx(null);
+  };
+
   const post = async (body) => {
     const res = await fetch(`${BACKEND}/stories`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -444,7 +461,11 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
       const items = [...queue];
       for (let i = 0; i < items.length; i++) {
         setBusy(tr('Subiendo {p0} de {length}…', { p0: i + 1, length: items.length }));
-        const url = await uploadFile(items[i].blob, user.id);
+        let url = await uploadFile(items[i].blob, user.id);
+        if (items[i].type === 'video' && items[i].edits) {
+          setBusy(tr('Editando el vídeo {p0} de {length}…', { p0: i + 1, length: items.length }));
+          url = await editVideo(url, items[i].edits, { discardSource: true });
+        }
         await post({ mediaType: items[i].type, content: url });
         URL.revokeObjectURL(items[i].preview);
         setQueue(q => q.slice(1));   // ya publicado: si algo falla después, no se repite
@@ -506,7 +527,14 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
                   )}
                   {q.type === 'video' && (
                     <span style={{ position: 'absolute', left: 4, bottom: 4, background: 'rgba(0,0,0,0.6)', color: 'white', fontSize: 10, fontWeight: 800,
-                                   padding: '1px 5px', borderRadius: 5 }}>{tr('▶ Vídeo')}</span>
+                                   padding: '1px 5px', borderRadius: 5 }}>{q.edits ? tr('✓ Editado') : tr('▶ Vídeo')}</span>
+                  )}
+                  {!busy && (
+                    <button onClick={() => setEditIdx(i)} aria-label={tr('Editar')}
+                      style={{ position: 'absolute', top: 4, left: 4, width: 24, height: 24, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.6)',
+                               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>
+                    </button>
                   )}
                 </div>
               ))}
@@ -518,6 +546,13 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
               <><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></>)}
             {tileBtn(tr('Vídeos ({p0})', { p0: Math.max(0, Math.min(left.video, left.total)) }), canVideo, () => videoRef.current?.click(),
               <><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></>)}
+          </div>
+          {/* O directamente con la cámara (luego se puede editar con el lápiz de cada uno) */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {tileBtn(tr('Hacer foto'), canPhoto, () => camPhotoRef.current?.click(),
+              <><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></>)}
+            {tileBtn(tr('Grabar vídeo'), canVideo, () => camVideoRef.current?.click(),
+              <><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill={BRAND}/></>)}
           </div>
 
           {/* Quién puede verlo */}
@@ -539,7 +574,16 @@ function StatusCreator({ user, T, isDark, counts, limits, onClose, onPublished }
           onChange={e => { const f = e.target.files; if (f?.length) addFiles(f, 'image'); e.target.value = ''; }} />
         <input ref={videoRef} type="file" accept="video/*" multiple hidden
           onChange={e => { const f = e.target.files; if (f?.length) addFiles(f, 'video'); e.target.value = ''; }} />
+        <input ref={camPhotoRef} type="file" accept="image/*" capture="environment" hidden
+          onChange={e => { const f = e.target.files; if (f?.length) addFiles(f, 'image'); e.target.value = ''; }} />
+        <input ref={camVideoRef} type="file" accept="video/*" capture="environment" hidden
+          onChange={e => { const f = e.target.files; if (f?.length) addFiles(f, 'video'); e.target.value = ''; }} />
       </Sheet>
+
+      {editIdx != null && queue[editIdx] && (
+        <MediaEditor kind={queue[editIdx].type} src={queue[editIdx].preview}
+          onCancel={() => setEditIdx(null)} onDone={applyEdit} />
+      )}
 
       {showPrivacy && (
         <PrivacySheet T={T} isDark={isDark} user={user} initial={privacy} remember={remember}
@@ -623,6 +667,8 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
   const [paused, setPaused]       = useState(false);
   const [viewersList, setViewersList] = useState(null);   // autor: quién lo vio
   const [confirmDel, setConfirmDel] = useState(false);
+  const [editing, setEditing]     = useState(false);   // autor: editar la foto/vídeo ya publicado
+  const [editBusy, setEditBusy]   = useState('');
   const timerRef   = useRef(null);
   const markedRef  = useRef(new Set());
   const historyRef = useRef(false);
@@ -699,7 +745,7 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
   }, [story?.id]); // eslint-disable-line
 
   // Avance automático de fotos y textos (los vídeos avanzan al terminar)
-  const stopped = paused || !!viewersList || confirmDel;
+  const stopped = paused || !!viewersList || confirmDel || editing;
   useEffect(() => {
     clearTimeout(timerRef.current);
     if (!story || story.mediaType === 'video' || stopped) return;
@@ -745,6 +791,17 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
     onChanged();
   };
 
+  // Estado ya publicado: el archivo editado sustituye al anterior (los que ya lo vieron siguen contando)
+  const saveEdit = async (result) => {
+    setEditBusy(story.mediaType === 'video' ? tr('Editando el vídeo…') : tr('Guardando…'));
+    try {
+      const url = await editedFile(story.mediaType, result, mediaSrc(story.content));
+      if (url) { await replaceStoryMedia(story.id, url); onChanged(); }
+      setEditing(false);
+    } catch (e) { alert(e.message || tr('No se pudo guardar')); }
+    setEditBusy('');
+  };
+
   const isMedia = story.mediaType === 'image' || story.mediaType === 'video';
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 700, background: isMedia ? '#000' : (story.bgColor || BRAND), display: 'flex', flexDirection: 'column' }}>
@@ -779,6 +836,10 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
             {isMine ? ` · ${privacyLabel(story.privacy, true)}` : ''}
           </p>
         </div>
+        {isMine && isMedia && (
+          <button onClick={() => setEditing(true)} aria-label={tr('Editar estado')}
+            style={{ background: 'rgba(255,255,255,0.22)', border: 'none', borderRadius: 18, padding: '6px 12px', color: 'white', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>{tr('Editar')}</button>
+        )}
         {isMine && (
           <button onClick={() => setConfirmDel(true)} aria-label={tr('Eliminar estado')}
             style={{ background: 'rgba(239,68,68,0.85)', border: 'none', borderRadius: 18, padding: '6px 12px', color: 'white', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>{tr('Eliminar')}</button>
@@ -871,6 +932,12 @@ function StatusViewer({ user, viewer, setViewer, storiesOf, authors, onChanged, 
             </div>
           </div>
         </div>
+      )}
+
+      {/* Editar el estado ya publicado */}
+      {editing && (
+        <MediaEditor kind={story.mediaType} src={mediaSrc(story.content)} busy={editBusy}
+          onCancel={() => { if (!editBusy) setEditing(false); }} onDone={saveEdit} />
       )}
 
       <style>{'@keyframes stProg { from { width: 0% } to { width: 100% } }'}</style>

@@ -823,6 +823,8 @@ router.post('/call-notification', async (req, res) => {
   const callerId = authUser(req, res, req.body?.callerId);
   if (!callerId) return;
   if (!calleeId) return res.status(400).json({ error: 'calleeId y callerId son requeridos' });
+  if (hasBlocked(callerId, calleeId)) return res.status(403).json({ error: 'Has bloqueado a este contacto. Desbloquéalo para llamarle.' });
+  if (hasBlocked(calleeId, callerId)) return res.json({ success: false, reason: 'no disponible' });   // no suena
 
   // Si el destinatario tiene la app abierta con el servidor RTC, recibe la invitación al instante
   rtcEmit(calleeId, 'signal', {
@@ -919,11 +921,13 @@ function unreadTotalOf(uid) {
 function lastInfoOf(c, uid) {
   const msgs = visibleMsgsOf(c.id, uid);
   const last = msgs[msgs.length - 1];
-  if (!last) return {};
+  if (!last) return { lastMessage: '' };   // chat vaciado o sin mensajes para este usuario
   const mine = last.senderId === uid;
   const others = (c.participants || []).filter(p => p !== uid);
   const readBy = last.readBy || [];
   return {
+    // vista previa del último mensaje que ve ESTE usuario (no uno que vació, ocultó o le llegó de alguien bloqueado)
+    lastMessage: chatPreviewText(last.type || 'text', last.viewOnce ? '' : (last.text || '')),
     lastFromMe: mine,
     lastType:   last.type || 'text',
     ...(mine ? { lastRead: others.length > 0 && others.every(p => readBy.includes(p)) } : {}),
@@ -952,6 +956,8 @@ router.get('/chats', (req, res) => {
         }
         return { ...c, name: group?.name || c.name, avatar: group?.avatar || null, memberNames: enriched };
       }
+      // Chat contigo mismo ("Tú"): tu nombre de chat propio y tu foto
+      if (isSelfChat(c)) return { ...c, self: true, name: 'Tú', avatar: findUserById(userId)?.avatar || null };
       // Chat 1-a-1: nombre y avatar del otro participante
       const otherId = c.participants.find(p => p !== userId);
       const otherUser = otherId ? [...userStore.values()].find(u => u.userId === otherId) : null;
@@ -1133,6 +1139,7 @@ function publicMsg(m) {
   const out = { ...m, url: absFileUrl(m.url) };
   if (m.replyTo?.url) out.replyTo = { ...m.replyTo, url: absFileUrl(m.replyTo.url) };
   if (m.viewOnce) delete out.url;
+  delete out.hiddenFor;   // a quién se le ocultó (p. ej. porque bloqueó a quien escribe) no se cuenta a nadie
   return out;
 }
 
@@ -1232,6 +1239,10 @@ router.post('/messages', async (req, res) => {
   if (!senderId) return;
   if (!chatId || !text) return res.status(400).json({ error: 'chatId, senderId y text son requeridos' });
   if (!isChatMember(chatId, senderId)) return res.status(403).json({ error: 'No perteneces a este chat' });
+  // Bloqueos (solo chats 1 a 1): quien bloquea no escribe; lo de quien está bloqueado no le llega al otro
+  const peerId = chatPeerOf(chatId, senderId);
+  if (peerId && hasBlocked(senderId, peerId)) return res.status(403).json({ error: 'Has bloqueado a este contacto. Desbloquéalo para escribirle.' });
+  const blockedByPeer = !!peerId && hasBlocked(peerId, senderId);
   // Fotos/audios en base64 (apps antiguas) → archivo; el mensaje solo guarda su dirección
   const url = externalizeDataUrl(req.body.url);
   const replyTo = req.body.replyTo && typeof req.body.replyTo === 'object'
@@ -1246,6 +1257,7 @@ router.post('/messages', async (req, res) => {
     replyTo:   replyTo || null,
     fileName:  fileName || null,
     ...(once ? { viewOnce: true, openedBy: [] } : {}),
+    ...(blockedByPeer ? { hiddenFor: [peerId] } : {}),
     ...(Number(duration) > 0 ? { duration: Math.round(Number(duration)) } : {}),
     // Ubicación en tiempo real: hasta cuándo se comparte; la posición la va actualizando quien la envía
     ...(type === 'live_location' && live ? { live: {
@@ -1269,6 +1281,9 @@ router.post('/messages', async (req, res) => {
     chatStore2.set(chatId, c);
     saveChats();
   }
+
+  // Bloqueado por el otro: se guarda (quien escribe lo ve enviado) pero no se entrega ni avisa
+  if (blockedByPeer) return res.json(publicMsg(msg));
 
   // ── Entrega en tiempo real por el servidor RTC propio ──────────────────
   const senderUser = [...userStore.values()].find(u => u.userId === senderId);
@@ -1991,6 +2006,7 @@ function deleteAccount(userId) {
   saveKaraokeRecs(); savePollProfiles(); savePollVotes(); saveSubs(); saveDevices(); saveFcm(); savePrefs(); savePrivacy();
   saveContacts(); saveStoryPrivacy();
   muteStore.delete(userId); reminderStore.delete(userId); saveMutes(); saveReminders();   // silencios y recordatorios
+  forgetBlocks(userId);   // a quién bloqueó y en qué listas de bloqueados estaba
   ai.forgetUser(userId);   // contador de uso y acciones pendientes de Willy
   social.forgetUser(userId);   // canal, publicaciones, comentarios, seguidores y avisos de Social
   rtcEmit(userId, 'device:revoked', { deviceId: '*' });   // cierra la sesión en sus otros dispositivos abiertos
@@ -3731,6 +3747,116 @@ router.delete('/reminders/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ════════════════════════════════════════════════════════════════
+//  BLOQUEOS, VACIAR CHAT Y CHAT "TÚ" (contigo mismo)
+// ════════════════════════════════════════════════════════════════
+// Bloquear (chats 1 a 1): quien bloquea no puede escribir ni llamar al otro; lo que el bloqueado le escribe se le
+// guarda solo a él (oculto para quien bloquea, sin aviso) y sus llamadas no suenan. El bloqueado no se entera.
+// Vaciar: oculta para mí todos los mensajes del chat (el otro los sigue viendo). "Tú": chat_<uid>_<uid>, notas
+// propias; ahí llegan también los recordatorios.
+const blockStore = new Map(Object.entries(loadJSON('user_blocks.json', {})));   // userId → [userId bloqueados]
+const saveBlocks = () => saveJSON('user_blocks.json', Object.fromEntries(blockStore));
+const MAX_BLOCKS = 1000;
+
+/** ¿userId ha bloqueado a otherId? */
+function hasBlocked(userId, otherId) {
+  return !!userId && !!otherId && (blockStore.get(userId) || []).includes(otherId);
+}
+
+/** El otro participante de un chat 1 a 1 (null en grupos y en el chat contigo mismo) */
+function chatPeerOf(chatId, uid) {
+  if (String(chatId).startsWith('group_') || chatStore2.get(chatId)?.isGroup) return null;
+  return chatMembers(chatId).find(p => p && p !== uid) || null;
+}
+
+const selfChatIdOf = (uid) => `chat_${uid}_${uid}`;
+/** ¿Es el chat de un usuario consigo mismo? */
+function isSelfChat(c) {
+  const p = c?.participants || [];
+  return !c?.isGroup && p.length === 2 && p[0] === p[1];
+}
+
+/** Crea (si falta) y devuelve el chat "Tú" del usuario */
+function ensureSelfChat(uid) {
+  const id = selfChatIdOf(uid);
+  if (!chatStore2.has(id)) {
+    chatStore2.set(id, { id, participants: [uid, uid], name: 'Tú', self: true, createdAt: Date.now(), lastMessage: '', lastTime: Date.now() });
+    saveChats();
+  }
+  return chatStore2.get(id);
+}
+
+/** Al eliminar la cuenta: sus bloqueos y su rastro en los de los demás */
+function forgetBlocks(userId) {
+  blockStore.delete(userId);
+  for (const [uid, list] of blockStore) if (list.includes(userId)) blockStore.set(uid, list.filter(id => id !== userId));
+  saveBlocks();
+}
+
+/** GET /blocks?userId= — { blocked: [{ userId, name }] } a quién he bloqueado */
+router.get('/blocks', (req, res) => {
+  const uid = authUser(req, res, req.query.userId);
+  if (!uid) return;
+  res.json({ blocked: (blockStore.get(uid) || []).map(id => ({ userId: id, name: findUserById(id)?.name || null })) });
+});
+
+/** PUT /blocks/:otherId — { userId, blocked: true|false } bloquear o desbloquear a otro usuario */
+router.put('/blocks/:otherId', (req, res) => {
+  const uid = authUser(req, res, req.body?.userId);
+  if (!uid) return;
+  const { otherId } = req.params;
+  const blocked = req.body?.blocked;
+  if (typeof blocked !== 'boolean') return res.status(400).json({ error: 'blocked debe ser true o false' });
+  if (otherId === uid || !findUserById(otherId)) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const list = (blockStore.get(uid) || []).filter(id => id !== otherId);
+  if (blocked) {
+    if (list.length >= MAX_BLOCKS) return res.status(429).json({ error: `Como mucho ${MAX_BLOCKS} bloqueados` });
+    list.push(otherId);
+  }
+  if (list.length) blockStore.set(uid, list); else blockStore.delete(uid);
+  saveBlocks();
+  res.json({ ok: true, userId: otherId, blocked });
+});
+
+/** POST /chats/:chatId/clear — { userId } vaciar el chat solo para mí (el resto lo sigue viendo todo) */
+router.post('/chats/:chatId/clear', (req, res) => {
+  const uid = authUser(req, res, req.body?.userId);
+  if (!uid) return;
+  const { chatId } = req.params;
+  if (!isChatMember(chatId, uid)) return res.status(403).json({ error: 'No perteneces a este chat' });
+  let n = 0;
+  for (const m of messageStore.get(chatId) || []) {
+    if ((m.hiddenFor || []).includes(uid)) continue;
+    m.hiddenFor = [...(m.hiddenFor || []), uid];
+    n++;
+  }
+  if (n) saveMessages();
+  res.json({ ok: true, cleared: n });
+});
+
+/** POST /chats/self — { userId } abre (o crea) tu chat contigo mismo */
+router.post('/chats/self', (req, res) => {
+  const uid = authUser(req, res, req.body?.userId);
+  if (!uid) return;
+  const c = ensureSelfChat(uid);
+  res.json({ ...c, self: true, avatar: findUserById(uid)?.avatar || null });
+});
+
+/** El recordatorio también queda escrito en el chat "Tú" del usuario */
+function reminderToSelfChat(uid, text) {
+  const c = ensureSelfChat(uid);
+  const msg = {
+    id: `msg_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`, chatId: c.id, senderId: uid,
+    text: `⏰ ${text}`, type: 'text', url: null, replyTo: null, fileName: null, reminder: true,
+    time: new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' }),
+    createdAt: Date.now(),
+  };
+  messageStore.set(c.id, [...(messageStore.get(c.id) || []), msg]);
+  c.lastMessage = msg.text; c.lastTime = msg.createdAt;
+  saveMessages(); saveChats();
+  rtcEmit(uid, 'chat:update', { chatId: c.id, reason: 'reminder' });
+}
+
 /** Cada 30 s: avisa de los recordatorios que ya tocan (una sola vez) */
 function fireReminders() {
   let changed = false;
@@ -3741,11 +3867,132 @@ function fireReminders() {
       const title = userLang(uid) === 'en' ? '⏰ Reminder' : '⏰ Recordatorio';
       pushToUser(uid, title, r.text, { type: 'reminder', reminderId: r.id, ...(r.chatId ? { chatId: r.chatId } : {}) });
       rtcEmit(uid, 'reminder', { id: r.id, text: r.text, chatId: r.chatId });
+      try { if (findUserById(uid)) reminderToSelfChat(uid, r.text); } catch (e) { console.error('[recordatorios] chat Tú:', e.message); }
     }
   }
   if (changed) saveReminders();
 }
 setInterval(fireReminders, Number(process.env.REMINDER_TICK_MS) || 30_000).unref?.();
+
+// ════════════════════════════════════════════════════════════════
+//  EDITAR FOTOS Y VÍDEOS (antes y después de enviarlos, y en los estados)
+// ════════════════════════════════════════════════════════════════
+// Las fotos se editan en el móvil (sale un archivo nuevo). Los vídeos se editan aquí con ffmpeg: recortar, quitar el
+// sonido, girar y poner encima una capa PNG (texto y dibujos hechos en el móvil). Siempre se crea un archivo NUEVO;
+// el original no se toca. Luego el mensaje o el estado pasa a usar el archivo nuevo (sin marca de "editado").
+const EDITABLE_FILE_RE = /^\d{10,}_[0-9a-f]{8}(?:_s)?\.(jpg|png|webp|gif|mp4|webm|3gp|mov)$/;   // subidas del chat/estados
+const IMAGE_EXTS = new Set(['jpg', 'png', 'webp', 'gif']);
+const VIDEO_EXTS = new Set(['mp4', 'webm', '3gp', 'mov']);
+const MAX_EDIT_SECONDS = 15 * 60;
+let videoEditChain = Promise.resolve();   // de uno en uno (protege la CPU de llamadas y directos)
+
+/** Nombre del archivo editable de una URL /files/… (o null) y su tipo */
+function editableFile(url) {
+  const name = String(url || '').split('?')[0].match(FILE_NAME_RE)?.[1];
+  if (!name || !EDITABLE_FILE_RE.test(name) || !fs.existsSync(path.join(UPLOADS_DIR, name))) return null;
+  const ext = name.split('.').pop();
+  return { name, kind: IMAGE_EXTS.has(ext) ? 'image' : VIDEO_EXTS.has(ext) ? 'video' : null };
+}
+
+function runFfmpeg(args, timeoutMs) {
+  return new Promise((resolve) => {
+    const p = require('child_process').spawn(FFMPEG, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    p.stderr.on('data', d => { err = (err + d).slice(-2000); });
+    const t = setTimeout(() => p.kill('SIGKILL'), timeoutMs);
+    p.on('close', (code) => { clearTimeout(t); resolve({ ok: code === 0, err }); });
+    p.on('error', (e) => { clearTimeout(t); resolve({ ok: false, err: e.message }); });
+  });
+}
+
+/**
+ * POST /media/edit-video — { userId, url, start, end, mute, rotate: 0|90|180|270, overlay?: data:image/png, discardSource? }
+ * → { url } del vídeo nuevo (MP4). discardSource: el original se borra si nadie lo usa (vídeo aún sin enviar).
+ */
+router.post('/media/edit-video', async (req, res) => {
+  const uid = authUser(req, res, req.body?.userId);
+  if (!uid) return;
+  if (!FFMPEG) return res.status(503).json({ error: 'La edición de vídeos no está disponible ahora mismo' });
+  const src = editableFile(req.body?.url);
+  if (!src || src.kind !== 'video') return res.status(400).json({ error: 'Vídeo no válido' });
+  const start = Number(req.body?.start) || 0, end = Number(req.body?.end);
+  const rotate = Number(req.body?.rotate) || 0, mute = req.body?.mute === true;
+  if (!(start >= 0) || !Number.isFinite(end) || end - start < 0.5 || end > MAX_EDIT_SECONDS + 1)
+    return res.status(400).json({ error: 'Recorte del vídeo no válido' });
+  if (![0, 90, 180, 270].includes(rotate)) return res.status(400).json({ error: 'Giro no válido' });
+  let overlay = null;
+  if (req.body?.overlay != null) {
+    const m = String(req.body.overlay).match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+    overlay = m ? Buffer.from(m[1], 'base64') : null;
+    if (!overlay || overlay.length < 60 || overlay.length > 4 * 1024 * 1024) return res.status(400).json({ error: 'Capa de texto no válida' });
+  }
+
+  const outName = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.mp4`;
+  const out = path.join(UPLOADS_DIR, outName);
+  const ovPath = overlay ? path.join(UPLOADS_DIR, `tmp_${outName}.png`) : null;
+  const job = videoEditChain.then(async () => {
+    if (ovPath) fs.writeFileSync(ovPath, overlay);
+    const rot = { 0: [], 90: ['transpose=1'], 180: ['transpose=1', 'transpose=1'], 270: ['transpose=2'] }[rotate];
+    // Lado largo como mucho 1280 px (como los vídeos del chat)
+    const base = [...rot, "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'", 'setsar=1'].join(',');
+    const filter = ovPath ? `[0:v]${base}[b];[1:v][b]scale2ref=w=main_w:h=main_h[ov][b2];[b2][ov]overlay=0:0,format=yuv420p[v]` : `[0:v]${base},format=yuv420p[v]`;
+    const args = ['-y', '-ss', String(start), '-i', path.join(UPLOADS_DIR, src.name), ...(ovPath ? ['-i', ovPath] : []),
+      '-t', String(end - start), '-filter_complex', filter, '-map', '[v]', ...(mute ? ['-an'] : ['-map', '0:a:0?', '-c:a', 'aac', '-b:a', '128k']),
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-movflags', '+faststart', '-threads', '2', out];
+    return runFfmpeg(args, 4 * 60_000);
+  });
+  videoEditChain = job.catch(() => {});
+  const r = await job.catch((e) => ({ ok: false, err: e.message }));
+  if (ovPath) dropFile(ovPath);
+  if (!r.ok || fileSize(out) <= 0) {
+    dropFile(out);
+    console.error('[editar vídeo] ffmpeg falló:', String(r.err || '').split('\n').filter(Boolean).slice(-2).join(' | '));
+    return res.status(500).json({ error: 'No se pudo editar el vídeo' });
+  }
+  // Vídeo aún sin enviar: el original (subido hace poco) ya no hace falta
+  const fresh = Date.now() - Number(src.name.split('_')[0]) < 3600_000;
+  if (req.body?.discardSource === true && fresh && !fileInUse(src.name)) dropFile(path.join(UPLOADS_DIR, src.name));
+  res.json({ url: `/files/${outName}` });
+});
+
+/** POST /messages/:chatId/:messageId/media — { userId, url } cambiar la foto/vídeo de un mensaje mío (para los dos) */
+router.post('/messages/:chatId/:messageId/media', (req, res) => {
+  const uid = authUser(req, res, req.body?.userId);
+  if (!uid) return;
+  const { chatId, messageId } = req.params;
+  if (!isChatMember(chatId, uid)) return res.status(403).json({ error: 'No perteneces a este chat' });
+  const m = (messageStore.get(chatId) || []).find(x => x.id === messageId);
+  if (!m || m.deleted || (m.hiddenFor || []).includes(uid)) return res.status(404).json({ error: 'Mensaje no encontrado' });
+  if (m.senderId !== uid) return res.status(403).json({ error: 'Solo puedes editar tus fotos y vídeos' });
+  if (!['image', 'video'].includes(m.type) || m.viewOnce) return res.status(400).json({ error: 'Este mensaje no se puede editar' });
+  const f = editableFile(req.body?.url);
+  if (!f || f.kind !== m.type) return res.status(400).json({ error: 'Archivo no válido' });
+  const old = String(m.url || '').split('?')[0].match(FILE_NAME_RE)?.[1];
+  m.url = `/files/${f.name}`;
+  m.mediaEditedAt = Date.now();   // solo para refrescar; la app no muestra "editado"
+  saveMessages();
+  if (old && old !== f.name && !fileInUse(old)) dropFile(path.join(UPLOADS_DIR, old));
+  notifyChatUpdate(chatId, uid, 'edited');
+  res.json(publicMsg(m));
+});
+
+/** PUT /stories/:storyId/media — { userId, content } cambiar la foto/vídeo de un estado mío ya publicado */
+router.put('/stories/:storyId/media', (req, res) => {
+  const uid = authUser(req, res, req.body?.userId);
+  if (!uid) return;
+  const story = storiesList.find(s => s.id === req.params.storyId);
+  if (!story || story.userId !== uid) return res.status(404).json({ error: 'Estado no encontrado o sin permisos' });
+  if (!['image', 'video'].includes(story.mediaType)) return res.status(400).json({ error: 'Este estado no se puede editar' });
+  const f = editableFile(req.body?.content);
+  if (!f || f.kind !== story.mediaType) return res.status(400).json({ error: 'Archivo no válido' });
+  trashStoryFile(story);   // el archivo anterior y su miniatura se borran luego si nadie los usa
+  story.content = absFileUrl(`/files/${f.name}`);
+  delete story.thumb;
+  story.prepared = false;
+  saveStories();
+  queueStoryMedia(story);   // miniatura y versión ligera del archivo nuevo
+  res.json(storyFor(story, uid));
+});
 
 // ── OldFace AI (Willy): rutas /ai/* con la sesión del usuario — ver ai/index.js ──
 const ai = require('./ai')({

@@ -116,7 +116,7 @@ export default function SocialChannelPage() {
 
   if (missing) {
     return (
-      <div style={{ minHeight: '100vh', background: S.bg, color: S.text, paddingTop: 'var(--sat, 0px)' }}>
+      <div style={{ height: '100dvh', overflowY: 'auto', background: S.bg, color: S.text, paddingTop: 'var(--sat, 0px)' }}>
         <button onClick={back} aria-label={tr('Atrás')} style={{ margin: 12, background: 'none', border: 'none', color: S.text, cursor: 'pointer' }}><Icon name="back" size={26} /></button>
         <p style={{ textAlign: 'center', marginTop: 80, color: S.sub }}>{tr('Este canal no existe o no está disponible')}</p>
       </div>
@@ -124,7 +124,7 @@ export default function SocialChannelPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: S.bg, color: S.text, paddingBottom: 'calc(84px + env(safe-area-inset-bottom, 0px))' }}>
+    <div style={{ height: '100dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', background: S.bg, color: S.text, paddingBottom: 'calc(84px + env(safe-area-inset-bottom, 0px))' }}>
       {/* Portada */}
       <div style={{ position: 'relative', height: 'calc(170px + var(--sat, 0px))', background: ch?.cover ? `url("${ch.cover}") center/cover` : `linear-gradient(135deg, ${RED}, #7C3AED)` }}>
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(rgba(0,0,0,0.35), transparent 45%)' }} />

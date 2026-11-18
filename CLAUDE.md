@@ -55,6 +55,16 @@ los datos del propio usuario y propone acciones que el usuario confirma.
   Comprobación: `verifyRtcToken` / `requireSession` / `bearer` en `frontend/backend/server.js`.
 - Avisos: `pushToUser`, `dataToUser` (FCM) y `rtcEmit` / `notifyChatUpdate` (socket).
 - Contactos y privacidad: `contactsOf`, `isContactOf`, `privacyAllows`, `canSeeShared`.
+- Opciones del chat (2026-11-18, sección "BLOQUEOS, VACIAR CHAT Y CHAT TÚ" de `server.js`): bloqueos 1 a 1
+  (`/blocks`, `user_blocks.json`; lo del bloqueado se guarda con `hiddenFor` de quien bloquea y no avisa; `publicMsg`
+  ya no entrega `hiddenFor`), vaciar para mí (`POST /chats/:id/clear`), chat "Tú" `chat_<uid>_<uid>`
+  (`POST /chats/self`, ahí llegan los recordatorios). App: `components/ChatOptionsSheet.jsx`, `utils/chatOptions.js`.
+  Pruebas `test/chat-options.test.mjs`.
+- Editar fotos y vídeos (2026-11-18, sección "EDITAR FOTOS Y VÍDEOS" de `server.js`): la foto se edita en el móvil
+  (`components/MediaEditor.jsx`: recortar, girar, dibujar, texto, filtros → JPEG nuevo); el vídeo, en el servidor con
+  ffmpeg (`POST /media/edit-video`: recorte, giro, sin sonido, capa PNG con texto/dibujos; siempre archivo NUEVO, de uno
+  en uno). Sustituir en un mensaje propio `POST /messages/:c/:m/media` (sin marca de "editado") o en un estado propio
+  `PUT /stories/:id/media`. App: `utils/mediaEdit.js`. Pruebas `test/media-edit.test.mjs` (necesita ffmpeg).
 
 ## Comandos
 

@@ -1,6 +1,7 @@
 /**
  * BottomNav — Barra inferior flotante (tarjeta redondeada) con el botón "+" en el centro.
- * Chats · Grupos · [+] · Contactos · Ajustes. El "+" abre el menú emergente (onPlus).
+ * Grupos · Directos · [+] · Social · Ajustes. El "+" abre el menú emergente (onPlus).
+ * (Los chats siguen en la pestaña "Chats" de arriba de la pantalla principal.)
  */
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -13,18 +14,17 @@ const INACTIVE_LIGHT = '#8A97A8';
 
 const NAV_ITEMS = [
   {
-    path: '/',
-    label: tr('Chats'),
-    svgPath: 'M21 11.5a8.4 8.4 0 01-12.3 7.5L3 21l2-5.4A8.5 8.5 0 1121 11.5z',
-  },
-  {
     path: '#groups',          // no navega: abre la hoja de grupos (onGroups)
     label: tr('Grupos'),
   },
+  {
+    path: '/directo',
+    label: tr('Directos'),
+  },
   { path: '#plus' },          // hueco del botón "+"
   {
-    path: '/contacts',
-    label: tr('Contactos'),
+    path: '/social',
+    label: tr('Social'),
   },
   {
     path: '/settings',
@@ -48,12 +48,15 @@ function NavIcon({ path, color, active, svgPath }) {
           <circle cx="16.5" cy="8.5" r="2.5" />
           <path d="M17 14h.5a4 4 0 014 4v2" />
         </>
-      ) : path === '/contacts' ? (
+      ) : path === '/directo' ? (
+        // Emisión en directo: punto con ondas
         <>
-          <rect x="4" y="3" width="16" height="18" rx="3" />
-          <circle cx="12" cy="10" r="3" />
-          <path d="M7.5 17.5a4.5 4.5 0 019 0" />
+          <circle cx="12" cy="12" r="2.2" />
+          <path d="M8.2 8.2a5.4 5.4 0 000 7.6M15.8 8.2a5.4 5.4 0 010 7.6M5.3 5.3a9.5 9.5 0 000 13.4M18.7 5.3a9.5 9.5 0 010 13.4" />
         </>
+      ) : path === '/social' ? (
+        // Red social: corazón (me gusta)
+        <path d="M12 20.5s-7.5-4.6-9.2-9.1C1.6 8 3.6 4.5 7 4.5c2 0 3.4 1.1 5 3 1.6-1.9 3-3 5-3 3.4 0 5.4 3.5 4.2 6.9-1.7 4.5-9.2 9.1-9.2 9.1z" />
       ) : (
         <path d={svgPath} />
       )}

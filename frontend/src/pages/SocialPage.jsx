@@ -131,7 +131,7 @@ export default function SocialPage() {
   }, [view, tab, current.next, current.loading, current.loaded, load]);
 
   return (
-    <div style={{ minHeight: '100vh', background: S.bg, color: S.text, paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))', '--social-bg': S.bg }}>
+    <div style={{ height: '100dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch', background: S.bg, color: S.text, paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))', '--social-bg': S.bg }}>
       {/* Cabecera */}
       <div style={{ position: 'sticky', top: 0, zIndex: 50, background: S.surface, paddingTop: 'var(--sat, 0px)', borderBottom: `1px solid ${S.border}` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px 6px' }}>
