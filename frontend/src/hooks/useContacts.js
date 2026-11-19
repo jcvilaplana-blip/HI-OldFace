@@ -133,6 +133,20 @@ export function useContacts() {
     }
   }, [loadContacts]);
 
+  // ── Eliminar contacto del dispositivo ─────────────────────────────────────
+  const deleteContact = useCallback(async (contactId) => {
+    try {
+      const { Capacitor } = await import('@capacitor/core');
+      if (!Capacitor.isNativePlatform()) return { success: false, error: tr('Solo disponible en la app nativa') };
+      const { Contacts } = await import('@capacitor-community/contacts');
+      await Contacts.deleteContact({ contactId });
+      setContacts(cs => cs.filter(c => c.id !== contactId));
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }, []);
+
   // ── Abrir ajustes del sistema ─────────────────────────────────────────────
   const openSettings = useCallback(async () => {
     try {
@@ -143,5 +157,5 @@ export function useContacts() {
     } catch { /* silent */ }
   }, []);
 
-  return { contacts, loading, error, permDenied, loadContacts, saveContact, openSettings };
+  return { contacts, loading, error, permDenied, loadContacts, saveContact, deleteContact, openSettings };
 }

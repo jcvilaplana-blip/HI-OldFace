@@ -151,6 +151,7 @@ const PUSH_TEXT = {
     oncePhoto: '① Te ha enviado una foto para ver una vez', image: '📷 Te ha enviado una foto', video: '🎥 Te ha enviado un vídeo',
     sticker: '🌟 Te ha enviado un sticker',
     gAudio: '🎤 Nota de voz', gLocation: '📍 Ubicación', gImage: '📷 Foto', gVideo: '🎥 Vídeo', gSticker: '🌟 Sticker',
+    videoNote: '⭕ Te ha enviado una nota de vídeo', gVideoNote: '⭕ Nota de vídeo', urgent: '🔴 URGENTE',
     someone: 'Alguien', group: 'Grupo', isLive: (n) => `🔴 ${n} está en directo`, tapToWatch: 'Toca para verlo',
   },
   en: {
@@ -159,15 +160,18 @@ const PUSH_TEXT = {
     oncePhoto: '① Sent you a photo to view once', image: '📷 Sent you a photo', video: '🎥 Sent you a video',
     sticker: '🌟 Sent you a sticker',
     gAudio: '🎤 Voice message', gLocation: '📍 Location', gImage: '📷 Photo', gVideo: '🎥 Video', gSticker: '🌟 Sticker',
+    videoNote: '⭕ Sent you a video note', gVideoNote: '⭕ Video note', urgent: '🔴 URGENT',
     someone: 'Someone', group: 'Group', isLive: (n) => `🔴 ${n} is live`, tapToWatch: 'Tap to watch',
   },
 };
 const pushText = (userId) => PUSH_TEXT[userLang(userId)];
 
-/** Aviso con notificación a todos los dispositivos de un usuario. `message: true` → con su tono de mensaje */
-function pushToUser(userId, title, body, data = {}, { message = false } = {}) {
+/** Aviso con notificación a todos los dispositivos de un usuario. `message: true` → con su tono de mensaje;
+ *  `urgent: true` → canal "Mensajes urgentes" (sonido de alarma: suena aunque el chat esté silenciado) */
+function pushToUser(userId, title, body, data = {}, { message = false, urgent = false } = {}) {
   const tokens = fcmTokensOf(userId);
-  const ch = message ? messageChannelOf(userId) : { channelId: 'oldface_messages', sound: 'message_sound' };
+  const ch = urgent ? { channelId: 'oldface_urgent', sound: 'urgent_sound' }
+           : message ? messageChannelOf(userId) : { channelId: 'oldface_messages', sound: 'message_sound' };
   // Mensajes: el total sin leer va en el aviso para la insignia del icono de la app (y la app lo recibe en data.badge)
   const badge = message ? unreadTotalOf(userId) : null;
   if (badge !== null) data = { ...data, badge };
@@ -927,7 +931,7 @@ function lastInfoOf(c, uid) {
   const readBy = last.readBy || [];
   return {
     // vista previa del último mensaje que ve ESTE usuario (no uno que vació, ocultó o le llegó de alguien bloqueado)
-    lastMessage: chatPreviewText(last.type || 'text', last.viewOnce ? '' : (last.text || '')),
+    lastMessage: (last.urgent ? '🔴 ' : '') + chatPreviewText(last.type || 'text', last.viewOnce ? '' : (last.text || ''), !!last.videoNote),
     lastFromMe: mine,
     lastType:   last.type || 'text',
     ...(mine ? { lastRead: others.length > 0 && others.every(p => readBy.includes(p)) } : {}),
@@ -1128,7 +1132,8 @@ router.get('/files/:filename', (req, res) => {
 });
 
 /** Texto de la vista previa del chat (lista de chats) */
-function chatPreviewText(type, text) {
+function chatPreviewText(type, text, videoNote = false) {
+  if (videoNote) return '⭕ Nota de vídeo';
   return type === 'audio' ? '🎤 Nota de voz' : type === 'location' ? '📍 Ubicación'
        : type === 'live_location' ? '📍 Ubicación en tiempo real' : type === 'image' ? '📷 Foto'
        : type === 'video' ? '🎥 Vídeo' : type === 'sticker' ? '🌟 Sticker' : text;
@@ -1218,7 +1223,7 @@ router.delete('/messages/:chatId/:messageId', (req, res) => {
     if (idx === msgs.length && chatStore2.has(chatId)) {   // era el último → vista previa del anterior
       const c = chatStore2.get(chatId);
       const prev = [...msgs].reverse().find(x => !x.deleted);
-      c.lastMessage = prev ? chatPreviewText(prev.type, prev.text) : '';
+      c.lastMessage = prev ? chatPreviewText(prev.type, prev.text, !!prev.videoNote) : '';
       chatStore2.set(chatId, c);
       saveChats();
     }
@@ -1234,7 +1239,7 @@ router.delete('/messages/:chatId/:messageId', (req, res) => {
 
 /** POST /messages */
 router.post('/messages', async (req, res) => {
-  const { chatId, text, type = 'text', fileName, duration, live, viewOnce } = req.body || {};
+  const { chatId, text, type = 'text', fileName, duration, live, viewOnce, urgent, videoNote } = req.body || {};
   const senderId = authUser(req, res, req.body?.senderId);   // el remitente es siempre el de la sesión
   if (!senderId) return;
   if (!chatId || !text) return res.status(400).json({ error: 'chatId, senderId y text son requeridos' });
@@ -1250,6 +1255,12 @@ router.post('/messages', async (req, res) => {
     : req.body.replyTo;
   // "Ver una vez": solo fotos y vídeos subidos al servidor (para poder borrarlos cuando se hayan visto)
   const once = !!viewOnce && (type === 'image' || type === 'video') && /\/files\/[\w.-]+$/.test(String(url || ''));
+  // Urgente (en rojo; su aviso suena aunque el chat esté silenciado) y nota de vídeo (vídeo redondo de la cámara)
+  if (urgent !== undefined && typeof urgent !== 'boolean') return res.status(400).json({ error: 'urgent debe ser true o false' });
+  if (videoNote !== undefined && typeof videoNote !== 'boolean') return res.status(400).json({ error: 'videoNote debe ser true o false' });
+  if (videoNote && (type !== 'video' || once || !/\/files\/[\w.-]+$/.test(String(url || ''))))
+    return res.status(400).json({ error: 'La nota de vídeo tiene que ser un vídeo subido' });
+  const isUrgent = urgent === true && !isSelfChat(chatStore2.get(chatId));   // en el chat "Tú" no tiene sentido
 
   const msg = {
     id:        `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -1257,6 +1268,8 @@ router.post('/messages', async (req, res) => {
     replyTo:   replyTo || null,
     fileName:  fileName || null,
     ...(once ? { viewOnce: true, openedBy: [] } : {}),
+    ...(isUrgent ? { urgent: true } : {}),
+    ...(videoNote ? { videoNote: true } : {}),
     ...(blockedByPeer ? { hiddenFor: [peerId] } : {}),
     ...(Number(duration) > 0 ? { duration: Math.round(Number(duration)) } : {}),
     // Ubicación en tiempo real: hasta cuándo se comparte; la posición la va actualizando quien la envía
@@ -1276,7 +1289,7 @@ router.post('/messages', async (req, res) => {
 
   if (chatStore2.has(chatId)) {
     const c = chatStore2.get(chatId);
-    c.lastMessage = chatPreviewText(type, text);
+    c.lastMessage = (isUrgent ? '🔴 ' : '') + chatPreviewText(type, text, !!videoNote);
     c.lastTime = Date.now();
     chatStore2.set(chatId, c);
     saveChats();
@@ -1299,14 +1312,15 @@ router.post('/messages', async (req, res) => {
   const groupChat = chatStore2.get(chatId);
   if (groupChat?.isGroup) {
     for (const to of groupChat.participants || []) {
-      if (to === senderId || isMuted(to, chatId)) continue;   // grupo silenciado: sin aviso
+      if (to === senderId || (isMuted(to, chatId) && !isUrgent)) continue;   // silenciado: sin aviso (salvo urgente)
       const T = pushText(to);   // en el idioma de cada destinatario
       const gName = groupStore.get(groupChat.groupId)?.name || groupChat.name || T.group;
       const who = senderUser?.name || T.someone;
-      const what = type === 'audio' ? T.gAudio : type === 'location' || type === 'live_location' ? T.gLocation
+      const what = videoNote ? T.gVideoNote : type === 'audio' ? T.gAudio : type === 'location' || type === 'live_location' ? T.gLocation
                  : type === 'image' ? T.gImage : type === 'video' ? T.gVideo : type === 'sticker' ? T.gSticker
                  : text.length > 80 ? text.slice(0, 80) + '…' : text;
-      pushToUser(to, gName, `${who}: ${what}`, { chatId, senderId }, { message: true });
+      pushToUser(to, isUrgent ? `${T.urgent} · ${gName}` : gName, `${who}: ${what}`,
+        { chatId, senderId, ...(isUrgent ? { urgent: '1' } : {}) }, { message: true, urgent: isUrgent });
     }
     return res.json(publicMsg(msg));
   }
@@ -1315,7 +1329,7 @@ router.post('/messages', async (req, res) => {
     const withoutPrefix = chatId.replace(/^chat_/, '');
     const parts = withoutPrefix.split(/_(?=user_)/);
     const recipientId = parts.find(p => p !== senderId);
-    if (recipientId && !isMuted(recipientId, chatId)) {   // chat silenciado: sin aviso
+    if (recipientId && (!isMuted(recipientId, chatId) || isUrgent)) {   // chat silenciado: sin aviso (salvo urgente)
       if (fcmTokensOf(recipientId).length) {
         // Buscar el nombre del remitente
         let senderName = 'OldFace';
@@ -1323,7 +1337,8 @@ router.post('/messages', async (req, res) => {
           if (u.userId === senderId) { senderName = u.name; break; }
         }
         const T = pushText(recipientId);   // en el idioma del destinatario
-        const notifBody = type === 'audio' ? T.audio
+        const notifBody = videoNote ? T.videoNote
+                        : type === 'audio' ? T.audio
                         : type === 'location' ? T.location
                         : type === 'live_location' ? T.live_location
                         : once ? (type === 'video' ? T.onceVideo : T.oncePhoto)
@@ -1332,7 +1347,8 @@ router.post('/messages', async (req, res) => {
                         : type === 'sticker' ? T.sticker
                         : text.length > 80 ? text.slice(0, 80) + '…' : text;
         // No await — responder al cliente sin esperar el push
-        pushToUser(recipientId, senderName, notifBody, { chatId, senderId }, { message: true });
+        pushToUser(recipientId, isUrgent ? `${T.urgent} · ${senderName}` : senderName, notifBody,
+          { chatId, senderId, ...(isUrgent ? { urgent: '1' } : {}) }, { message: true, urgent: isUrgent });
       }
     }
   } catch { /* no bloquear la respuesta si falla el push */ }
@@ -1954,7 +1970,7 @@ function deleteAccount(userId) {
     g.updatedAt = Date.now();
     syncGroupChat(g);
     const c = chatStore2.get(chatId);
-    if (c) { const last = kept[kept.length - 1]; c.lastMessage = last ? chatPreviewText(last.type, last.text) : ''; }
+    if (c) { const last = kept[kept.length - 1]; c.lastMessage = last ? chatPreviewText(last.type, last.text, !!last.videoNote) : ''; }
     for (const m of g.members) rtcEmit(m, 'chat:update', { chatId, reason: 'group' });
   }
   // Rastros en mensajes de otros (leído, abierto, oculto, destacado)

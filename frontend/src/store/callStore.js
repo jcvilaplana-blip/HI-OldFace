@@ -9,7 +9,7 @@
  *   · Si el destinatario no está conectado, el backend le avisa por notificación push (FCM).
  */
 import { create } from 'zustand';
-import { playMessageSound } from '../utils/sounds.js';
+import { playMessageSound, playUrgentSound } from '../utils/sounds.js';
 import { connectRtc, ensureRtcConnected, sendSignal, isRtcConnected } from '../utils/rtcClient.js';
 import { groupIdFromRoom, startGroupCallApi } from '../utils/groupsApi.js';
 import { tr } from '../i18n';
@@ -148,11 +148,14 @@ export const useCallStore = create((set, get) => ({
           duration: msg.duration || null,
           live:     msg.live || null,
           viewOnce: !!msg.viewOnce,
+          urgent:   !!msg.urgent,
+          videoNote: !!msg.videoNote,
           opened:   false,
           status:   'received',
           isMine:   false,
         });
-        playMessageSound();
+        // Urgente: suena siempre (aunque el chat esté silenciado), con su propio aviso
+        if (msg.urgent) playUrgentSound(); else playMessageSound();
       }
       if (msg.chatId.startsWith('chat_')) {
         createOrGetChat(user.id, msg.senderId, msg.senderName || msg.senderId).then(() => fetchChats(user.id));

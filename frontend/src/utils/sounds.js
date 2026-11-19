@@ -30,6 +30,19 @@ export function playMessageSound() {
   playTone(usePrefsStore.getState().messageTone || 'clasico');
 }
 
+/** Mensaje urgente: tono de alarma propio (public/sounds/urgent.wav), suena aunque el chat esté silenciado */
+let lastUrgentSoundTime = 0;
+export function playUrgentSound() {
+  const now = Date.now();
+  if (now - lastUrgentSoundTime < 1500) return;
+  lastUrgentSoundTime = now;
+  try {
+    const a = new Audio(`${import.meta.env.BASE_URL || '/'}sounds/urgent.wav`);
+    a.play().catch(() => playAlertSound());
+  } catch { playAlertSound(); }
+  try { navigator.vibrate?.([0, 400, 150, 400, 150, 400]); } catch { /* sin vibración */ }
+}
+
 /** Aviso fijo (ping brillante doble), independiente del tono elegido: ofertas del taxi */
 export function playAlertSound() {
   try {

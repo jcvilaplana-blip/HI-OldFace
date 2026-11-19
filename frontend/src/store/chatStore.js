@@ -2,7 +2,7 @@
  * Store de chats y mensajes
  */
 import { create } from 'zustand';
-import { playMessageSound } from '../utils/sounds.js';
+import { playMessageSound, playUrgentSound } from '../utils/sounds.js';
 import { setAppBadge } from '../utils/appBadge.js';
 import { tr, LOCALE } from '../i18n';
 
@@ -181,6 +181,8 @@ export const useChatStore = create((set, get) => ({
             editedAt: m.editedAt || null,   // "editado"
             deleted:  !!m.deleted,          // eliminado para todos
             viewOnce: !!m.viewOnce,         // foto/vídeo "ver una vez" (sin url: se pide al abrir)
+            urgent:   !!m.urgent,           // mensaje urgente (en rojo)
+            videoNote: !!m.videoNote,       // nota de vídeo (vídeo redondo)
             opened:   Array.isArray(m.openedBy) && (isMine ? m.openedBy.length > 0 : m.openedBy.includes(userId)),
             pinned:   !!m.pinned,           // fijado arriba del chat
             pinnedAt: m.pinnedAt || null,
@@ -195,7 +197,8 @@ export const useChatStore = create((set, get) => ({
         if (prev.length > 0 && mapped.length > prev.length) {
           const newMsgs = mapped.slice(prev.length);
           const hasNewFromOther = newMsgs.some(m => m.sender !== userId);
-          if (hasNewFromOther) playMessageSound();
+          if (newMsgs.some(m => m.sender !== userId && m.urgent)) playUrgentSound();
+          else if (hasNewFromOther) playMessageSound();
         }
 
         // ── Preservar mensajes optimistas que aún están en tránsito ──────────

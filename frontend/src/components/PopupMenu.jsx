@@ -1,12 +1,15 @@
 /**
  * PopupMenu — Menú emergente OldFace
- * Buscador, 4 acciones destacadas en tarjetas de color (Directo, Social, Taxi, Poll) y la sección "Comunicación"
+ * Mismo aspecto que la pantalla principal (fondo azul grisáceo, tarjetas blancas, iconos con aro de color): buscador,
+ * 4 acciones destacadas (Directo, Social, Taxi, Poll) y la sección "Comunicación"
  * en 2 columnas. Las acciones marcadas como 'soon' (Archivos) se desarrollarán más adelante.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { tr } from '../i18n';
 import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
+import { cardStyle, SectionLabel, BRAND } from './NeonAvatar.jsx';
+import SearchBox from './SearchBox.jsx';
 
 // ─── Definición de items ────────────────────────────────────────────────────
 // route   → navega a esa ruta React Router
@@ -152,28 +155,11 @@ function cachedFeatures() {
   catch { return { social: false, karaoke: false }; }
 }
 
-// Colores de cada tarjeta destacada: fondo suave, borde, cuadro del icono y flecha
-const FEATURED_LOOK = {
-  directo: { bg: '#fff1f2', border: '#fecdd3', tile: 'white', arrow: '#e11d48' },
-  social:  { bg: '#fff7ed', border: '#fed7aa', tile: 'linear-gradient(135deg,#fb923c,#ea580c)', arrow: '#ea580c' },
-  taxi:    { bg: '#fefce8', border: '#fde68a', tile: 'white', arrow: '#ca8a04' },
-  poll:    { bg: '#f0fdf4', border: '#bbf7d0', tile: 'linear-gradient(135deg,#4ade80,#16a34a)', arrow: '#16a34a' },
-};
-
-// Modo oscuro: mismo color de cada tarjeta, pero en tono translúcido sobre el fondo oscuro
-const FEATURED_LOOK_DARK = {
-  directo: { bg: 'rgba(225,29,72,0.12)',  border: 'rgba(244,63,94,0.35)',  tile: 'white', arrow: '#fb7185' },
-  social:  { bg: 'rgba(234,88,12,0.12)',  border: 'rgba(251,146,60,0.35)', tile: FEATURED_LOOK.social.tile, arrow: '#fb923c' },
-  taxi:    { bg: 'rgba(202,138,4,0.12)',  border: 'rgba(250,204,21,0.30)', tile: 'white', arrow: '#facc15' },
-  poll:    { bg: 'rgba(22,163,74,0.12)',  border: 'rgba(74,222,128,0.30)', tile: FEATURED_LOOK.poll.tile, arrow: '#4ade80' },
-};
-
 // ─── Componente principal ───────────────────────────────────────────────────
 export default function PopupMenu({ onClose, onGroups }) {
   const navigate = useNavigate();
   const { isDark } = useThemeStore();
   const T = isDark ? DARK : LIGHT;
-  const looks = isDark ? FEATURED_LOOK_DARK : FEATURED_LOOK;
   const [soonMsg, setSoonMsg] = useState('');
   const [query, setQuery] = useState('');
   const [features, setFeatures] = useState(cachedFeatures);
@@ -230,97 +216,65 @@ export default function PopupMenu({ onClose, onGroups }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end">
-      {/* Backdrop */}
+      {/* Fondo */}
       <div
         className="absolute inset-0 animate-fade-in"
-        style={{ background: 'rgba(0,0,0,0.42)', backdropFilter: 'blur(4px)' }}
+        style={{ background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(4px)' }}
         onClick={onClose}
       />
 
-      {/* Bottom sheet */}
+      {/* Hoja con el mismo aspecto que la pantalla principal: fondo azul grisáceo, tarjetas blancas y aros de color */}
       <div
-        className="relative w-full rounded-t-3xl shadow-2xl animate-slide-up scroll-hide"
-        style={{ background: isDark ? T.bgMain : 'white', minHeight: '80vh', maxHeight: '94vh', overflowY: 'auto' }}
+        className="relative w-full animate-slide-up scroll-hide"
+        style={{ background: T.bgMain, borderRadius: '28px 28px 0 0', minHeight: '80vh', maxHeight: '94vh', overflowY: 'auto',
+                 boxShadow: '0 -10px 40px rgba(15,23,42,0.25)' }}
       >
-        {/* Handle */}
-        <div className="flex justify-center pt-3 pb-3">
-          <div style={{ width: 40, height: 4, background: isDark ? 'rgba(255,255,255,0.2)' : '#cbd5e1', borderRadius: 2 }} />
+        {/* Asa */}
+        <div className="flex justify-center pt-3 pb-2">
+          <div style={{ width: 40, height: 4, background: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(61,90,128,0.25)', borderRadius: 2 }} />
         </div>
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pb-4">
-          <div className="flex items-center gap-3">
-            {/* Logo */}
-            <div
-              className="flex items-center justify-center overflow-hidden"
-              style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: isDark ? T.bgSurface : 'white',
-                border: `1px solid ${isDark ? T.borderStrong : '#e2e8f0'}`,
-                boxShadow: isDark ? 'none' : '0 2px 8px rgba(15,23,42,0.08)' }}
-            >
-              <img
-                src="/logo-oldface.png"
-                alt="OldFace"
-                style={{ width: 40, height: 40, objectFit: 'contain' }}
-                onError={e => { e.target.style.display = 'none'; }}
-              />
-            </div>
-            <div>
-              <p style={{ fontSize: 20, fontWeight: 800, color: isDark ? T.textPrimary : '#0f172a', lineHeight: 1.15 }}>{tr('OldFace')}</p>
-              <p style={{ fontSize: 13, fontWeight: 500, color: isDark ? T.textSecondary : '#64748b' }}>{tr('Elige una acción')}</p>
+        {/* Cabecera como la de la pantalla principal: logo con aro, título y botón redondo azul */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 16px 14px' }}>
+          <div className="of-ring" style={{ '--ring': BRAND, width: 56, height: 56, padding: 2, boxSizing: 'border-box', flexShrink: 0 }}>
+            <div style={{ width: '100%', height: '100%', borderRadius: '50%', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+              <img src="/logo-oldface.png" alt="OldFace" style={{ width: '78%', height: '78%', objectFit: 'contain' }}
+                onError={e => { e.target.style.display = 'none'; }} />
             </div>
           </div>
-          <button
-            onClick={onClose}
-            aria-label={tr('Cerrar')}
-            style={{
-              width: 36, height: 36, borderRadius: '50%',
-              background: isDark ? T.bgSurface : '#f1f5f9', border: 'none', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: isDark ? T.textPrimary : '#0f172a', fontSize: 16, fontWeight: 700,
-            }}
-          >
-            ✕
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 22, fontWeight: 800, color: T.textPrimary, lineHeight: 1.1, margin: 0 }}>{tr('OldFace')}</p>
+            <p style={{ fontSize: 14, fontWeight: 600, color: T.textSecondary, margin: '3px 0 0' }}>{tr('Elige una acción')}</p>
+          </div>
+          <button onClick={onClose} aria-label={tr('Cerrar')}
+            style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                     background: isDark ? '#1B2230' : BRAND, border: isDark ? '1px solid rgba(127,163,209,0.35)' : 'none',
+                     boxShadow: isDark ? '0 0 14px rgba(61,90,128,0.55)' : '0 6px 16px rgba(61,90,128,0.35)' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.6" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
           </button>
         </div>
 
-        <div style={{ padding: '0 20px calc(var(--sab) + 24px)' }}>
-          {/* Buscador */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: isDark ? T.bgSurface : '#f1f5f9', borderRadius: 14,
-            padding: '0 14px', height: 46, marginBottom: 16 }}>
-            <svg width="18" height="18" fill="none" stroke={isDark ? T.textSecondary : '#64748b'} strokeWidth="2" strokeLinecap="round" viewBox="0 0 24 24">
-              <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
-            </svg>
-            <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder={tr('Buscar acción…')}
-              style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent',
-                fontSize: 15, color: isDark ? T.textPrimary : '#0f172a' }}
-            />
-            {query && (
-              <button onClick={() => setQuery('')} aria-label={tr('Borrar')}
-                style={{ border: 'none', background: 'transparent', color: '#94a3b8', fontSize: 15, cursor: 'pointer', padding: 4 }}>
-                ✕
-              </button>
-            )}
-          </div>
+        <div style={{ padding: '0 12px calc(var(--sab) + 24px)' }}>
+          {/* Buscador (el mismo de Chats y Contactos) */}
+          <SearchBox value={query} onChange={setQuery} T={T} placeholder={tr('Buscar acción…')} style={{ margin: '0 0 6px' }} />
 
-          {/* Destacadas: tarjetas de color 2 × 2 */}
+          {/* Destacadas: tarjetas grandes 2 × 2 */}
           {featured.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-              {featured.map((id, i) => (
-                <MenuCard key={id} id={id} item={ITEMS[id]} look={looks[id]} isDark={isDark} T={T} onClick={() => handleItem(ITEMS[id])}
-                  wide={featured.length % 2 === 1 && i === featured.length - 1} />
-              ))}
-            </div>
+            <>
+              <SectionLabel T={T}>{tr('DESTACADAS')}</SectionLabel>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {featured.map((id, i) => (
+                  <FeaturedCard key={id} id={id} item={ITEMS[id]} isDark={isDark} T={T} onClick={() => handleItem(ITEMS[id])}
+                    wide={featured.length % 2 === 1 && i === featured.length - 1} />
+                ))}
+              </div>
+            </>
           )}
 
-          {/* Comunicación: 2 columnas */}
+          {/* Comunicación: tarjetas como las filas de la lista de chats */}
           {communication.length > 0 && (
             <>
-              <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, color: isDark ? T.textSecondary : '#64748b', margin: '0 0 10px 2px' }}>
-                {tr('Comunicación').toUpperCase()}
-              </p>
+              <SectionLabel T={T}>{tr('Comunicación').toUpperCase()}</SectionLabel>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 {communication.map(id => (
                   <MenuCard key={id} id={id} item={ITEMS[id]} isDark={isDark} T={T} onClick={() => handleItem(ITEMS[id])} />
@@ -330,7 +284,7 @@ export default function PopupMenu({ onClose, onGroups }) {
           )}
 
           {!featured.length && !communication.length && (
-            <p style={{ textAlign: 'center', color: isDark ? T.textMuted : '#94a3b8', fontSize: 14, padding: '24px 0' }}>{tr('Sin resultados')}</p>
+            <p style={{ textAlign: 'center', color: T.textMuted, fontSize: 14, padding: '24px 0' }}>{tr('Sin resultados')}</p>
           )}
         </div>
 
@@ -349,68 +303,76 @@ export default function PopupMenu({ onClose, onGroups }) {
   );
 }
 
-// ─── Tarjeta de una acción (destacada con color o de la sección Comunicación) ─
-function MenuCard({ id, item, look, isDark, T, onClick, wide = false }) {
-  const isSoon = item.action === 'soon';
-  const gradientTile = look && look.tile !== 'white';
-  // Cuadro blanco del icono: en oscuro pasa a gris azulado (los emblemas Directo/Taxi se ven bien encima)
-  const plainTile = isDark ? T.bgHover : 'white';
+// Color del aro de cada acción (como el aro de cada contacto en la pantalla principal)
+const RING = {
+  directo: '#EF4444', social: '#FF7A1A', taxi: '#EAB308', poll: '#22C55E',
+  calls: '#22C55E', videocalls: '#0EA5E9', chats: '#4F7CC4', groups: '#818CF8',
+  contacts: '#14B8A6', karaoke: '#EC4899', settings: '#64748B', archived: '#A855F7',
+};
 
+// ─── Icono redondo con aro de color (mismo estilo que NeonAvatar) ───────────
+function RingIcon({ id, item, size = 48 }) {
+  const ring = RING[id] || BRAND;
   return (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 10, minWidth: 0,
-        gridColumn: wide ? '1 / -1' : undefined,   // la última tarjeta suelta ocupa toda la fila
-        padding: look ? '12px 10px 12px 12px' : '10px 10px 10px 10px', borderRadius: 16, textAlign: 'left',
-        background: look ? look.bg : (isDark ? T.bgSurface : '#f8fafc'),
-        border: `1px solid ${look ? look.border : (isDark ? T.borderStrong : '#e2e8f0')}`,
-        cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
-        opacity: isSoon ? 0.75 : 1, transition: 'transform 0.15s',
-      }}
-      onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
-      onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
-      onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-      onTouchStart={e => e.currentTarget.style.transform = 'scale(0.96)'}
-      onTouchEnd={e => e.currentTarget.style.transform = 'scale(1)'}
-    >
-      {/* Cuadro del icono */}
-      <div style={{
-        width: look ? 44 : 40, height: look ? 44 : 40, flexShrink: 0, borderRadius: 12,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: gradientTile ? look.tile : plainTile,
-        border: gradientTile ? 'none' : `1px solid ${isDark ? T.borderStrong : '#e2e8f0'}`,
-        boxShadow: gradientTile ? '0 3px 10px rgba(0,0,0,0.15)' : (isDark ? 'none' : '0 1px 4px rgba(15,23,42,0.06)'),
-      }}>
+    <div className="of-ring" style={{ '--ring': ring, width: size, height: size, padding: 2, boxSizing: 'border-box', flexShrink: 0 }}>
+      <div style={{ width: '100%', height: '100%', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                    background: item.image ? 'white' : 'radial-gradient(circle at 35% 30%, #EEF5FC 0%, #D6E6F5 75%)' }}>
         {item.image ? (
-          <img src={item.image} alt="" style={{ width: '82%', height: '82%', objectFit: 'contain' }} />
+          <img src={item.image} alt="" style={{ width: '80%', height: '80%', objectFit: 'contain' }} />
         ) : (
-          /* SVG con stroke explícito — no depende de Tailwind */
-          <svg
-            width="22" height="22"
-            fill="none"
-            stroke={gradientTile ? 'white' : (isDark ? T.textPrimary : '#0f172a')}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            viewBox="0 0 24 24"
-            dangerouslySetInnerHTML={{ __html: item.icon }}
-          />
+          <svg width={Math.round(size * 0.46)} height={Math.round(size * 0.46)} fill="none" stroke={ring} strokeLinecap="round" strokeLinejoin="round"
+            viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: item.icon }} />
         )}
       </div>
+    </div>
+  );
+}
 
-      {/* Nombre y subtítulo */}
+const pressFx = {
+  onMouseDown: e => { e.currentTarget.style.transform = 'scale(0.97)'; },
+  onMouseUp: e => { e.currentTarget.style.transform = 'scale(1)'; },
+  onMouseLeave: e => { e.currentTarget.style.transform = 'scale(1)'; },
+  onTouchStart: e => { e.currentTarget.style.transform = 'scale(0.97)'; },
+  onTouchEnd: e => { e.currentTarget.style.transform = 'scale(1)'; },
+};
+
+// ─── Tarjeta destacada: icono grande con aro arriba, nombre y subtítulo ─────
+function FeaturedCard({ id, item, isDark, T, onClick, wide = false }) {
+  return (
+    <button onClick={onClick} {...pressFx}
+      style={{ ...cardStyle(T, isDark), gridColumn: wide ? '1 / -1' : undefined, display: 'flex', flexDirection: wide ? 'row' : 'column',
+               alignItems: wide ? 'center' : 'flex-start', gap: wide ? 12 : 10, padding: '14px 14px 13px', textAlign: 'left', cursor: 'pointer',
+               minWidth: 0, transition: 'transform 0.15s', WebkitTapHighlightColor: 'transparent' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: wide ? 'auto' : '100%' }}>
+        <RingIcon id={id} item={item} size={54} />
+        {!wide && (
+          <svg width="18" height="18" fill="none" stroke={RING[id]} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+            <path d="M9 6l6 6-6 6" />
+          </svg>
+        )}
+      </div>
+      <div style={{ minWidth: 0, flex: wide ? 1 : undefined }}>
+        <p style={{ fontSize: 16, fontWeight: 800, color: T.textPrimary, lineHeight: 1.2, margin: 0 }}>{item.label}</p>
+        <p style={{ fontSize: 12.5, fontWeight: 600, color: T.textSecondary, margin: '2px 0 0' }}>{tr(SUBTITLES[id])}</p>
+      </div>
+    </button>
+  );
+}
+
+// ─── Tarjeta de la sección Comunicación (como una fila de la lista de chats) ─
+function MenuCard({ id, item, isDark, T, onClick }) {
+  const isSoon = item.action === 'soon';
+  return (
+    <button onClick={onClick} {...pressFx}
+      style={{ ...cardStyle(T, isDark), display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, padding: 10, textAlign: 'left',
+               cursor: 'pointer', opacity: isSoon ? 0.7 : 1, transition: 'transform 0.15s', WebkitTapHighlightColor: 'transparent' }}>
+      <RingIcon id={id} item={item} size={44} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 14, fontWeight: 700, color: isDark ? T.textPrimary : '#0f172a', lineHeight: 1.2,
+        <p style={{ fontSize: 14.5, fontWeight: 700, color: T.textPrimary, lineHeight: 1.2, margin: 0,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</p>
-        <p style={{ fontSize: 11.5, color: isDark ? T.textSecondary : '#64748b', lineHeight: 1.3, marginTop: 2,
+        <p style={{ fontSize: 12, color: T.textSecondary, lineHeight: 1.3, margin: '2px 0 0',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tr(SUBTITLES[id])}</p>
       </div>
-
-      {/* Flecha */}
-      <svg width="16" height="16" fill="none" stroke={look ? look.arrow : (isDark ? T.textMuted : '#94a3b8')} strokeWidth="2.2"
-        strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-        <path d="M9 6l6 6-6 6" />
-      </svg>
     </button>
   );
 }

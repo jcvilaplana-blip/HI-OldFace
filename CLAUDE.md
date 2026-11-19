@@ -65,6 +65,13 @@ los datos del propio usuario y propone acciones que el usuario confirma.
   ffmpeg (`POST /media/edit-video`: recorte, giro, sin sonido, capa PNG con texto/dibujos; siempre archivo NUEVO, de uno
   en uno). Sustituir en un mensaje propio `POST /messages/:c/:m/media` (sin marca de "editado") o en un estado propio
   `PUT /stories/:id/media`. App: `utils/mediaEdit.js`. Pruebas `test/media-edit.test.mjs` (necesita ffmpeg).
+- Urgentes, notas de vídeo, fecha, teclado y pantalla (2026-11-19): `POST /messages` acepta `urgent` (en rojo; su
+  aviso va al canal nativo `oldface_urgent` con sonido de alarma y salta el silencio del chat; no en el chat "Tú") y
+  `videoNote` (vídeo redondo subido; `components/VideoNote.jsx`). "Buscar por fecha" en el ⋮ del chat
+  (`components/DateSearchSheet.jsx`). Teclado para añadir/eliminar contactos del móvil (`components/DialPad.jsx`, en
+  Contactos; pulsación larga en un contacto). Menú emergente con el aspecto de la pantalla principal. Compartir
+  pantalla en la videollamada: `utils/screenShare.js` (web: getDisplayMedia; APK: `ScreenShareService.java` con
+  MediaProjection → JPEG → canvas) y `RtcCall.startScreenShare/stopScreenShare`. Pruebas `test/urgent-videonote.test.mjs`.
 
 ## Comandos
 
@@ -190,3 +197,4 @@ Cada fase: plan → aprobación → implementación → pruebas → resumen. Sol
   veces, ni caducada, ni con otro usuario.
 - Antes de dar por terminada una fase: `npm run build` de la app sin errores, pruebas en verde, funcionalidades
   existentes comprobadas, y resumen con archivos tocados, pruebas y pendientes.
+

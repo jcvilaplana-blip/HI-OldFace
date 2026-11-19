@@ -19,6 +19,7 @@ import { tr } from '../i18n';
 import { useUserAvatar } from '../utils/userAvatar';
 import { useBluetoothAudio, BluetoothPill } from '../components/BluetoothButton.jsx';
 import { openAvatar } from '../components/AvatarViewer.jsx';
+import { canShareScreen } from '../utils/screenShare';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -47,6 +48,8 @@ export default function VideoCallPage() {
   const [showInvite,  setShowInvite]  = useState(false);
   const [inviteSent,  setInviteSent]  = useState({});  // { contactId: true } tras enviar invitación
   const [swapped,     setSwapped]     = useState(false);  // mi cámara en grande y la del otro en pequeño
+  const [screenOn,    setScreenOn]    = useState(false);  // compartiendo mi pantalla en lugar de la cámara
+  const [screenMsg,   setScreenMsg]   = useState('');
   // Bluetooth: al quitarlo vuelve el altavoz (la videollamada va por el altavoz)
   const bt = useBluetoothAudio(() => window.OldFaceAudio?.enableSpeaker());
 
@@ -268,6 +271,31 @@ export default function VideoCallPage() {
     setFacing(call.facingMode);
   };
 
+  // ── Compartir pantalla (en lugar de la cámara) ────────────────────────────
+  const showLocal = (s) => { if (localVideoRef.current) localVideoRef.current.srcObject = s; };
+  const handleScreenToggle = async () => {
+    const call = rtcCallRef.current;
+    if (!call) return;
+    if (screenOn) {
+      const s = await call.stopScreenShare();
+      showLocal(s);
+      setScreenOn(false);
+      if (!cameraOnRef.current) call.setCamera(false);
+      return;
+    }
+    try {
+      const s = await call.startScreenShare((after) => { showLocal(after); setScreenOn(false); if (!cameraOnRef.current) call.setCamera(false); });
+      showLocal(s);
+      setScreenOn(true);
+      setSwapped(false);
+    } catch (e) {
+      if (e?.message !== 'denied') {
+        setScreenMsg(tr('No se pudo compartir la pantalla'));
+        setTimeout(() => setScreenMsg(''), 2500);
+      }
+    }
+  };
+
   // ── Invitar contacto a la videollamada en curso ───────────────────────────
   const sendInvite = async (contactId) => {
     setInviteSent(prev => ({ ...prev, [contactId]: 'sending' }));
@@ -331,11 +359,30 @@ export default function VideoCallPage() {
           ...(pipSwap
             ? { position: 'absolute', inset: 0, zIndex: 1, width: '100%', height: '100%', background: '#000' }
             : { ...pipBox, overflow: undefined }),
-          objectFit: 'cover',
-          transform: facing === 'user' ? 'scaleX(-1)' : 'none',
-          visibility: cameraOn && uiStatus === 'active' ? 'visible' : 'hidden',
+          objectFit: screenOn ? 'contain' : 'cover',
+          transform: facing === 'user' && !screenOn ? 'scaleX(-1)' : 'none',
+          visibility: (cameraOn || screenOn) && uiStatus === 'active' ? 'visible' : 'hidden',
         }}
       />
+
+      {/* Aviso mientras se comparte la pantalla */}
+      {screenOn && uiStatus === 'active' && (
+        <div style={{ position: 'absolute', top: 'max(env(safe-area-inset-top, 16px), 16px)', left: 14, zIndex: 40, display: 'flex', alignItems: 'center', gap: 8,
+                      background: '#dc2626', color: 'white', borderRadius: 20, padding: '7px 8px 7px 12px', fontSize: 13, fontWeight: 800,
+                      boxShadow: '0 4px 14px rgba(220,38,38,0.5)', maxWidth: 'calc(100% - 140px)' }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'white', flexShrink: 0, animation: 'recBlink 1s ease infinite' }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tr('Compartiendo tu pantalla')}</span>
+          <button onClick={handleScreenToggle}
+            style={{ background: 'white', color: '#dc2626', border: 'none', borderRadius: 14, padding: '4px 10px', fontSize: 12, fontWeight: 900, cursor: 'pointer', flexShrink: 0 }}>
+            {tr('Parar')}
+          </button>
+          <style>{'@keyframes recBlink { 0%,100%{opacity:1} 50%{opacity:0.25} }'}</style>
+        </div>
+      )}
+      {screenMsg && (
+        <div style={{ position: 'absolute', left: '50%', top: '40%', transform: 'translateX(-50%)', zIndex: 60, background: 'rgba(15,23,42,0.92)',
+                      color: 'white', borderRadius: 18, padding: '9px 16px', fontSize: 13, fontWeight: 700 }}>{screenMsg}</div>
+      )}
 
       {/* ── Overlay: Conectando / Llamando ── */}
       {uiStatus === 'connecting' && (
@@ -439,6 +486,23 @@ export default function VideoCallPage() {
               <line x1="19" y1="8" x2="19" y2="14"/>
               <line x1="22" y1="11" x2="16" y2="11"/>
             </svg>{tr('Añadir participante')}</button>
+          {canShareScreen() && (
+            <button
+              onClick={handleScreenToggle}
+              style={{
+                pointerEvents: 'all',
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: screenOn ? '#dc2626' : 'rgba(255,255,255,0.18)',
+                border: `1px solid ${screenOn ? '#fca5a5' : 'rgba(255,255,255,0.3)'}`,
+                borderRadius: 20, padding: '8px 18px',
+                color: 'white', fontSize: 13, fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>{!screenOn && <path d="M12 13V8M9.5 10.5L12 8l2.5 2.5"/>}
+              </svg>{screenOn ? tr('Dejar de compartir') : tr('Compartir pantalla')}</button>
+          )}
         </div>
       )}
 
@@ -459,7 +523,7 @@ export default function VideoCallPage() {
             active={false}
             onPress={handleFlip}
             label={tr('Girar cámara')}
-            disabled={!cameraOn}
+            disabled={!cameraOn || screenOn}
           >
             <FlipCameraIcon />
           </CallButton>
@@ -491,6 +555,7 @@ export default function VideoCallPage() {
             active={!cameraOn}
             activeColor="rgba(255,255,255,0.35)"
             onPress={handleCameraToggle}
+            disabled={screenOn}
             label={cameraOn ? tr('Apagar cám.') : tr('Activar cám.')}
           >
             {cameraOn ? <CameraOnIcon /> : <CameraOffIcon />}

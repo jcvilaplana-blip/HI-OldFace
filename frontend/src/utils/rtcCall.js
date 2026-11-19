@@ -212,7 +212,7 @@ export class RtcCall {
   /** Cambiar entre cámara frontal y trasera. Devuelve el nuevo stream local. */
   async switchCamera() {
     const producer = this.producers.video;
-    if (!producer) return this.localStream;
+    if (!producer || this.screen) return this.localStream;   // compartiendo pantalla: no hay cámara que cambiar
     const prev = this.facingMode;
     this.facingMode = prev === 'user' ? 'environment' : 'user';
     // Muchos Android no abren dos cámaras a la vez: soltar la actual antes de pedir la otra
@@ -231,6 +231,53 @@ export class RtcCall {
     this.localStream = new MediaStream([...(this.localStream?.getAudioTracks() || []), newTrack]);
     return this.localStream;
   }
+
+  /**
+   * Compartir pantalla: la pista de la pantalla sustituye a la de la cámara en el mismo producer (los demás la
+   * ven donde veían la cámara). `onEnded(stream)` avisa si se para desde fuera (barra del navegador, aviso de Android).
+   * Devuelve el stream local con la pantalla.
+   */
+  async startScreenShare(onEnded) {
+    if (this.screen) return this.localStream;
+    if (!this.sendTransport) throw new Error('no-transport');
+    const { startScreenTrack } = await import('./screenShare.js');
+    const scr = await startScreenTrack({ onEnded: () => { this.stopScreenShare().finally(() => onEnded?.(this.localStream)); } });
+    const cam = this.localStream?.getVideoTracks()[0] || null;
+    const vp = this.producers.video;
+    this.screen = { ...scr, cameraOff: !vp || vp.paused || !cam || cam.readyState !== 'live' };
+    if (vp) {
+      await vp.replaceTrack({ track: scr.track });
+      if (vp.paused) await this.setCamera(true);   // cámara apagada → se reanuda para enviar la pantalla
+    } else {
+      this.producers.video = await this.sendTransport.produce({ track: scr.track, encodings: [{ maxBitrate: 1_200_000 }] });
+    }
+    cam?.stop();   // la cámara se suelta mientras se comparte (se vuelve a abrir al terminar)
+    this.localStream = new MediaStream([...(this.localStream?.getAudioTracks() || []), scr.track]);
+    return this.localStream;
+  }
+
+  /** Dejar de compartir pantalla y volver a la cámara (o sin imagen si estaba apagada). Devuelve el stream local. */
+  async stopScreenShare() {
+    const scr = this.screen;
+    if (!scr) return this.localStream;
+    this.screen = null;
+    scr.stop();
+    const vp = this.producers.video;
+    const audio = this.localStream?.getAudioTracks() || [];
+    if (!vp || this.closed) { this.localStream = new MediaStream(audio); return this.localStream; }
+    try {
+      const t = await this.getVideoTrack();
+      await vp.replaceTrack({ track: t });
+      this.localStream = new MediaStream([...audio, t]);
+      if (scr.cameraOff) await this.setCamera(false);   // la cámara estaba apagada → sigue apagada
+    } catch {
+      this.localStream = new MediaStream(audio);
+      try { await this.setCamera(false); } catch { /* sin cámara */ }
+    }
+    return this.localStream;
+  }
+
+  get isScreenSharing() { return !!this.screen; }
 
   async getVideoTrack() {
     const s = await navigator.mediaDevices.getUserMedia({
@@ -260,7 +307,8 @@ export class RtcCall {
     }
     const video = this.localStream.getVideoTracks()[0];
     const vp = this.producers.video;
-    if (vp && !vp.paused && (!video || video.readyState === 'ended' || video.muted)) {
+    // Compartiendo pantalla: la pista de vídeo es la pantalla, no la cámara → no se toca
+    if (vp && !this.screen && !vp.paused && (!video || video.readyState === 'ended' || video.muted)) {
       try {
         video?.stop();
         const t = await this.getVideoTrack();
@@ -285,6 +333,7 @@ export class RtcCall {
     rtcRequest('rtc:leave', { roomId: this.roomId }).catch(() => {});
     try { this.sendTransport?.close(); } catch {}
     try { this.recvTransport?.close(); } catch {}
+    if (this.screen) { try { this.screen.stop(); } catch {} this.screen = null; }   // al colgar se deja de compartir
     this.stopLocal();
     this.peers.clear();
     this.consumerOwner.clear();

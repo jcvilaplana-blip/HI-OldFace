@@ -14,8 +14,10 @@ import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
 import SearchBox, { matches } from '../components/SearchBox.jsx';
 import { openAvatar } from '../components/AvatarViewer.jsx';
 import { tr } from '../i18n';
+import DialPad from '../components/DialPad.jsx';
+import { useBackClose } from '../utils/backHandler';
 
-const APP_URL     = 'https://oldface.app';
+const APP_URL    = 'https://oldface.app';
 const APP_NAME    = 'OldFace';
 
 // Misma lógica que el backend — genera el userId correcto desde cualquier formato de teléfono
@@ -53,11 +55,13 @@ export default function ContactsPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const action = searchParams.get('action'); // call | video | null
-  const { contacts, loading, error, loadContacts, openSettings } = useContacts();
+  const { contacts, loading, error, loadContacts, saveContact, deleteContact, openSettings } = useContacts();
   const { sendVoiceCall, sendVideoCall } = useCallStore();
   const { isDark } = useThemeStore();
   const T = isDark ? DARK : LIGHT;
   const [query, setQuery] = useState('');
+  const [dialPad, setDialPad] = useState(null);   // null = cerrado · { number } = teclado abierto
+  useBackClose(!!dialPad, () => setDialPad(null));
 
   useEffect(() => { loadContacts(); }, []);
 
@@ -72,6 +76,13 @@ export default function ContactsPage() {
         state: { chat: { id: participantId, name: contact.name, participantId } }
       });
     }
+  };
+
+  // Desde el teclado: abrir chat o llamar a un número (esté o no en la agenda)
+  const handleContactRaw = (contact, how) => {
+    const participantId = toUserId(contact.phone);
+    if (how === 'call') sendVoiceCall(participantId, contact.name);
+    else navigate(`/chat/${participantId}`, { state: { chat: { id: participantId, name: contact.name, participantId } } });
   };
 
   // Buscador: por nombre o por teléfono
@@ -113,6 +124,13 @@ export default function ContactsPage() {
               {contacts.length > 0 ? tr('{n} contactos', { n: contacts.length }) : tr('Cargando...')}
             </p>
           </div>
+          {/* Teclado: añadir o eliminar contactos escribiendo el número */}
+          <button onClick={() => setDialPad({ number: '' })} aria-label={tr('Teclado')} style={headBtn(false)}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill={isDark ? '#9FC0E6' : BRAND}>
+              {[5, 12, 19].flatMap(y => [5, 12, 19].map(x => <circle key={`${x}-${y}`} cx={x} cy={y - 1.5} r="2" />))}
+              <circle cx="12" cy="22.2" r="1.8" />
+            </svg>
+          </button>
           {/* Botón actualizar */}
           {!loading && (
             <button onClick={loadContacts} aria-label={tr('Actualizar contactos')} style={headBtn(true)}>
@@ -194,6 +212,7 @@ export default function ContactsPage() {
                     T={T}
                     isDark={isDark}
                     onPress={() => handleContact(contact)}
+                    onLongPress={() => setDialPad({ number: contact.phone })}
                     onCall={() => sendVoiceCall(toUserId(contact.phone), contact.name)}
                     onVideo={() => sendVideoCall(toUserId(contact.phone), contact.name)}
                   />
@@ -214,6 +233,7 @@ export default function ContactsPage() {
                     isDark={isDark}
                     isInvite
                     onPress={() => handleContact(contact)}
+                    onLongPress={() => setDialPad({ number: contact.phone })}
                     onInvite={() => inviteContact(contact)}
                   />
                 ))}
@@ -236,6 +256,16 @@ export default function ContactsPage() {
           </>
         )}
       </div>
+
+      {/* Teclado para añadir o eliminar contactos */}
+      {dialPad && (
+        <DialPad T={T} isDark={isDark} contacts={contacts} initialNumber={dialPad.number}
+          onClose={() => setDialPad(null)}
+          onSave={saveContact}
+          onDelete={(c) => deleteContact(c.id)}
+          onChat={(c) => { setDialPad(null); handleContactRaw(c, 'chat'); }}
+          onCall={(c) => { setDialPad(null); handleContactRaw(c, 'call'); }} />
+      )}
     </div>
   );
 }
@@ -251,11 +281,17 @@ function SectionHeader({ label, count, T }) {
 }
 
 // ── Tarjeta de contacto ───────────────────────────────────────────────────────
-function ContactRow({ contact, action, isInvite, onPress, onCall, onVideo, onInvite, T, isDark }) {
+function ContactRow({ contact, action, isInvite, onPress, onCall, onVideo, onInvite, onLongPress, T, isDark }) {
   const [lit, setLit] = useState(false);
   const icon = isDark ? '#9FC0E6' : BRAND;
+  // Pulsación larga (0,6 s) → teclado con su número (para eliminarlo); un toque normal sigue abriendo el chat
+  const pressRef = React.useRef(null);
+  const longDone = React.useRef(false);
+  const pressStart = () => { longDone.current = false; clearTimeout(pressRef.current);
+    pressRef.current = setTimeout(() => { longDone.current = true; try { navigator.vibrate?.(30); } catch { /* sin vibración */ } onLongPress?.(); }, 600); };
+  const pressEnd = () => clearTimeout(pressRef.current);
   // Al pulsar se enciende el aro un instante y después abre el chat (o llama, según la acción)
-  const open = () => { setLit(true); setTimeout(() => { setLit(false); onPress(); }, 180); };
+  const open = () => { if (longDone.current) { longDone.current = false; return; } setLit(true); setTimeout(() => { setLit(false); onPress(); }, 180); };
 
   return (
     <div style={{ ...cardStyle(T, isDark), display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', margin: '0 12px 8px' }}>
@@ -270,7 +306,9 @@ function ContactRow({ contact, action, isInvite, onPress, onCall, onVideo, onInv
       </button>
 
       {/* Nombre — pulsar abre chat */}
-      <button onClick={open} style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', minWidth: 0, padding: 0 }}>
+      <button onClick={open} onPointerDown={pressStart} onPointerUp={pressEnd} onPointerLeave={pressEnd} onPointerCancel={pressEnd}
+        onContextMenu={e => { e.preventDefault(); onLongPress?.(); }}
+        style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', minWidth: 0, padding: 0 }}>
         <p style={{ fontSize: 15, fontWeight: 600, color: T.textPrimary, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.name}</p>
         <p style={{ fontSize: 12, color: isInvite ? T.textMuted : T.textSecondary, margin: '2px 0 0', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5 }}>
           {!isInvite && <span style={{ width: 7, height: 7, borderRadius: '50%', background: isDark ? '#4F7CC4' : BRAND }} />}

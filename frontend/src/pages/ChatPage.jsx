@@ -31,6 +31,8 @@ import ChatOptionsSheet from '../components/ChatOptionsSheet.jsx';
 import MediaEditor from '../components/MediaEditor.jsx';
 import { editVideo, editedFile, replaceMessageMedia } from '../utils/mediaEdit';
 import { getBlocks, isBlockedNow, setBlocked, isSelfChatId, getAutoSave, autoSavedState, markAutoSaved } from '../utils/chatOptions';
+import { VideoNoteRecorder, VideoNoteBubble } from '../components/VideoNote.jsx';
+import DateSearchSheet from '../components/DateSearchSheet.jsx';
 
 const CHAT_BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const EMPTY = [];   // misma lista vacía en cada render (no dispara efectos que dependen de los mensajes)
@@ -96,6 +98,9 @@ export default function ChatPage() {
   const [presenceInfo, setPresenceInfo] = useState({ online: false, lastSeen: null });
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [urgentMode, setUrgentMode] = useState(false);       // el próximo mensaje va como urgente (en rojo)
+  const [showVideoNote, setShowVideoNote] = useState(false); // grabador de nota de vídeo
+  const [showDateSearch, setShowDateSearch] = useState(false); // buscar por fecha (mes y año)
   const [expandedPhoto, setExpandedPhoto] = useState(null);
   const [memberNames, setMemberNames] = useState(state?.chat?.memberNames || {});
   const messagesEndRef = useRef(null);
@@ -370,6 +375,7 @@ export default function ChatPage() {
       return;
     }
     const currentReply = replyTo;
+    const urgent = urgentMode;
     const msg = {
       id: `msg_${Date.now()}`,
       text: text.trim(),
@@ -378,6 +384,7 @@ export default function ChatPage() {
       status: 'sending',
       isMine: true,
       replyTo: currentReply || null,
+      urgent,
     };
     addMessage(msgChatId, msg);
     const sentText = text.trim();
@@ -385,15 +392,42 @@ export default function ChatPage() {
     if (inputRef.current) inputRef.current.style.height = 'auto';
     setReplyTo(null);
     setShowEmojiPicker(false);
+    setUrgentMode(false);
     setSending(true);
     try {
-      await persistMessage(msgChatId, user.id, sentText, 'text', null, currentReply);
+      await persistMessage(msgChatId, user.id, sentText, 'text', null, currentReply, null, urgent ? { urgent: true } : {});
     } catch (err) {
       console.log('Error al enviar:', err.message);
     } finally {
       setSending(false);
     }
-  }, [text, sending, replyTo, msgChatId, user, addMessage, persistMessage, editingMsg, editMessage]);
+  }, [text, sending, replyTo, msgChatId, user, addMessage, persistMessage, editingMsg, editMessage, urgentMode]);
+
+  // ── Nota de vídeo: se ve al instante en el chat y se sube como un vídeo más (con videoNote) ──
+  const sendVideoNote = async (blob, duration) => {
+    setShowVideoNote(false);
+    const currentReply = replyTo;
+    const urgent = urgentMode;
+    const localId = `vnote_${Date.now()}`;
+    addMessage(msgChatId, { id: localId, type: 'video', text: '[Nota de vídeo]', url: URL.createObjectURL(blob), videoNote: true, duration,
+                            urgent, sender: user.id, time: nowTime(), createdAt: Date.now(), status: 'sending', isMine: true, replyTo: currentReply || null });
+    setReplyTo(null);
+    setUrgentMode(false);
+    const url = await uploadChatFile(blob, user.id);
+    if (!url) { updateMessageStatus(msgChatId, localId, 'error'); alert(tr('No se pudo enviar la nota de vídeo. Inténtalo de nuevo.')); return; }
+    patchLocal(localId, { url });
+    await persistMessage(msgChatId, user.id, '[Nota de vídeo]', 'video', url, currentReply, null,
+      { videoNote: true, duration, ...(urgent ? { urgent: true } : {}) });
+  };
+
+  // ── Buscar por fecha: salta al primer mensaje del mes elegido ──
+  const jumpToMonth = (year, month) => {
+    setShowDateSearch(false);
+    const from = new Date(year, month, 1).getTime(), to = new Date(year, month + 1, 1).getTime();
+    const first = chatMessages.find(m => m.createdAt && m.createdAt >= from && m.createdAt < to && !m.deleted);
+    if (!first) { showToast(tr('No hay mensajes en ese mes')); return; }
+    jumpTo(first.id);
+  };
 
   // ── 11. Stickers ──────────────────────────────────────────────────────────
   const loadStickers = useCallback(() => {
@@ -613,6 +647,8 @@ export default function ChatPage() {
   useBackClose(!!expandedPhoto,   () => setExpandedPhoto(null));
   useBackClose(!!pendingMedia,    () => closePendingMedia());
   useBackClose(showAttachMenu,    () => setShowAttachMenu(false));
+  useBackClose(showVideoNote,     () => setShowVideoNote(false));
+  useBackClose(showDateSearch,    () => setShowDateSearch(false));
   useBackClose(showEmojiPicker,   () => setShowEmojiPicker(false));
 
   /** Ver una vez (lo recibido): pide la foto/vídeo al servidor (solo la primera vez) y la abre a pantalla completa */
@@ -900,6 +936,7 @@ export default function ChatPage() {
               chat={{ id: msgChatId, name: headerName, avatar: headerAvatar, isGroup, self: isSelf }}
               extra={[...(isGroup && groupId ? [[tr('Info del grupo'), () => setShowGroupInfo(true), 'info']] : []),
                       [tr('Mensajes destacados{p0}', { p0: starredMsgs.length ? ` (${starredMsgs.length})` : '' }), () => setShowStarred(true), 'star'],
+                      [tr('Buscar por fecha'), () => setShowDateSearch(true), 'calendar'],
                       [tr('Fondo del chat'), () => setShowBgSheet(true), 'image']]}
               onClose={() => setShowChatMenu(false)}
               onChanged={(kind) => {
@@ -1215,6 +1252,14 @@ export default function ChatPage() {
                   <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
                 </svg>
               </span>{tr('Contacto')}</button>
+            {/* Mensaje urgente: el siguiente mensaje va en rojo y su aviso suena aunque el chat esté silenciado */}
+            {!isSelf && (
+              <button onClick={() => { setUrgentMode(v => !v); setShowAttachMenu(false); setTimeout(() => inputRef.current?.focus(), 50); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, background: urgentMode ? 'rgba(220,38,38,0.1)' : 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', borderRadius: 12, color: urgentMode ? '#dc2626' : T.textPrimary, fontSize: 14, fontWeight: 700, textAlign: 'left' }}>
+                <span style={{ width: 36, height: 36, borderRadius: '50%', background: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 0 0 3px rgba(220,38,38,0.2)' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.6" strokeLinecap="round"><path d="M12 5v9M12 18.5v.5"/></svg>
+                </span>{urgentMode ? tr('Quitar urgente') : tr('Mensaje urgente')}</button>
+            )}
           </div>
         )}
 
@@ -1301,6 +1346,14 @@ export default function ChatPage() {
                 {label}
               </button>
             ))}
+            {/* Nota de vídeo: vídeo redondo grabado aquí mismo */}
+            <button onClick={() => { setShowCameraMenu(false); setShowVideoNote(true); }}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: '8px 14px', borderRadius: 12, color: T.textPrimary, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
+              <span style={{ width: 40, height: 40, borderRadius: '50%', background: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2" fill="white"/></svg>
+              </span>
+              {tr('Nota de vídeo')}
+            </button>
           </div>
         )}
         {/* Centro: input texto o grabando */}
@@ -1317,9 +1370,15 @@ export default function ChatPage() {
             <style>{`@keyframes recBlink { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
           </div>
         ) : (
-          <div style={{ flex: 1, background: T.bgSurface, borderRadius: 28, padding: '8px 10px 8px 14px', minHeight: 54, boxSizing: 'border-box', display: 'flex', alignItems: 'flex-end', gap: 8,
-                        border: isDark ? '1px solid rgba(255,255,255,0.07)' : '1px solid rgba(41,50,65,0.05)',
-                        boxShadow: isDark ? '0 2px 10px rgba(0,0,0,0.35)' : '0 4px 14px rgba(41,50,65,0.08)' }}>
+          <div style={{ flex: 1, position: 'relative', background: T.bgSurface, borderRadius: 28, padding: '8px 10px 8px 14px', minHeight: 54, boxSizing: 'border-box', display: 'flex', alignItems: 'flex-end', gap: 8,
+                        border: urgentMode ? '2px solid #dc2626' : isDark ? '1px solid rgba(255,255,255,0.07)' : '1px solid rgba(41,50,65,0.05)',
+                        boxShadow: urgentMode ? '0 0 0 3px rgba(220,38,38,0.18)' : isDark ? '0 2px 10px rgba(0,0,0,0.35)' : '0 4px 14px rgba(41,50,65,0.08)' }}>
+            {urgentMode && (
+              <button onClick={() => setUrgentMode(false)} aria-label={tr('Quitar urgente')}
+                style={{ position: 'absolute', top: -11, left: 18, zIndex: 2, background: '#dc2626', color: 'white', border: 'none', borderRadius: 10, padding: '3px 9px', fontSize: 10.5, fontWeight: 900, letterSpacing: 0.5, cursor: 'pointer', boxShadow: '0 2px 6px rgba(220,38,38,0.4)' }}>
+                {tr('URGENTE')} ✕
+              </button>
+            )}
             {/* Icono emoji — toggle picker / teclado */}
             <button onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(v => !v); setShowAttachMenu(false); setShowCameraMenu(false); }}
               aria-label={showEmojiPicker ? tr('Teclado') : tr('Emojis')}
@@ -1339,7 +1398,7 @@ export default function ChatPage() {
               }}
               onKeyDown={handleKeyDown}
               onFocus={() => setShowEmojiPicker(false)}
-              placeholder={tr('Mensaje...')}
+              placeholder={urgentMode ? tr('Mensaje urgente...') : tr('Mensaje...')}
               enterKeyHint={IS_TOUCH ? 'enter' : 'send'}
               rows={1}
               style={{ width: '100%', resize: 'none', outline: 'none', fontSize: 16, fontWeight: 500, color: T.textPrimary, background: 'transparent', lineHeight: 1.5, overflowY: 'auto', overflowX: 'hidden', padding: '6px 0' }}
@@ -1382,8 +1441,8 @@ export default function ChatPage() {
             </button>
           </>
         ) : text.trim() ? (
-          <button onMouseDown={keepKeyboard} onTouchEnd={sendKeepingKeyboard} onClick={sendKeepingKeyboard} disabled={sending} aria-label={tr('Enviar')}
-            style={{ width: 54, height: 54, borderRadius: '50%', background: `radial-gradient(circle at 35% 30%, #5B7FB0 0%, ${BRAND} 60%, #2C4466 100%)`, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: sending ? 0.7 : 1,
+          <button onMouseDown={keepKeyboard} onTouchEnd={sendKeepingKeyboard} onClick={sendKeepingKeyboard} disabled={sending} aria-label={urgentMode ? tr('Enviar urgente') : tr('Enviar')}
+            style={{ width: 54, height: 54, borderRadius: '50%', background: urgentMode ? 'radial-gradient(circle at 35% 30%, #f87171 0%, #dc2626 60%, #991b1b 100%)' : `radial-gradient(circle at 35% 30%, #5B7FB0 0%, ${BRAND} 60%, #2C4466 100%)`, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: sending ? 0.7 : 1,
                      boxShadow: isDark ? '0 0 0 1px rgba(127,163,209,0.5), 0 0 18px rgba(79,124,196,0.65)' : '0 6px 18px rgba(61,90,128,0.45)' }}>
             <svg width="22" height="22" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ transform: 'translateX(1px)' }}>
               <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -1427,6 +1486,14 @@ export default function ChatPage() {
       {deleteTarget && (
         <DeleteDialog T={T} msgs={deleteTarget} onCancel={() => setDeleteTarget(null)} onDelete={doDelete} />
       )}
+
+      {/* Buscar por fecha (mes y año) */}
+      {showDateSearch && (
+        <DateSearchSheet T={T} isDark={isDark} messages={chatMessages} onClose={() => setShowDateSearch(false)} onPick={jumpToMonth} />
+      )}
+
+      {/* Nota de vídeo */}
+      {showVideoNote && <VideoNoteRecorder onCancel={() => setShowVideoNote(false)} onSend={sendVideoNote} />}
 
       {/* Mensajes destacados */}
       {showStarred && (
@@ -2020,8 +2087,11 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
   const navigate = useNavigate();   // tarjeta de contacto de OldFace → abrir su chat
 
   // Enviados: azul de marca con brillo (en claro y en oscuro) y texto blanco · recibidos: tarjeta del tema
-  const sentBg   = 'linear-gradient(135deg, #34507A 0%, #3D5A80 55%, #4A6B95 100%)';
-  const recvBg   = isDark ? '#222A38' : 'white';
+  // Urgente: en rojo (enviado, rojo intenso; recibido, fondo rojo suave con borde rojo)
+  const urgent   = !!msg.urgent && !msg.deleted;
+  const isNote   = !!msg.videoNote && msg.type === 'video' && !msg.deleted;
+  const sentBg   = urgent ? 'linear-gradient(135deg, #991B1B 0%, #DC2626 60%, #EF4444 100%)' : 'linear-gradient(135deg, #34507A 0%, #3D5A80 55%, #4A6B95 100%)';
+  const recvBg   = urgent ? (isDark ? 'rgba(220,38,38,0.22)' : '#FEE2E2') : isDark ? '#222A38' : 'white';
   const sentText  = '#ffffff';
   const recvText  = isDark ? '#E0FBFC' : '#1f2937';
   const timeColor = 'rgba(224,236,248,0.78)';
@@ -2074,18 +2144,37 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
       onClickCapture={selectionMode ? (e) => { e.stopPropagation(); e.preventDefault(); onToggleSelect?.(); } : undefined}
       onPointerDown={startPress} onPointerMove={movePress} onPointerUp={endPress} onPointerCancel={endPress} onPointerLeave={endPress}
     >
+      {isNote ? (
+        /* Nota de vídeo: círculo sin burbuja (con nombre en grupos) */
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: msg.isMine ? 'flex-end' : 'flex-start', gap: 4 }}>
+          {isGroup && !msg.isMine && (
+            <p style={{ fontSize: 12, fontWeight: 800, color: isDark ? '#7FA3D1' : '#3D5A80', margin: 0 }}>
+              {memberNames[msg.sender] || msg.sender?.replace(/^user_/, '') || '?'}
+            </p>
+          )}
+          {urgent && <span style={{ background: '#dc2626', color: 'white', borderRadius: 10, padding: '2px 8px', fontSize: 11, fontWeight: 900, letterSpacing: 0.4 }}>{tr('URGENTE')}</span>}
+          <VideoNoteBubble src={msg.url} duration={msg.duration} urgent={urgent} isMine={msg.isMine} onMediaLoad={onMediaLoad} meta={meta} />
+        </div>
+      ) : (
       <div style={{
         maxWidth: isWide ? 'min(82vw, 380px)' : isAudio ? 280 : '78%',
         width: isWide ? 'min(82vw, 380px)' : undefined,
         padding: isSticker ? 0 : isWide ? '4px 4px 8px' : '9px 14px',
         borderRadius: msg.isMine ? '20px 20px 6px 20px' : '20px 20px 20px 6px',
         background: isSticker ? 'transparent' : msg.isMine ? sentBg : recvBg,
-        border: isSticker ? 'none' : msg.isMine ? '1px solid rgba(127,163,209,0.45)' : (isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(41,50,65,0.04)'),
+        border: isSticker ? 'none' : urgent ? '1.5px solid #dc2626' : msg.isMine ? '1px solid rgba(127,163,209,0.45)' : (isDark ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(41,50,65,0.04)'),
         boxShadow: isSticker ? 'none'
+          : urgent ? '0 4px 16px rgba(220,38,38,0.35)'
           : msg.isMine ? (isDark ? '0 0 14px rgba(79,124,196,0.45)' : '0 4px 14px rgba(61,90,128,0.3)')
           : (isDark ? '0 2px 8px rgba(0,0,0,0.35)' : '0 2px 8px rgba(41,50,65,0.07)'),
         overflow: 'hidden',
       }}>
+        {urgent && (
+          <p style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 900, letterSpacing: 0.5, margin: isWide ? '2px 8px 4px' : '0 0 4px',
+                      color: msg.isMine ? '#FEE2E2' : '#DC2626' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: msg.isMine ? 'white' : '#DC2626' }} />{tr('URGENTE')}
+          </p>
+        )}
         {/* Nombre remitente en grupos */}
         {isGroup && !msg.isMine && (
           <p style={{ fontSize: 12, fontWeight: 800, color: isDark ? '#7FA3D1' : '#3D5A80', margin: '0 0 4px', letterSpacing: '0.2px', paddingLeft: (isImage || isVideo) ? 8 : 0 }}>
@@ -2193,6 +2282,7 @@ function MessageBubble({ msg, isDark, T, onReply, onDelete, isGroup, memberNames
           {meta}
         </div>}
       </div>
+      )}
     </div>
   );
 }
