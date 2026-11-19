@@ -8,7 +8,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { tr } from '../i18n';
 import { useThemeStore, DARK, LIGHT } from '../store/themeStore';
-import { cardStyle, SectionLabel, BRAND } from './NeonAvatar.jsx';
+import { cardStyle, BRAND } from './NeonAvatar.jsx';
 import SearchBox from './SearchBox.jsx';
 
 // ─── Definición de items ────────────────────────────────────────────────────
@@ -235,33 +235,33 @@ export default function PopupMenu({ onClose, onGroups }) {
         </div>
 
         {/* Cabecera como la de la pantalla principal: logo con aro, título y botón redondo azul */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 16px 14px' }}>
-          <div className="of-ring" style={{ '--ring': BRAND, width: 56, height: 56, padding: 2, boxSizing: 'border-box', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '2px 20px 14px' }}>
+          <div className="of-ring" style={{ '--ring': BRAND, width: 46, height: 46, padding: 2, boxSizing: 'border-box', flexShrink: 0 }}>
             <div style={{ width: '100%', height: '100%', borderRadius: '50%', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
               <img src="/logo-oldface.png" alt="OldFace" style={{ width: '78%', height: '78%', objectFit: 'contain' }}
                 onError={e => { e.target.style.display = 'none'; }} />
             </div>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: 22, fontWeight: 800, color: T.textPrimary, lineHeight: 1.1, margin: 0 }}>{tr('OldFace')}</p>
-            <p style={{ fontSize: 14, fontWeight: 600, color: T.textSecondary, margin: '3px 0 0' }}>{tr('Elige una acción')}</p>
+            <p style={{ fontSize: 20, fontWeight: 400, color: T.textPrimary, lineHeight: 1.15, margin: 0 }}>{tr('OldFace')}</p>
+            <p style={{ fontSize: 13, fontWeight: 500, color: T.textSecondary, margin: '1px 0 0' }}>{tr('Elige una acción')}</p>
           </div>
           <button onClick={onClose} aria-label={tr('Cerrar')}
-            style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                      background: isDark ? '#1B2230' : BRAND, border: isDark ? '1px solid rgba(127,163,209,0.35)' : 'none',
                      boxShadow: isDark ? '0 0 14px rgba(61,90,128,0.55)' : '0 6px 16px rgba(61,90,128,0.35)' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.6" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.8" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
           </button>
         </div>
 
-        <div style={{ padding: '0 12px calc(var(--sab) + 24px)' }}>
+        <div style={{ padding: '0 20px calc(var(--sab) + 24px)' }}>
           {/* Buscador (el mismo de Chats y Contactos) */}
           <SearchBox value={query} onChange={setQuery} T={T} placeholder={tr('Buscar acción…')} style={{ margin: '0 0 6px' }} />
 
-          {/* Destacadas: tarjetas grandes 2 × 2 */}
+          {/* Destacadas: tarjetas 2 × 2 (icono pequeño con el nombre al lado) */}
           {featured.length > 0 && (
             <>
-              <SectionLabel T={T}>{tr('DESTACADAS')}</SectionLabel>
+              <MenuLabel T={T}>{tr('DESTACADAS')}</MenuLabel>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 {featured.map((id, i) => (
                   <FeaturedCard key={id} id={id} item={ITEMS[id]} isDark={isDark} T={T} onClick={() => handleItem(ITEMS[id])}
@@ -274,7 +274,7 @@ export default function PopupMenu({ onClose, onGroups }) {
           {/* Comunicación: tarjetas como las filas de la lista de chats */}
           {communication.length > 0 && (
             <>
-              <SectionLabel T={T}>{tr('Comunicación').toUpperCase()}</SectionLabel>
+              <MenuLabel T={T}>{tr('Comunicación').toUpperCase()}</MenuLabel>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 {communication.map(id => (
                   <MenuCard key={id} id={id} item={ITEMS[id]} isDark={isDark} T={T} onClick={() => handleItem(ITEMS[id])} />
@@ -336,25 +336,35 @@ const pressFx = {
   onTouchEnd: e => { e.currentTarget.style.transform = 'scale(1)'; },
 };
 
-// ─── Tarjeta destacada: icono grande con aro arriba, nombre y subtítulo ─────
+// Título de sección del menú (tamaño del menú anterior)
+function MenuLabel({ T, children }) {
+  return <p style={{ fontSize: 12, fontWeight: 400, letterSpacing: 0.8, color: T.textSecondary, margin: '16px 0 10px 2px' }}>{children}</p>;
+}
+
+// Texto común de las tarjetas: nombre (14) y subtítulo (11,5) en la misma línea que el icono
+function CardText({ id, item, T }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <p style={{ fontSize: 14, fontWeight: 400, color: T.textPrimary, lineHeight: 1.2, margin: 0,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</p>
+      <p style={{ fontSize: 11.5, color: T.textSecondary, lineHeight: 1.3, margin: '2px 0 0',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tr(SUBTITLES[id])}</p>
+    </div>
+  );
+}
+
+// ─── Tarjeta destacada: icono pequeño con aro, nombre y subtítulo al lado y flecha de su color ─
 function FeaturedCard({ id, item, isDark, T, onClick, wide = false }) {
   return (
     <button onClick={onClick} {...pressFx}
-      style={{ ...cardStyle(T, isDark), gridColumn: wide ? '1 / -1' : undefined, display: 'flex', flexDirection: wide ? 'row' : 'column',
-               alignItems: wide ? 'center' : 'flex-start', gap: wide ? 12 : 10, padding: '14px 14px 13px', textAlign: 'left', cursor: 'pointer',
-               minWidth: 0, transition: 'transform 0.15s', WebkitTapHighlightColor: 'transparent' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: wide ? 'auto' : '100%' }}>
-        <RingIcon id={id} item={item} size={54} />
-        {!wide && (
-          <svg width="18" height="18" fill="none" stroke={RING[id]} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-            <path d="M9 6l6 6-6 6" />
-          </svg>
-        )}
-      </div>
-      <div style={{ minWidth: 0, flex: wide ? 1 : undefined }}>
-        <p style={{ fontSize: 16, fontWeight: 800, color: T.textPrimary, lineHeight: 1.2, margin: 0 }}>{item.label}</p>
-        <p style={{ fontSize: 12.5, fontWeight: 600, color: T.textSecondary, margin: '2px 0 0' }}>{tr(SUBTITLES[id])}</p>
-      </div>
+      style={{ ...cardStyle(T, isDark), gridColumn: wide ? '1 / -1' : undefined, display: 'flex', alignItems: 'center', gap: 10,
+               padding: '10px 10px 10px 10px', textAlign: 'left', cursor: 'pointer', minWidth: 0,
+               transition: 'transform 0.15s', WebkitTapHighlightColor: 'transparent' }}>
+      <RingIcon id={id} item={item} size={42} />
+      <CardText id={id} item={item} T={T} />
+      <svg width="16" height="16" fill="none" stroke={RING[id]} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+        <path d="M9 6l6 6-6 6" />
+      </svg>
     </button>
   );
 }
@@ -366,13 +376,8 @@ function MenuCard({ id, item, isDark, T, onClick }) {
     <button onClick={onClick} {...pressFx}
       style={{ ...cardStyle(T, isDark), display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, padding: 10, textAlign: 'left',
                cursor: 'pointer', opacity: isSoon ? 0.7 : 1, transition: 'transform 0.15s', WebkitTapHighlightColor: 'transparent' }}>
-      <RingIcon id={id} item={item} size={44} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 14.5, fontWeight: 700, color: T.textPrimary, lineHeight: 1.2, margin: 0,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</p>
-        <p style={{ fontSize: 12, color: T.textSecondary, lineHeight: 1.3, margin: '2px 0 0',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tr(SUBTITLES[id])}</p>
-      </div>
+      <RingIcon id={id} item={item} size={40} />
+      <CardText id={id} item={item} T={T} />
     </button>
   );
 }
